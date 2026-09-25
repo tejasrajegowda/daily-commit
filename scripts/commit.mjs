@@ -16,16 +16,18 @@ import { join } from 'node:path';
 const message = process.argv.slice(2).join(' ').trim();
 if (!message) { console.error('usage: node scripts/commit.mjs "what changed"'); process.exit(2); }
 
-const run = (cmd, args, opts = {}) => {
-  const r = spawnSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32' && cmd === 'npm', ...opts });
-  if (r.status !== 0) { console.error(`\ncommit: stopped — ${cmd} ${args.join(' ')} failed.`); process.exit(r.status ?? 1); }
+const stopIfFailed = (r, what) => {
+  if (r.status !== 0) { console.error(`\ncommit: stopped — ${what} failed.`); process.exit(r.status ?? 1); }
 };
+const run = (cmd, args) => stopIfFailed(spawnSync(cmd, args, { stdio: 'inherit' }), `${cmd} ${args.join(' ')}`);
+// npm is a shell script on Windows, so it goes through the shell as one fixed string
+const npm = (script) => stopIfFailed(spawnSync(`npm run ${script}`, { stdio: 'inherit', shell: true }), `npm run ${script}`);
 const git = (...args) => execFileSync('git', args, { encoding: 'utf8' }).trim();
 
 const root = git('rev-parse', '--show-toplevel');
 process.chdir(root);
 
-run('npm', ['run', 'check']);
+npm('check');
 run('git', ['add', '-A']);
 
 const staged = git('diff', '--cached', '--name-only');
