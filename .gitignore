@@ -1,0 +1,31 @@
+# ── Local only: never committed ──
+# (Tool-specific local files are excluded in .git/info/exclude, which is never pushed.)
+# Personal setup (habits, day shape) and any exports of the record.
+.local/
+exports/
+*.daily-commit.json
+daily-commit-*.json
+# Android signing secrets are kept outside the repo entirely; these lines are a second guard.
+*.keystore
+*.jks
+keystore.properties
+# Moved-aside files — the rule is never delete; the owner empties it.
+_trash/
+
+# ── Reproducible build output and dependencies ──
+node_modules/
+dist/
+coverage/
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/capacitor-cordova-android-plugins/
+.gradle/
+
+# ── Editor and OS noise ──
+.vscode/
+.idea/
+*.log
+Thumbs.db
+.DS_Store
