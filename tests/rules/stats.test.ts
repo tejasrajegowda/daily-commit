@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { doneAndAsked, habitNumbers } from '../../src/rules/stats.ts';
 import { indexObservations } from '../../src/rules/state.ts';
 import { addDays } from '../../src/rules/dates.ts';
-import { history, read, START, tri, walk } from './fixtures.ts';
+import { habit, history, read, START, tri, walk } from './fixtures.ts';
 
 /** Numbers for the walk habit given a pattern, with the last character being today. */
 function numbers(pattern: string) {
@@ -49,4 +49,13 @@ test('minutes add up only on minutes habits, and planned days add nothing', () =
 test('done and asked leave out planned and off days', () => {
   const idx = indexObservations(history('walk', tri('ddrn.dp')));
   assert.deepEqual(doneAndAsked(walk, idx, START, addDays(START, 6)), { done: 3, asked: 6 });
+});
+
+test('time away from the plan is skipped like a rest day, so a run carries across it', () => {
+  const away = habit({ id: 'walk', kind: 'tri', periods: [{ from: START, until: addDays(START, 2) }, { from: addDays(START, 5) }] });
+  const idx = indexObservations(history('walk', tri('dd...d')));
+  const n = habitNumbers(away, idx, START, addDays(START, 5));
+  assert.equal(n.currentRun, 3);
+  assert.equal(n.gaps, 0);
+  assert.deepEqual(doneAndAsked(away, idx, START, addDays(START, 5)), { done: 3, asked: 3 });
 });

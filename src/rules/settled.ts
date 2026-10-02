@@ -1,7 +1,7 @@
 import type { Habit, LocalDate, Observation } from './types.ts';
 import { addDays, datesFrom } from './dates.ts';
 import { doneAndAsked } from './stats.ts';
-import { tierOn } from './state.ts';
+import { isRetired, tierOn } from './state.ts';
 
 export const SETTLE_WEEKS = 8;
 
@@ -12,7 +12,7 @@ export const SETTLE_WEEKS = 8;
  * `lastDay` is the last finished day (yesterday).
  */
 export function offersToSettle(habit: Habit, index: ReadonlyMap<string, Observation>, lastDay: LocalDate): boolean {
-  if (habit.kind === 'mood' || habit.retiredOn !== undefined) return false;
+  if (habit.kind === 'mood' || isRetired(habit)) return false;
   const firstDay = addDays(lastDay, -(SETTLE_WEEKS * 7 - 1));
   for (const date of datesFrom(firstDay, lastDay)) if (tierOn(habit, date) !== 'focus') return false;
   for (let w = 0; w < SETTLE_WEEKS; w++) {

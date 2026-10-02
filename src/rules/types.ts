@@ -36,17 +36,30 @@ export interface TierPeriod {
   readonly from: LocalDate;
 }
 
+/** A stretch of days a habit is part of the plan: from `from`, up to but not including `until`. */
+export interface HabitPeriod {
+  readonly from: LocalDate;
+  /** the first day it is no longer part of the plan; absent while it still is */
+  readonly until?: LocalDate;
+}
+
+/** Which weekdays a habit is asked on, and when, from a given day on. */
+export interface ScheduleEntry {
+  readonly from: LocalDate;
+  readonly days: readonly Weekday[];
+  readonly asked: Asked;
+}
+
 export interface Habit {
   readonly id: string;
   readonly kind: HabitKind;
-  /** the weekdays it is asked on */
-  readonly days: readonly Weekday[];
-  readonly asked: Asked;
+  /** when it was part of the plan — oldest first, never overlapping; it can leave and come back */
+  readonly periods: readonly HabitPeriod[];
+  /** which weekdays it was asked on, and when — oldest first, so a change never rewrites the past */
+  readonly schedule: readonly ScheduleEntry[];
   readonly target: Target;
   /** which tier it was in, from which day — oldest first */
   readonly tierHistory: readonly TierPeriod[];
-  readonly createdOn: LocalDate;
-  readonly retiredOn?: LocalDate;
 }
 
 /** One recorded thing, for one habit, on one day. The raw value — never a verdict. */
@@ -67,4 +80,4 @@ export type DayState =
   | 'planned'   // declared in advance, or a rest day
   | 'nothing'   // not today, or never answered — deliberately the same
   | 'off'       // not a day this habit is asked
-  | 'outside';  // before it existed, or after it was retired
+  | 'outside';  // not part of the plan that day: before it began, while away, or after it retired

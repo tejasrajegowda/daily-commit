@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isAsked, stateOf, tierOn } from '../../src/rules/state.ts';
+import { askedOn, inPlan, isAsked, isRetired, scheduleOn, stateOf, tierOn } from '../../src/rules/state.ts';
 import type { Observation } from '../../src/rules/types.ts';
-import { habit, mood, read, reps, rise, START, walk } from './fixtures.ts';
+import { EVERY_DAY, habit, mood, read, reps, rise, scheduled, START, walk, WEEKDAYS } from './fixtures.ts';
 
 const on = (habitId: string, value: Observation['value'], date = START): Observation => ({ habitId, date, value });
 
@@ -34,16 +34,43 @@ test('mood is recorded, never judged', () => {
   assert.equal(stateOf(mood, on('mood', 5), START), 'did');
 });
 
-test('planned wins over any value; off days and days outside the habit are neither', () => {
-  assert.equal(stateOf(walk, { habitId: 'walk', date: START, planned: 'unwell', value: 'did' }, START), 'planned');
-  const weekdays = habit({ id: 'wd', kind: 'tri', days: [0, 1, 2, 3, 4] });
+test('a recorded value wins over a plan made in advance; off days and days outside the plan are neither', () => {
+  assert.equal(stateOf(walk, { habitId: 'walk', date: START, planned: 'unwell', value: 'did' }, START), 'did');
+  assert.equal(stateOf(walk, { habitId: 'walk', date: START, planned: 'unwell' }, START), 'planned');
+  const weekdays = habit({ id: 'wd', kind: 'tri', schedule: scheduled(WEEKDAYS) });
   assert.equal(stateOf(weekdays, on('wd', 'did', '2026-01-10'), '2026-01-10'), 'off');
-  const later = habit({ id: 'l', kind: 'tri', createdOn: '2026-01-07', retiredOn: '2026-01-09' });
+  const later = habit({ id: 'l', kind: 'tri', periods: [{ from: '2026-01-07', until: '2026-01-09' }] });
   assert.equal(stateOf(later, undefined, '2026-01-06'), 'outside');
   assert.equal(stateOf(later, undefined, '2026-01-08'), 'nothing');
   assert.equal(stateOf(later, undefined, '2026-01-09'), 'outside');
   assert.equal(isAsked(later, '2026-01-08'), true);
   assert.equal(isAsked(weekdays, '2026-01-11'), false);
+});
+
+test('a habit can leave the plan and come back; the days away are outside it', () => {
+  const back = habit({ id: 'b', kind: 'tri', periods: [{ from: START, until: '2026-01-08' }, { from: '2026-01-12' }] });
+  assert.equal(stateOf(back, undefined, '2026-01-07'), 'nothing');
+  assert.equal(stateOf(back, on('b', 'did', '2026-01-08'), '2026-01-08'), 'outside');
+  assert.equal(stateOf(back, undefined, '2026-01-11'), 'outside');
+  assert.equal(stateOf(back, on('b', 'did', '2026-01-12'), '2026-01-12'), 'did');
+  assert.equal(inPlan(back, '2026-01-10'), false);
+  assert.equal(isRetired(back), false);
+  assert.equal(isRetired(habit({ id: 'r', kind: 'tri', periods: [{ from: START, until: '2026-01-08' }] })), true);
+});
+
+test('a weekday change applies from its own day and leaves earlier weeks as they were', () => {
+  const changed = habit({ id: 'c', kind: 'tri', schedule: [...scheduled(EVERY_DAY), { from: '2026-01-12', days: WEEKDAYS, asked: 'morning' }] });
+  assert.equal(stateOf(changed, undefined, '2026-01-10'), 'nothing');     // a Saturday, under the old weekdays
+  assert.equal(stateOf(changed, undefined, '2026-01-17'), 'off');         // a Saturday, under the new ones
+  assert.equal(scheduleOn(changed, '2026-01-11')?.asked, 'evening');
+  assert.equal(askedOn(changed, '2026-01-13'), 'morning');
+  assert.equal(askedOn(changed, '2026-01-17'), undefined);               // not asked that day
+});
+
+test('before the first schedule entry a day is off, never counted', () => {
+  const early = habit({ id: 'e', kind: 'tri', schedule: scheduled(EVERY_DAY, '2026-01-07') });
+  assert.equal(stateOf(early, on('e', 'did', '2026-01-06'), '2026-01-06'), 'off');
+  assert.equal(askedOn(early, '2026-01-06'), undefined);
 });
 
 test('changing a target re-reads the past without touching it', () => {

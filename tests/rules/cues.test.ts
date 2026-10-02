@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { cueSchedule, cueScheduleAhead, isQuiet, MAX_CHECKINS, timesOn, type Cue, type CueSettings } from '../../src/rules/cues.ts';
 import { indexObservations } from '../../src/rules/state.ts';
 import { addDays } from '../../src/rules/dates.ts';
-import { habit, history, START, tri, walk } from './fixtures.ts';
+import { habit, history, scheduled, START, tri, walk, WEEKDAYS } from './fixtures.ts';
 
 const settings: CueSettings = { cuesOn: true, wake: 390, lightsOut: 1350 };      // 06:30 – 22:30
 const none = indexObservations([]);
@@ -57,7 +57,7 @@ test('a planned "not today" or a day off silences that goal\'s cues, never the c
   const c = cue({ id: 'c', times: { at: [600] } });
   const rest = indexObservations(history('walk', tri('r')));
   assert.deepEqual(cueSchedule(START, [morning, c], [walk], rest, settings).map(n => n.cueIds), [['am']]);
-  const weekdays = habit({ id: 'walk', kind: 'tri', days: [0, 1, 2, 3, 4] });
+  const weekdays = habit({ id: 'walk', kind: 'tri', schedule: scheduled(WEEKDAYS) });
   assert.deepEqual(cueSchedule('2026-01-10', [morning, c], [weekdays], none, settings).map(n => n.cueIds), [['am']]);
   assert.deepEqual(cueSchedule('2026-01-09', [morning, c], [weekdays], none, settings).map(n => n.cueIds), [['am'], ['c']]);
 });

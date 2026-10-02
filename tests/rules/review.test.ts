@@ -44,7 +44,8 @@ test('settled: one weaker week holds the offer back, even inside a good average'
 test('settled: never offered for mood, a retired habit, or a habit not in Focus the whole time', () => {
   const full = weeks(...Array(8).fill('ddddddd'));
   assert.equal(offersToSettle(mood, full, lastOfEight), false);
-  assert.equal(offersToSettle({ ...walk, retiredOn: addDays(START, 60) }, full, lastOfEight), false);
+  assert.equal(offersToSettle({ ...walk, periods: [{ from: START, until: addDays(START, 60) }] }, full, lastOfEight), false);
+  assert.equal(offersToSettle({ ...walk, periods: [{ from: START, until: addDays(START, 21) }, { from: addDays(START, 28) }] }, full, lastOfEight), false);   // a week away
   const late = { ...walk, tierHistory: [{ tier: 'log' as const, from: START }, { tier: 'focus' as const, from: addDays(START, 7) }] };
   assert.equal(offersToSettle(late, full, lastOfEight), false);
 });

@@ -1,19 +1,24 @@
 // Invented habits and histories for the rules tests. Nothing here describes a real routine.
 import * as fc from 'fast-check';
-import type { Habit, HabitKind, LocalDate, Observation, PlannedReason, TriValue, Weekday } from '../../src/rules/types.ts';
+import type { Asked, Habit, HabitKind, LocalDate, Observation, PlannedReason, ScheduleEntry, TriValue, Weekday } from '../../src/rules/types.ts';
 import { addDays } from '../../src/rules/dates.ts';
 
 /** A Monday. */
 export const START: LocalDate = '2026-01-05';
 export const EVERY_DAY: readonly Weekday[] = [0, 1, 2, 3, 4, 5, 6];
+export const WEEKDAYS: readonly Weekday[] = [0, 1, 2, 3, 4];
+
+/** A schedule of one entry: asked on `days`, from `from`. */
+export function scheduled(days: readonly Weekday[], from: LocalDate = START, asked: Asked = 'evening'): ScheduleEntry[] {
+  return [{ from, days, asked }];
+}
 
 export function habit(p: Partial<Habit> & Pick<Habit, 'id' | 'kind'>): Habit {
   return {
-    days: EVERY_DAY,
-    asked: 'evening',
+    periods: [{ from: START }],
+    schedule: scheduled(EVERY_DAY),
     target: {},
     tierHistory: [{ tier: 'focus', from: START }],
-    createdOn: START,
     ...p,
   };
 }
@@ -79,16 +84,27 @@ export function arbHabit(id: string, kinds: fc.Arbitrary<HabitKind> = arbKind): 
     bar: fc.integer({ min: 1, max: 30 }),
     createdAfter: fc.integer({ min: 0, max: 10 }),
     logFrom: fc.option(fc.integer({ min: 1, max: 60 }), { nil: undefined }),
-  }).map(r => habit({
-    id,
-    kind: r.kind,
-    days: r.days as Weekday[],
-    target: r.kind === 'time' ? { band: r.band, part: r.band + r.slack } : r.kind === 'min' || r.kind === 'count' ? { bar: r.bar } : {},
-    createdOn: addDays(START, r.createdAfter),
-    tierHistory: r.logFrom === undefined
-      ? [{ tier: 'focus', from: START }]
-      : [{ tier: 'focus', from: START }, { tier: 'log', from: addDays(START, r.logFrom) }],
-  }));
+    // time away: it leaves `start` days after it began and comes back `span` days later
+    away: fc.option(fc.record({ start: fc.integer({ min: 1, max: 30 }), span: fc.integer({ min: 1, max: 14 }) }), { nil: undefined }),
+    // a change of weekdays, `after` days into the history
+    change: fc.option(fc.record({ after: fc.integer({ min: 1, max: 40 }), days: fc.subarray([...EVERY_DAY], { minLength: 1 }) }), { nil: undefined }),
+  }).map(r => {
+    const from = addDays(START, r.createdAfter);
+    return habit({
+      id,
+      kind: r.kind,
+      periods: r.away === undefined
+        ? [{ from }]
+        : [{ from, until: addDays(from, r.away.start) }, { from: addDays(from, r.away.start + r.away.span) }],
+      schedule: r.change === undefined
+        ? scheduled(r.days as Weekday[])
+        : [...scheduled(r.days as Weekday[]), { from: addDays(START, r.change.after), days: r.change.days as Weekday[], asked: 'evening' }],
+      target: r.kind === 'time' ? { band: r.band, part: r.band + r.slack } : r.kind === 'min' || r.kind === 'count' ? { bar: r.bar } : {},
+      tierHistory: r.logFrom === undefined
+        ? [{ tier: 'focus', from: START }]
+        : [{ tier: 'focus', from: START }, { tier: 'log', from: addDays(START, r.logFrom) }],
+    });
+  });
 }
 
 /** A habit together with an invented history for it of `days` days. */
