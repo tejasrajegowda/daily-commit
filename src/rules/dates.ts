@@ -1,4 +1,5 @@
 import type { ClockMinute, LocalDate, Weekday } from './types.ts';
+import { DEFAULT_BOUNDARY } from './clock.ts';
 
 // Calendar arithmetic on 'YYYY-MM-DD' strings, done in UTC so no local timezone can shift a day.
 
@@ -39,7 +40,7 @@ export function datesFrom(from: LocalDate, to: LocalDate): LocalDate[] {
  * Which day an instant belongs to, in the owner's home timezone, with the day ending at
  * `boundary` (04:00 by default): something logged at 00:30 belongs to the day you were awake for.
  */
-export function localDateOf(instantMs: number, timeZone: string, boundary: ClockMinute = 240): LocalDate {
+export function localDateOf(instantMs: number, timeZone: string, boundary: ClockMinute = DEFAULT_BOUNDARY): LocalDate {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).formatToParts(new Date(instantMs));

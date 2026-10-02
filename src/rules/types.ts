@@ -5,6 +5,13 @@
 export type LocalDate = string;
 /** Minutes after midnight, 0–1439, for clock values such as a wake-up time. */
 export type ClockMinute = number;
+/**
+ * A clock value placed on its app day: minutes from 00:00 of that day's calendar date, from 0 up to
+ * 1440 + boundary − 1. 00:30 after the evening of the 27th is 1470 on the 27th, so a late night sorts
+ * after the evening it belongs to. Observed times and a time habit's targets are DayMinutes; scheduled
+ * times (cues, waking, lights-out, the boundary itself) stay ClockMinutes.
+ */
+export type DayMinute = number;
 /** Monday = 0 … Sunday = 6. */
 export type Weekday = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -22,9 +29,9 @@ export type PlannedReason = 'meeting' | 'travelling' | 'unwell' | 'chose' | 'res
 /** Targets are applied when something is drawn, never stored as a verdict. */
 export interface Target {
   /** time: at or before this counts as "did it" */
-  readonly band?: ClockMinute;
+  readonly band?: DayMinute;
   /** time: at or before this (and after `band`) counts as "partly" */
-  readonly part?: ClockMinute;
+  readonly part?: DayMinute;
   /** min / count: at or above this counts as "did it" */
   readonly bar?: number;
   /** min: the aim — shown, never used to judge */
@@ -66,6 +73,7 @@ export interface Habit {
 export interface Observation {
   readonly habitId: string;
   readonly date: LocalDate;
+  /** a DayMinute for a time habit; minutes, a count or a mood 1–5; or a three-way answer */
   readonly value?: number | TriValue;
   readonly planned?: PlannedReason;
 }

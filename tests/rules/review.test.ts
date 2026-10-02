@@ -83,6 +83,15 @@ test('patterns: an earlier clock time is the better one', () => {
   assert.equal(goesWellTogether([walk, rise], idx, [{ when: 'walk', then: 'rise' }], START, to, 90).length, 1);
 });
 
+test('patterns: a bedtime after midnight is a later one, not an early one', () => {
+  const bed = habit({ id: 'bed', kind: 'time', target: { band: 1410, part: 1470 } });
+  const pair = [{ when: 'walk', then: 'bed' }];
+  const earlier = indexObservations(paired('bed', { value: 1400 }, { value: 1460 }));   // 23:20 on walk days, 00:20 otherwise
+  assert.equal(goesWellTogether([walk, bed], earlier, pair, START, to, 90).length, 1);
+  const later = indexObservations(paired('bed', { value: 1460 }, { value: 1400 }));
+  assert.deepEqual(goesWellTogether([walk, bed], later, pair, START, to, 90), []);
+});
+
 test('patterns: mood is never the thing compared by', () => {
   const idx = indexObservations([...paired('read', { value: 40 }, { value: 10 }), ...history('mood', Array(20).fill({ value: 3 }))]);
   assert.deepEqual(goesWellTogether([walk, read, mood], idx, [{ when: 'mood', then: 'read' }], START, to, 90), []);

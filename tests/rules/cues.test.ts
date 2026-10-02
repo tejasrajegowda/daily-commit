@@ -102,3 +102,17 @@ test('the week ahead is seven days of the same rules', () => {
   assert.equal(s.length, 21);
   assert.equal(new Set(s.map(n => n.day)).size, 7);
 });
+
+test('an hourly range that runs past midnight fires through it, in the order of the day', () => {
+  const late = cue({ id: 'w', times: { every: 60, from: 420, to: 30 } });        // 07:00 to 00:30
+  assert.deepEqual(timesOn(late, START), [420, 480, 540, 600, 660, 720, 780, 840, 900, 960, 1020, 1080, 1140, 1200, 1260, 1320, 1380, 0]);
+  const s = cueSchedule(START, [late], [walk], none, { cuesOn: true, wake: 390, lightsOut: 30 });
+  assert.equal(s.length, 18);
+  assert.deepEqual(s.at(-1), { day: START, date: addDays(START, 1), at: 0, checkin: false, cueIds: ['w'], texts: ['Stand up and stretch'] });
+});
+
+test('a range that would cross the day boundary is broken and produces nothing', () => {
+  const across = cue({ id: 'x', times: { every: 60, from: 180, to: 300 } });      // 03:00 to 05:00
+  assert.deepEqual(timesOn(across, START), []);
+  assert.deepEqual(timesOn(across, START, 0), [180, 240, 300]);                    // fine when days turn at midnight
+});

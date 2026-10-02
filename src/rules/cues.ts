@@ -1,4 +1,5 @@
 import type { ClockMinute, Habit, LocalDate, Observation } from './types.ts';
+import { DEFAULT_BOUNDARY } from './clock.ts';
 import { addDays, daysBetween } from './dates.ts';
 import { lookup, stateOf } from './state.ts';
 
@@ -60,19 +61,24 @@ export function isQuiet(t: ClockMinute, s: CueSettings): boolean {
   return s.lightsOut > s.wake ? t >= s.lightsOut || t < s.wake : t >= s.lightsOut && t < s.wake;
 }
 
-/** The clock times a cue fires at on a given app day, before any silencing. */
-export function timesOn(cue: Cue, day: LocalDate): ClockMinute[] {
+/** Order within an app day: from the boundary round to the next boundary. */
+const dayOrder = (t: ClockMinute, boundary: ClockMinute): number => (t - boundary + DAY) % DAY;
+
+/**
+ * The clock times a cue fires at on a given app day, before any silencing. A range is walked in
+ * app-day order, so "every hour from 07:00 to 00:30" runs on through midnight. A range whose end
+ * comes before its start in that order would belong to two days, and produces nothing.
+ */
+export function timesOn(cue: Cue, day: LocalDate, boundary: ClockMinute = DEFAULT_BOUNDARY): ClockMinute[] {
   if (cue.fade && daysBetween(cue.createdOn, day) >= cue.fade.afterDays) return cue.fade.to.filter(validMinute);
   const t = cue.times;
   if ('at' in t) return t.at.filter(validMinute);
   const out: ClockMinute[] = [];
   if (!(t.every >= MIN_EVERY) || !validMinute(t.from) || !validMinute(t.to)) return out;
-  for (let m = t.from; m <= t.to; m += t.every) out.push(m);
+  const end = dayOrder(t.to, boundary);
+  for (let k = dayOrder(t.from, boundary); k <= end; k += t.every) out.push((k + boundary) % DAY);
   return out;
 }
-
-/** Order within an app day: from the boundary round to the next boundary. */
-const dayOrder = (t: ClockMinute, boundary: ClockMinute): number => (t - boundary + DAY) % DAY;
 
 /** Every notification for one app day. */
 export function cueSchedule(
@@ -82,13 +88,13 @@ export function cueSchedule(
   index: ReadonlyMap<string, Observation>,
   settings: CueSettings,
 ): Notice[] {
-  const boundary = settings.boundary ?? 240;
+  const boundary = settings.boundary ?? DEFAULT_BOUNDARY;
   const byId = new Map(habits.map(h => [h.id, h]));
   const due: { at: ClockMinute; cue: Cue }[] = [];
 
   const checkins = cues
     .filter(c => c.enabled && c.kind === 'checkin' && c.createdOn <= day)
-    .map(c => ({ cue: c, at: timesOn(c, day)[0] }))
+    .map(c => ({ cue: c, at: timesOn(c, day, boundary)[0] }))
     .filter((x): x is { cue: Cue; at: ClockMinute } => x.at !== undefined)
     .sort((a, b) => dayOrder(a.at, boundary) - dayOrder(b.at, boundary))
     .slice(0, MAX_CHECKINS);
@@ -101,7 +107,7 @@ export function cueSchedule(
       if (!habit) continue;
       const s = stateOf(habit, lookup(index, habit.id, day), day);
       if (s === 'off' || s === 'outside' || s === 'planned') continue;
-      for (const at of timesOn(c, day)) due.push({ at, cue: c });
+      for (const at of timesOn(c, day, boundary)) due.push({ at, cue: c });
     }
   }
 

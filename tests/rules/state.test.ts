@@ -80,6 +80,15 @@ test('changing a target re-reads the past without touching it', () => {
   assert.equal(stateOf(stricter, obs, START), 'nothing');
 });
 
+test('a bedtime is judged on the day it belongs to, through midnight', () => {
+  const bed = habit({ id: 'bed', kind: 'time', target: { band: 1410, part: 1470 } });   // in bed by 23:30, partly by 00:30
+  assert.equal(stateOf(bed, on('bed', 1380), START), 'did');       // 23:00
+  assert.equal(stateOf(bed, on('bed', 1410), START), 'did');       // 23:30
+  assert.equal(stateOf(bed, on('bed', 1440), START), 'partly');    // 00:00
+  assert.equal(stateOf(bed, on('bed', 1470), START), 'partly');    // 00:30
+  assert.equal(stateOf(bed, on('bed', 1471), START), 'nothing');
+});
+
 test('tier history gives the tier in force on each day', () => {
   const h = habit({ id: 't', kind: 'tri', tierHistory: [{ tier: 'focus', from: '2026-01-05' }, { tier: 'log', from: '2026-03-02' }] });
   assert.equal(tierOn(h, '2026-01-04'), null);
