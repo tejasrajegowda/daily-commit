@@ -63,8 +63,12 @@ export interface RecordCore {
   hasVault(): Promise<boolean>;
   /** opens everything into memory, decrypting after the read has finished */
   unlock(cipher: RowCipher, backup?: BackupCipher): Promise<void>;
-  /** drops everything from memory, once any write already started has finished */
-  lock(): Promise<void>;
+  /**
+   * Drops everything from memory, once any write already started has finished. `beforeDrop` runs
+   * first, with the keys still there; the keys drop even if it fails. Resolves to what it returned,
+   * or undefined if nothing was open.
+   */
+  lock<T = void>(beforeDrop?: (session: Session) => Promise<T>): Promise<T | undefined>;
   /** one write, for the operations in record/ */
   write<T>(spec: WriteSpec<T>): Promise<Result<T>>;
   /** runs a job in the write queue; for record/'s own first run and restore */
@@ -135,7 +139,14 @@ export function openRecord(deps: RecordDeps): RecordCore {
       const model = await openModel(cipher, raw);
       session = { cipher, backup, model, deviceId: String(device?.value ?? ''), lastWriteMs };
     }),
-    lock: () => serial(async () => { session = undefined; }),
+    lock: <T>(beforeDrop?: (session: Session) => Promise<T>) => serial(async (): Promise<T | undefined> => {
+      const open = session;
+      try {
+        return open && beforeDrop ? await beforeDrop(open) : undefined;
+      } finally {
+        session = undefined;
+      }
+    }),
     write: <T>(spec: WriteSpec<T>) => serial(async (): Promise<Result<T>> => {
       const s = session;
       if (!s) return locked();
