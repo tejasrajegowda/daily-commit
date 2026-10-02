@@ -1,4 +1,4 @@
-import type { RowCipher } from '../vault/cipher.ts';
+import type { BackupCipher, RowCipher } from '../vault/cipher.ts';
 import { SYNCED, type RecordDb, type TableName } from './db.ts';
 import type { Model } from './model.ts';
 import { openModel, type RawTables } from './read.ts';
@@ -14,6 +14,8 @@ import { uuidv7 } from './ids.ts';
 /** The open record: what was decrypted, the cipher that opened it, and this device. */
 export interface Session {
   readonly cipher: RowCipher;
+  /** locks whole backup files; only export and the snapshot at lock use it */
+  readonly backup?: BackupCipher;
   readonly model: Model;
   readonly deviceId: string;
   /** the newest change stamp; never stored, worked out at unlock */
@@ -60,7 +62,7 @@ export interface RecordCore {
   /** whether first run finished; plain, so it is known before unlock */
   hasVault(): Promise<boolean>;
   /** opens everything into memory, decrypting after the read has finished */
-  unlock(cipher: RowCipher): Promise<void>;
+  unlock(cipher: RowCipher, backup?: BackupCipher): Promise<void>;
   /** drops everything from memory, once any write already started has finished */
   lock(): Promise<void>;
   /** one write, for the operations in record/ */
@@ -124,14 +126,14 @@ export function openRecord(deps: RecordDeps): RecordCore {
     get session() { return session; },
     newId: () => uuidv7(now()),
     hasVault: async () => (await db.vault.count()) > 0,
-    unlock: cipher => serial(async () => {
+    unlock: (cipher, backup) => serial(async () => {
       if ((await db.vault.count()) === 0) throw new Error('nothing to unlock: first run has not finished');
       const raw = await db.transaction('r', SYNCED.map(t => db.table(t)), async () =>
         Object.fromEntries(await Promise.all(SYNCED.map(async t => [t, await db.table(t).toArray()] as const))) as unknown as RawTables);
       const device = await db.device.get('device_id');
       const lastWriteMs = await latestStamp(db);
       const model = await openModel(cipher, raw);
-      session = { cipher, model, deviceId: String(device?.value ?? ''), lastWriteMs };
+      session = { cipher, backup, model, deviceId: String(device?.value ?? ''), lastWriteMs };
     }),
     lock: () => serial(async () => { session = undefined; }),
     write: <T>(spec: WriteSpec<T>) => serial(async (): Promise<Result<T>> => {

@@ -19,10 +19,19 @@ function files(dir: string): string[] {
 function area(file: string): string {
   return relative(SRC, file).split(sep)[0] ?? '';
 }
-function imports(file: string): string[] {
-  const src = readFileSync(file, 'utf8');
+function specsIn(src: string): string[] {
   return [...src.matchAll(/(?:import|export)[^'"]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g)]
     .map(m => m[1] ?? m[2] ?? '');
+}
+function imports(file: string): string[] {
+  return specsIn(readFileSync(file, 'utf8'));
+}
+// Backup code copies rows exactly as stored and never sees inside one: it may not import the
+// plaintext read side, name what opens a single row, or reach for the session's row cipher.
+const BACKUP_FORBIDDEN = /\b(?:openParts|openModel|rulesInput|RowCipher)\b|\.cipher\b/g;
+function backupBreaks(file: string, src: string): string[] {
+  const reads = specsIn(src).filter(s => s.startsWith('.') && relative(SRC, join(file, '..', s)).split(sep).join('/') === 'record/read.ts');
+  return [...reads.map(s => `imports ${s}`), ...[...src.matchAll(BACKUP_FORBIDDEN)].map(m => `uses ${m[0]}`)];
 }
 // which top-level area of src/ a relative import lands in
 function target(file: string, spec: string): string | null {
@@ -62,6 +71,14 @@ describe('dependency rule', () => {
         assert.ok(!(t !== null && FEATURES.includes(t) && t !== area(f)), `${relative(SRC, f)} imports ${spec}`);
       }
     }
+  });
+
+  it('backup code copies rows as stored: no plaintext read side, nothing that opens one row', () => {
+    const sample = join(SRC, 'record', 'backup', 'sample.ts');
+    assert.deepEqual(backupBreaks(sample, "import { openModel } from '../read.ts';\nconst c = s.cipher;"), ['imports ../read.ts', 'uses openModel', 'uses .cipher']);
+    const backup = all.filter(f => relative(SRC, f).split(sep).slice(0, 2).join('/') === 'record/backup');
+    assert.ok(backup.length > 0, 'no backup code found');
+    for (const f of backup) assert.deepEqual(backupBreaks(f, readFileSync(f, 'utf8')), [], relative(SRC, f));
   });
 
   it('src/ has only the agreed top-level areas', () => {

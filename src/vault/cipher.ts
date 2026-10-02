@@ -42,3 +42,65 @@ export interface RowCipher {
   seal(ctx: EnvelopeContext, plain: Uint8Array): Promise<Envelope>;
   open(ctx: EnvelopeContext, env: Envelope): Promise<Uint8Array>;
 }
+
+/** Why a backup file would not open. Each one has its own message on the restore screen. */
+export type BackupFailure = 'wrong-secret' | 'newer-app' | 'damaged' | 'other-vault';
+
+export class BackupError extends Error {
+  readonly reason: BackupFailure;
+  constructor(reason: BackupFailure) {
+    super(`the backup did not open: ${reason}`);
+    this.name = 'BackupError';
+    this.reason = reason;
+  }
+}
+
+/** What was typed to open a backup: the passphrase, or the recovery code from paper. */
+export interface Secret {
+  readonly method: 'passphrase' | 'recovery';
+  readonly text: string;
+}
+
+/** A portable copy of the master key as a backup's header carries it: a `wrappers` row, as stored. */
+export interface PortableWrap {
+  readonly method: 'passphrase' | 'recovery';
+  readonly kid: string;
+  readonly generation: number;
+  readonly kdf: object;
+  readonly iv: string;
+  readonly ct: string;
+}
+
+/** The words key and the record key, each wrapped under the master key, as a `vault` row holds them. */
+export interface DataKeyWraps {
+  readonly w: { readonly id: string; readonly wrap: Envelope };
+  readonly r: { readonly id: string; readonly wrap: Envelope };
+}
+
+/** A backup body that opened. */
+export interface OpenedBackup {
+  /** the body exactly as it was sealed */
+  readonly body: Uint8Array;
+  /**
+   * Checks that one locked value from the backup opens under the backup's own keys. It says
+   * nothing about what is inside: it resolves, or rejects with a CipherError.
+   */
+  testOpen(keys: DataKeyWraps, ctx: EnvelopeContext, env: Envelope): Promise<void>;
+}
+
+/**
+ * Locks and opens a whole backup's body. Sealing needs the backup key, held only while unlocked.
+ * Opening needs only the passphrase or the recovery code, so it works on a phone never set up.
+ */
+export interface BackupCipher {
+  /** the body's ciphertext with its 16-byte tag; the header bytes are bound in, so changing either fails */
+  sealBody(body: Uint8Array, headerBytes: Uint8Array, iv: Uint8Array): Promise<Uint8Array>;
+  /** opens the body with the secret, or rejects with a BackupError */
+  openBody(
+    headerBytes: Uint8Array,
+    iv: Uint8Array,
+    ct: Uint8Array,
+    wraps: { readonly passphrase: PortableWrap; readonly recovery: PortableWrap },
+    secret: Secret,
+  ): Promise<OpenedBackup>;
+}
