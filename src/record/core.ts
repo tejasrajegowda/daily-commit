@@ -91,7 +91,7 @@ class Refused extends Error {
   }
 }
 
-const isQuotaFull = (e: unknown): boolean =>
+export const isQuotaFull = (e: unknown): boolean =>
   e instanceof Error && (e.name === 'QuotaExceededError' || (e as { inner?: { name?: string } }).inner?.name === 'QuotaExceededError');
 
 /** The newest change stamp in storage: one lookup on each table's updated_at index, nothing decrypted. */
