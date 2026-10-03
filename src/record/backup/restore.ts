@@ -1,6 +1,8 @@
 import { BackupError, CipherError, type BackupCipher, type BackupFailure, type Envelope, type EnvelopeContext, type Secret } from '../../vault/cipher.ts';
 import { TABLE_TAGS, type LockedTable } from '../../vault/tags.ts';
 import { isQuotaFull, type RecordCore } from '../core.ts';
+import type { Schema } from '../db.ts';
+import { upgradeTables } from '../upgrade.ts';
 import type { SnapshotFiles } from '../files.ts';
 import { plainOf, rowId } from '../payload.ts';
 import type { VaultRow } from '../rows.ts';
@@ -69,6 +71,8 @@ export interface RestoreInput {
   readonly backupCipher: BackupCipher;
   /** given when "replace everything" was chosen: the safety copy is kept through these files first */
   readonly replace?: { readonly files: SnapshotFiles; readonly appVersion: string };
+  /** the schema versions to bring an older file's rows up to; the app leaves it out */
+  readonly schemas?: readonly Schema[];
 }
 
 export type RestoreResult =
@@ -101,7 +105,7 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
     if (!safety) return { kind: 'Locked' };
     await keepCopy(replace.files, SAFETY, core.now(), 'dcbak', safety.bytes);
   }
-  return core.serial(() => replaceAll(core, checked.header, checked.tables, replace !== undefined));
+  return core.serial(() => replaceAll(core, checked.header, upgradeTables(checked.tables, checked.header.schema_version, input.schemas), replace !== undefined));
 }
 
 /** Phase 2: one transaction that clears and adds. A failed add is never caught, so it undoes everything. */

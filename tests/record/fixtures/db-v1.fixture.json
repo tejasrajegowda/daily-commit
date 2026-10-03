@@ -1,0 +1,226 @@
+{
+ "schema_version": 1,
+ "tables": {
+  "wrappers": [
+   {
+    "method": "passphrase",
+    "kid": "fixture-master-kid",
+    "generation": 1,
+    "kdf": {
+     "alg": "pbkdf2-sha256",
+     "iterations": 600000,
+     "salt": "fixture-salt-1",
+     "norm": "utf8-nfc-trim-v1"
+    },
+    "iv": "fixture-iv",
+    "ct": "fixture-ct-1",
+    "created_at": 1767603600000,
+    "updated_at": 1767603600000
+   },
+   {
+    "method": "recovery",
+    "kid": "fixture-master-kid",
+    "generation": 1,
+    "kdf": {
+     "alg": "hkdf-sha256",
+     "salt": "fixture-salt-2",
+     "info": "dc/recovery/v1"
+    },
+    "iv": "fixture-iv",
+    "ct": "fixture-ct-2",
+    "created_at": 1767603600000,
+    "updated_at": 1767603600000
+   }
+  ],
+  "vault": [
+   {
+    "key": "main",
+    "vault_id": "fixture-vault-id",
+    "kid": "fixture-master-kid",
+    "generation": 1,
+    "keys": {
+     "w": {
+      "id": "IiIiIiIiIiIiIiIiIiIiIg",
+      "wrap": {
+       "v": 1,
+       "k": "fixture-master-kid",
+       "iv": "fixture-iv",
+       "ct": "fixture-wrapped-key"
+      }
+     },
+     "r": {
+      "id": "EREREREREREREREREREREQ",
+      "wrap": {
+       "v": 1,
+       "k": "fixture-master-kid",
+       "iv": "fixture-iv",
+       "ct": "fixture-wrapped-key"
+      }
+     }
+    },
+    "created_at": 1767603600000,
+    "updated_at": 1767603600000
+   }
+  ],
+  "settings": [
+   {
+    "key": "boundary",
+    "updated_at": 1767603600000,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "r": {
+     "v": 1,
+     "k": "EREREREREREREREREREREQ",
+     "iv": "-Wb9jBLrieOiI9r2",
+     "ct": "eyJib3VuZCI6WyJzZXQiLCJib3VuZGFyeSIsInIiXSwiYm9keSI6ImV5SjJZV3gxWlNJNk1qUXdMQ0p3ZGlJNk1YMCJ9"
+    }
+   },
+   {
+    "key": "cues_on",
+    "updated_at": 1767603600000,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "r": {
+     "v": 1,
+     "k": "EREREREREREREREREREREQ",
+     "iv": "oHy35Nvz8AXS_rfi",
+     "ct": "eyJib3VuZCI6WyJzZXQiLCJjdWVzX29uIiwiciJdLCJib2R5IjoiZXlKMllXeDFaU0k2ZEhKMVpTd2ljSFlpT2pGOSJ9"
+    }
+   },
+   {
+    "key": "journey_start",
+    "updated_at": 1767603600000,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "r": {
+     "v": 1,
+     "k": "EREREREREREREREREREREQ",
+     "iv": "dveW-D86DU2XZrln",
+     "ct": "eyJib3VuZCI6WyJzZXQiLCJqb3VybmV5X3N0YXJ0IiwiciJdLCJib2R5IjoiZXlKMllXeDFaU0k2SWpJd01qWXRNREV0TURVaUxDSndkaUk2TVgwIn0"
+    }
+   },
+   {
+    "key": "lights_out_plan",
+    "updated_at": 1767603600000,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "r": {
+     "v": 1,
+     "k": "EREREREREREREREREREREQ",
+     "iv": "bAZJbAnv1TpJucM4",
+     "ct": "eyJib3VuZCI6WyJzZXQiLCJsaWdodHNfb3V0X3BsYW4iLCJyIl0sImJvZHkiOiJleUoyWVd4MVpTSTZNVE0xTUN3aWNIWWlPakY5In0"
+    }
+   },
+   {
+    "key": "tz",
+    "updated_at": 1767603600000,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "r": {
+     "v": 1,
+     "k": "EREREREREREREREREREREQ",
+     "iv": "HGf65hB7GBy6bUAi",
+     "ct": "eyJib3VuZCI6WyJzZXQiLCJ0eiIsInIiXSwiYm9keSI6ImV5SjJZV3gxWlNJNklsVlVReUlzSW5CMklqb3hmUSJ9"
+    }
+   },
+   {
+    "key": "wake_plan",
+    "updated_at": 1767603600000,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "r": {
+     "v": 1,
+     "k": "EREREREREREREREREREREQ",
+     "iv": "KalglRg3Sqesu7Vu",
+     "ct": "eyJib3VuZCI6WyJzZXQiLCJ3YWtlX3BsYW4iLCJyIl0sImJvZHkiOiJleUoyWVd4MVpTSTZNemt3TENKd2RpSTZNWDAifQ"
+    }
+   }
+  ],
+  "device": [
+   {
+    "key": "device_id",
+    "value": "019b8d62-7a80-733e-aa47-cec8da585b17"
+   }
+  ],
+  "habits": [
+   {
+    "id": "h-walk",
+    "updated_at": 1767603600001,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "r": {
+     "v": 1,
+     "k": "EREREREREREREREREREREQ",
+     "iv": "rPtWnirn7fnxiBGO",
+     "ct": "eyJib3VuZCI6WyJoYWIiLCJoLXdhbGsiLCJyIl0sImJvZHkiOiJleUp1WVcxbElqb2lRMEZPUVZKWkxWUkZVMVFnZDJGc2F5SXNJbXRwYm1RaU9pSjBjbWtpTENKd1pYSnBiMlJ6SWpwYmV5Sm1jbTl0SWpvaU1qQXlOaTB3TVMwd05TSjlYU3dpZEdsbGNuTWlPbHQ3SW5ScFpYSWlPaUptYjJOMWN5SXNJbVp5YjIwaU9pSXlNREkyTFRBeExUQTFJbjFkTENKelkyaGxaSFZzWlNJNlczc2labkp2YlNJNklqSXdNall0TURFdE1EVWlMQ0prWVhseklqcGJNQ3d4TERJc015dzBMRFVzTmwwc0ltRnphMlZrSWpvaVpYWmxibWx1WnlKOVhTd2lkR0Z5WjJWMElqcDdmU3dpYjNKa1pYSWlPakFzSW5CMklqb3hmUSJ9"
+    }
+   }
+  ],
+  "observations": [
+   {
+    "habit_id": "h-walk",
+    "local_date": "2026-01-05",
+    "updated_at": 1767603600002,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "r": {
+     "v": 1,
+     "k": "EREREREREREREREREREREQ",
+     "iv": "CEWAA1J0A2-1V58g",
+     "ct": "eyJib3VuZCI6WyJvYnMiLCJoLXdhbGt8MjAyNi0wMS0wNSIsInIiXSwiYm9keSI6ImV5SnJhVzVrSWpvaWRISnBJaXdpZG1Gc2RXVWlPaUprYVdRaUxDSnNiMmRuWldSZllYUWlPakUzTmpjMk1ETTJNREF3TURJc0ltbHpYMkpoWTJ0bWFXeHNJanBtWVd4elpTd2laV1JwZEdWa1gyRm1kR1Z5WDJOc2IzTmxJanBtWVd4elpTd2ljSFlpT2pGOSJ9"
+    }
+   },
+   {
+    "habit_id": "h-walk",
+    "local_date": "2026-01-06",
+    "updated_at": 1767729600001,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "deleted_at": 1767729600001
+   }
+  ],
+  "days": [],
+  "entries": [
+   {
+    "id": "e-page",
+    "local_date": "2026-01-06",
+    "updated_at": 1767729600002,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "w": {
+     "v": 1,
+     "k": "IiIiIiIiIiIiIiIiIiIiIg",
+     "iv": "_CE8g5Lo5k_mKHBL",
+     "ct": "eyJib3VuZCI6WyJlbnQiLCJlLXBhZ2UiLCJ3Il0sImJvZHkiOiJleUppYjJSNUlqb2lRMEZPUVZKWkxWUkZVMVFnY0dGblpTSXNJbkIySWpveGZRIn0"
+    }
+   }
+  ],
+  "notyet": [
+   {
+    "id": "n-later",
+    "updated_at": 1767729600003,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "w": {
+     "v": 1,
+     "k": "IiIiIiIiIiIiIiIiIiIiIg",
+     "iv": "0bsOlAm1xCGsHELP",
+     "ct": "eyJib3VuZCI6WyJueXQiLCJuLWxhdGVyIiwidyJdLCJib2R5IjoiZXlKMFpYaDBJam9pUTBGT1FWSlpMVlJGVTFRZ2JHRjBaWElpTENKd2RpSTZNWDAifQ"
+    }
+   }
+  ],
+  "cues": [
+   {
+    "id": "c-walk",
+    "updated_at": 1767729600004,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "deleted_at": 1767729600004
+   }
+  ],
+  "reviews": [
+   {
+    "key": "w:2026-01-05",
+    "period_start": "2026-01-05",
+    "period_end": "2026-01-11",
+    "updated_at": 1767729600005,
+    "updated_by": "019b8d62-7a80-733e-aa47-cec8da585b17",
+    "w": {
+     "v": 1,
+     "k": "IiIiIiIiIiIiIiIiIiIiIg",
+     "iv": "xJ2C2IZ8zZ_Nd82z",
+     "ct": "eyJib3VuZCI6WyJyZXYiLCJ3OjIwMjYtMDEtMDUiLCJ3Il0sImJvZHkiOiJleUpoYm5OM1pYSnpJanA3SW5kbGJuUWlPaUpEUVU1QlVsa3RWRVZUVkNKOUxDSndkaUk2TVgwIn0"
+    }
+   }
+  ],
+  "migrations": []
+ }
+}

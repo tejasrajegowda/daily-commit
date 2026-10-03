@@ -1,12 +1,18 @@
 import type { BackupCipher, RowCipher } from '../../vault/cipher.ts';
 import type { RecordCore, Session } from '../core.ts';
 import type { SnapshotFiles } from '../files.ts';
+import { MIGRATIONS, runMigrations, type PayloadMigration } from '../migrations.ts';
 import type { BackupOptions } from '../backup/export.ts';
 import { SNAPSHOT_CAP_MS, sealSnapshot, writeSnapshot, type SealedSnapshot, type SnapshotOutcome } from '../backup/snapshot.ts';
 import { sweepTrash } from './words.ts';
 
-/** Unlocks the record, then wipes anything whose 7 days in the trash are over. The app unlocks through this. */
-export async function openSession(core: RecordCore, cipher: RowCipher, backup?: BackupCipher): Promise<void> {
+/**
+ * Unlocks the record. Any change to the shape of locked values runs first, so the record opens in
+ * the current shape; then anything whose 7 days in the trash are over is wiped. The app unlocks
+ * through this.
+ */
+export async function openSession(core: RecordCore, cipher: RowCipher, backup?: BackupCipher, migrations: readonly PayloadMigration[] = MIGRATIONS): Promise<void> {
+  await runMigrations(core, cipher, migrations);
   await core.unlock(cipher, backup);
   await sweepTrash(core);
 }

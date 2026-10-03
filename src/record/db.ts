@@ -51,12 +51,44 @@ export interface StorageDeps {
   readonly IDBKeyRange: typeof IDBKeyRange;
 }
 
+/** A plain-field change made by a schema upgrade: a pure function over one stored row. */
+export type PlainUpgrade = (row: Readonly<Record<string, unknown>>) => Record<string, unknown>;
+
+/** One schema version: its tables, and how rows written under the version before it change. */
+export interface Schema {
+  readonly version: number;
+  readonly stores: Readonly<Record<string, string | null>>;
+  readonly upgrade?: Readonly<Record<string, PlainUpgrade>>;
+}
+
+/** Every schema version, oldest first. A new version is added at the end, never edited. */
+export const SCHEMAS: readonly Schema[] = [{ version: SCHEMA_VERSION, stores: SCHEMA_V1 }];
+
+/** Applies a plain upgrade to one row. An upgrade runs while the app is locked, so touching a locked value is a mistake. */
+export function upgradeRow(change: PlainUpgrade, row: Readonly<Record<string, unknown>>): Record<string, unknown> {
+  const next = change(row);
+  if (next.r !== row.r || next.w !== row.w) throw new Error('a schema upgrade may not touch a locked value');
+  return next;
+}
+
 /**
  * Opens the record's database. Every write waits until it is on disk ("strict"), because Chrome's
- * relaxed default reports a save before the data is safe.
+ * relaxed default reports a save before the data is safe. The app opens it through openStorage.
  */
-export function openDb(deps: StorageDeps): RecordDb {
+export function openDb(deps: StorageDeps, schemas: readonly Schema[] = SCHEMAS): RecordDb {
   const db = new Dexie(deps.name, { indexedDB: deps.indexedDB, IDBKeyRange: deps.IDBKeyRange, chromeTransactionDurability: 'strict' }) as RecordDb;
-  db.version(SCHEMA_VERSION).stores(SCHEMA_V1);
+  for (const schema of schemas) {
+    const version = db.version(schema.version).stores({ ...schema.stores });
+    const upgrade = schema.upgrade;
+    if (upgrade) {
+      version.upgrade(async tx => {
+        for (const [table, change] of Object.entries(upgrade)) {
+          await tx.table(table).toCollection().modify((row: Record<string, unknown>, ctx: { value: Record<string, unknown> }) => {
+            ctx.value = upgradeRow(change, row);
+          });
+        }
+      });
+    }
+  }
   return db;
 }
