@@ -23,7 +23,7 @@ export async function openedRecord(iso = '2026-01-05T09:00:00Z') {
   const db = freshDb();
   const clock = testClock(iso);
   const core = openRecord({ db, now: clock.now });
-  const result = await firstRun(core, { cipher: guarded(stubCipher()), vault: VAULT, wrappers: WRAPPERS, settings: SETTINGS });
+  const result = await firstRun(core, { cipher: guarded(stubCipher()), backup: guardedBackup(stubBackup()), vault: VAULT, wrappers: WRAPPERS, settings: SETTINGS });
   if (result.kind !== 'Saved') throw new Error(`first run: ${result.kind}`);
   return { db, clock, core };
 }

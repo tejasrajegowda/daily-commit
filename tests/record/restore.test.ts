@@ -97,7 +97,7 @@ test('a record with data is refused unless "replace everything", saying when the
   assert.deepEqual(await restore(same.core, { file, secret: PASS, backupCipher: opener() }), { kind: 'HasData', otherVault: false });
   assert.deepEqual(await rowsOf(same.db), before);
   const other = emptyRecord();
-  const setup = { cipher: guarded(stubCipher()), vault: { ...VAULT, vault_id: 'another-vault-id' }, wrappers: WRAPPERS, settings: SETTINGS };
+  const setup = { cipher: guarded(stubCipher()), backup: opener(), vault: { ...VAULT, vault_id: 'another-vault-id' }, wrappers: WRAPPERS, settings: SETTINGS };
   assert.equal((await firstRun(other.core, setup)).kind, 'Saved');
   assert.deepEqual(await restore(other.core, { file, secret: PASS, backupCipher: opener() }), { kind: 'HasData', otherVault: true });
   await other.core.lock();

@@ -1,5 +1,6 @@
 import type { Envelope } from '../vault/cipher.ts';
 import type { KdfSettings } from '../vault/kdf.ts';
+import type { StoredVault, StoredWrap } from '../vault/stored.ts';
 
 // The rows as stored. Only ids, dates and change stamps are plain; everything else is inside the
 // locked values `r` (under the record key) and `w` (under the words key). A deleted row is a
@@ -32,30 +33,10 @@ export interface ReviewRow extends Stamps, Locked { readonly key: string; readon
 export type Kdf = KdfSettings;
 
 /** A portable copy of the master key, wrapped by the passphrase or by the recovery code. */
-export interface WrapperRow {
-  readonly method: 'passphrase' | 'recovery';
-  readonly kid: string;
-  readonly generation: number;
-  readonly kdf: Kdf;
-  readonly iv: string;
-  readonly ct: string;
-  readonly created_at: number;
-  readonly updated_at: number;
-}
+export type WrapperRow = StoredWrap;
 
 /** The one vault row. That it exists means first run finished. */
-export interface VaultRow {
-  readonly key: 'main';
-  readonly vault_id: string;
-  readonly kid: string;
-  readonly generation: number;
-  readonly keys: {
-    readonly w: { readonly id: string; readonly wrap: Envelope };
-    readonly r: { readonly id: string; readonly wrap: Envelope };
-  };
-  readonly created_at: number;
-  readonly updated_at: number;
-}
+export type VaultRow = StoredVault;
 
 /** This device's own plain values; never exported, never synced. */
 export interface DeviceRow {

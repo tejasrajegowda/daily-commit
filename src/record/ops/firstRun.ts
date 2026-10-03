@@ -1,4 +1,4 @@
-import type { RowCipher } from '../../vault/cipher.ts';
+import type { BackupCipher, RowCipher } from '../../vault/cipher.ts';
 import type { Put, RecordCore } from '../core.ts';
 import type { Settings } from '../model.ts';
 import type { SettingRow, VaultRow, WrapperRow } from '../rows.ts';
@@ -10,6 +10,8 @@ import { settingsProblem } from '../validate.ts';
 export interface FirstRunInput {
   /** the cipher made from the new keys */
   readonly cipher: RowCipher;
+  /** the backup cipher made from the same keys, so the first lock can already seal a snapshot */
+  readonly backup: BackupCipher;
   readonly vault: VaultRow;
   /** the passphrase copy and the recovery-code copy */
   readonly wrappers: readonly WrapperRow[];
@@ -42,6 +44,6 @@ export async function firstRun(core: RecordCore, input: FirstRunInput): Promise<
     async () => ((await core.db.vault.count()) > 0 ? invalid('already set up') : undefined)));
   if (outcome === 'quota-full') return quotaFull();
   if (outcome !== 'committed') return outcome;
-  await core.unlock(input.cipher);
+  await core.unlock(input.cipher, input.backup);
   return saved(undefined);
 }

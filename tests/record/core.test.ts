@@ -7,12 +7,13 @@ import { rulesInput } from '../../src/record/read.ts';
 import type { RecordDb } from '../../src/record/db.ts';
 import { freshDb } from './helpers.ts';
 import { stubCipher } from './stubCipher.ts';
+import { stubBackup } from './stubBackup.ts';
 import { guarded } from './txGuard.ts';
 import { failAtRow } from './faults.ts';
 import { SETTINGS, VAULT, WRAPPERS, testClock } from './fixtures.ts';
 
 const cipher = () => guarded(stubCipher());
-const setup = { vault: VAULT, wrappers: WRAPPERS, settings: SETTINGS };
+const setup = { backup: stubBackup(), vault: VAULT, wrappers: WRAPPERS, settings: SETTINGS };
 
 function begin(db: RecordDb = freshDb()) {
   const clock = testClock('2026-01-05T09:00:00Z');
