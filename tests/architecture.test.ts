@@ -64,6 +64,15 @@ describe('dependency rule', () => {
     }
   });
 
+  it('vault/ sits below the record: it imports only itself, and no library', () => {
+    for (const f of all.filter(f => area(f) === 'vault')) {
+      for (const spec of imports(f)) {
+        const t = target(f, spec);
+        assert.ok(t === 'vault', `${relative(SRC, f)} imports ${spec}`);
+      }
+    }
+  });
+
   it('features never import another feature', () => {
     for (const f of all.filter(f => FEATURES.includes(area(f)))) {
       for (const spec of imports(f)) {
