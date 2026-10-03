@@ -39,3 +39,25 @@ export const NORM_VECTORS = [
   { text: '  a b  ', bytes: '612062' },
   { text: '\u00a0x\u3000', bytes: '78' },
 ] as const;
+
+/**
+ * A random source that counts: each call returns the next n bytes of 0, 1, 2, … (wrapping at 256).
+ * The reference uses the same one, so a vault made from it is the same vault in both.
+ */
+export function counterRandom(start = 0): (n: number) => Uint8Array<ArrayBuffer> {
+  let next = start;
+  return n => {
+    const out = Uint8Array.from({ length: n }, (_, i) => (next + i) & 0xff);
+    next += n;
+    return out;
+  };
+}
+
+/** The invented passphrase and the moment the golden vault was made (2026-01-05 09:00 UTC). */
+export const GOLDEN_PASSPHRASE = 'CANARY passphrase';
+export const GOLDEN_MADE = 1767603600000;
+
+/** createVault(GOLDEN_PASSPHRASE, counterRandom(), GOLDEN_MADE), as the reference made it. */
+export const GOLDEN_VAULT = {"key": "main", "vault_id": "cHFyc3R1dnd4eXp7fH1-fw", "kid": "YGFiY2RlZmdoaWprbG1ubw", "generation": 1, "keys": {"w": {"id": "gIGCg4SFhoeIiYqLjI2Ojw", "wrap": {"v": 1, "k": "YGFiY2RlZmdoaWprbG1ubw", "iv": "ubq7vL2-v8DBwsPE", "ct": "ht_yiMvqAUX_6Q1oYHmUDLpAKuv2uLZuKlpRSKknVeVluAYi5Vz4V1NrDTXYk2id"}}, "r": {"id": "kJGSk5SVlpeYmZqbnJ2enw", "wrap": {"v": 1, "k": "YGFiY2RlZmdoaWprbG1ubw", "iv": "xcbHyMnKy8zNzs_Q", "ct": "tK8h24MhRvmJT1oQuECksM6qACe57lfNq62PrWAi-9tIhvZ_GvLjnjlozw-inNlI"}}}, "created_at": 1767603600000, "updated_at": 1767603600000};
+export const GOLDEN_WRAPPERS = [{"method": "passphrase", "kid": "YGFiY2RlZmdoaWprbG1ubw", "generation": 1, "kdf": {"alg": "pbkdf2-sha256", "iterations": 600000, "salt": "0dLT1NXW19jZ2tvc3d7f4A", "norm": "utf8-nfc-trim-v1"}, "iv": "4eLj5OXm5-jp6uvs", "ct": "luOb8zAx8wLi8vM3OAeGBdJVQ3ot590IlV7FhnW87ztOe2aNX_1ecEDclaQQy2ee", "created_at": 1767603600000, "updated_at": 1767603600000}, {"method": "recovery", "kid": "YGFiY2RlZmdoaWprbG1ubw", "generation": 1, "kdf": {"alg": "hkdf-sha256", "salt": "7e7v8PHy8_T19vf4-fr7_A", "info": "dc/recovery/v1"}, "iv": "_f7_AAECAwQFBgcI", "ct": "G-fouPlShH7IdI4sqrp2CmtTqmy1XynSAezzifjvSgCcb88F2ApH7aowmBRgFqz0", "created_at": 1767603600000, "updated_at": 1767603600000}];
+export const GOLDEN_CODE = 'M2GT5 8X4MP KAFA5 9NANT SBDEN YRB3C NKPJT VDDXR E';

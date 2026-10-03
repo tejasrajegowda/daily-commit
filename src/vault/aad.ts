@@ -13,7 +13,7 @@ const MAX_PART = 0xffff;
 export const PURPOSES = Object.freeze({ env: 'env', wrap: 'wrap', dk: 'dk' } as const);
 
 /** The AAD for a list of parts, the purpose first. */
-export function aad(parts: readonly string[]): Uint8Array {
+export function aad(parts: readonly string[]): Uint8Array<ArrayBuffer> {
   const encoded = parts.map(utf8Bytes);
   for (const part of encoded) if (part.length > MAX_PART) throw new RangeError('an AAD part is longer than 65,535 bytes');
   const out = new Uint8Array(PREFIX.length + encoded.reduce((n, p) => n + 2 + p.length, 0));
@@ -29,17 +29,17 @@ export function aad(parts: readonly string[]): Uint8Array {
 }
 
 /** A row's locked value: bound to its format version, its key, its table, its row and its slot. */
-export function envAad(v: number, k: string, ctx: EnvelopeContext): Uint8Array {
+export function envAad(v: number, k: string, ctx: EnvelopeContext): Uint8Array<ArrayBuffer> {
   return aad([PURPOSES.env, String(v), k, ctx.table, ctx.id, ctx.slot]);
 }
 
 /** A portable copy of the master key: bound to how it opens, which master key, and its KDF settings. */
-export function wrapAad(method: 'passphrase' | 'recovery', kid: string, kdf: object): Uint8Array {
+export function wrapAad(method: 'passphrase' | 'recovery', kid: string, kdf: object): Uint8Array<ArrayBuffer> {
   return aad([PURPOSES.wrap, method, kid, sortedJson(kdf)]);
 }
 
 /** The words key or the record key under the master key: bound to its own id and the master key's. */
-export function dkAad(v: number, dataKeyId: string, kid: string): Uint8Array {
+export function dkAad(v: number, dataKeyId: string, kid: string): Uint8Array<ArrayBuffer> {
   return aad([PURPOSES.dk, String(v), dataKeyId, kid]);
 }
 
