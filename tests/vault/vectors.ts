@@ -24,3 +24,18 @@ export const AAD_VECTORS = {
   wrapPassphrase: '646331000477726170000a7061737370687261736500164d7a4d7a4d7a4d7a4d7a4d7a4d7a4d7a4d7a4d7a4d7700657b22616c67223a2270626b6466322d736861323536222c22697465726174696f6e73223a3630303030302c226e6f726d223a22757466382d6e66632d7472696d2d7631222c2273616c74223a2252455245524552455245524552455245524552455241227d',
   dkWords: '6463310002646b00013100164969496949694969496949694969496949694969496700164d7a4d7a4d7a4d7a4d7a4d7a4d7a4d7a4d7a4d7a4d77',
 } as const;
+
+/** Recovery codes: 25 bytes as hex, and how they print. */
+export const RECOVERY_VECTORS = [
+  { bytes: '00'.repeat(25), text: '00000 00000 00000 00000 00000 00000 00000 00000 0' },
+  { bytes: 'ff'.repeat(25), text: 'ZZZZZ ZZZZZ ZZZZZ ZZZZZ ZZZZZ ZZZZZ ZZZZZ ZZZZZ *' },
+  { bytes: '000102030405060708090a0b0c0d0e0f101112131415161718', text: '000G4 0R40M 30E20 9185G R38E1 W8124 GK2GA HC5RR U' },
+] as const;
+
+/** How a typed passphrase becomes bytes: NFC, trimmed, UTF-8. */
+export const NORM_VECTORS = [
+  { text: 'caf\u00e9', bytes: '636166c3a9' },
+  { text: 'cafe\u0301', bytes: '636166c3a9' },
+  { text: '  a b  ', bytes: '612062' },
+  { text: '\u00a0x\u3000', bytes: '78' },
+] as const;

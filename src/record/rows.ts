@@ -1,4 +1,5 @@
 import type { Envelope } from '../vault/cipher.ts';
+import type { KdfSettings } from '../vault/kdf.ts';
 
 // The rows as stored. Only ids, dates and change stamps are plain; everything else is inside the
 // locked values `r` (under the record key) and `w` (under the words key). A deleted row is a
@@ -28,9 +29,7 @@ export interface CueRow extends Stamps, Locked { readonly id: string }
 export interface ReviewRow extends Stamps, Locked { readonly key: string; readonly period_start: string; readonly period_end: string }
 
 /** How a key-wrapping key is derived; kept with the wrap so it can be opened again later. */
-export type Kdf =
-  | { readonly alg: 'pbkdf2-sha256'; readonly iterations: number; readonly salt: string; readonly norm: 'utf8-nfc-trim-v1' }
-  | { readonly alg: 'hkdf-sha256'; readonly salt: string; readonly info: 'dc/recovery/v1' };
+export type Kdf = KdfSettings;
 
 /** A portable copy of the master key, wrapped by the passphrase or by the recovery code. */
 export interface WrapperRow {
