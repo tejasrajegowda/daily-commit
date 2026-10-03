@@ -50,9 +50,11 @@ export function openSheet(nowMs: number, lastWriteMs: number | undefined, rule: 
 /**
  * The moment and the day a save is judged by. A sheet keeps its own until 10 minutes past the
  * boundary that ends its day, so a save just after 04:00 still lands where the person meant; after
- * that, or without a sheet, the save is judged at save time.
+ * that, or without a sheet, the save is judged at save time. The grace runs from the later of now
+ * and the last write, so a clock set back can't keep an old sheet's day alive.
  */
 export function judged(sheet: Sheet | undefined, nowMs: number, lastWriteMs: number | undefined, rule: DayRule): { readonly at: number; readonly today: LocalDate } {
-  if (sheet && appDay(nowMs - SHEET_GRACE_MS, rule) <= sheet.today) return { at: sheet.openedAt, today: sheet.today };
+  const latest = Math.max(nowMs, lastWriteMs ?? nowMs);
+  if (sheet && appDay(latest - SHEET_GRACE_MS, rule) <= sheet.today) return { at: sheet.openedAt, today: sheet.today };
   return { at: nowMs, today: todayOf(nowMs, lastWriteMs, rule) };
 }

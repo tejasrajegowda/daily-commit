@@ -4,6 +4,8 @@ import { clockMinuteOf } from '../../src/rules/dates.ts';
 import { toDayMinute } from '../../src/rules/clock.ts';
 import { isOpen } from '../../src/record/seal.ts';
 import { beforeBoundary, judged, openSheet, todayOf } from '../../src/record/time.ts';
+import { setSetting } from '../../src/record/ops/settings.ts';
+import { openedRecord } from './helpers.ts';
 
 const rule = { tz: 'UTC', boundary: 240 };
 const at = (iso: string) => Date.parse(iso);
@@ -50,4 +52,23 @@ test('a plan may go on any day from yesterday on; nothing goes on an older day',
   assert.equal(isOpen('2026-09-26', 'plan', today, false), true);
   assert.equal(isOpen('2026-09-25', 'plan', today, false), false);
   assert.equal(isOpen('2026-09-28', 'value', today, false), false);
+});
+
+test('a sheet left open does not outlive a later save: with the clock set back, its old day stays closed', () => {
+  const sheet = openSheet(at('2026-10-05T22:00:00Z'), undefined, rule);
+  const lastWrite = at('2026-10-07T10:00:00Z');                                // a later save, made elsewhere
+  const judgedNow = judged(sheet, at('2026-10-05T23:00:00Z'), lastWrite, rule);  // the clock set back
+  assert.equal(judgedNow.today, '2026-10-07');
+  assert.equal(isOpen('2026-10-04', 'value', judgedNow.today, false), false);
+});
+
+test('a change of timezone or boundary that would move today back is refused; one that keeps it is saved', async () => {
+  const { core, clock } = await openedRecord('2026-01-07T03:00:00Z');         // boundary 04:00: today is the 6th
+  assert.equal((await setSetting(core, 'boundary', 120)).kind, 'Saved');        // 02:00: today moves on to the 7th
+  const back = await setSetting(core, 'boundary', 240);                         // would make today the 6th again
+  assert.equal(back.kind, 'Invalid');
+  assert.equal(core.session?.model.settings.boundary, 120);
+  assert.equal((await setSetting(core, 'tz', 'America/New_York')).kind, 'Invalid');   // 22:00 on the 6th there
+  clock.set('2026-01-07T04:30:00Z');
+  assert.equal((await setSetting(core, 'boundary', 240)).kind, 'Saved');        // past 04:00 it keeps the 7th
 });

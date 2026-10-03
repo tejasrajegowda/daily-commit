@@ -14,6 +14,8 @@ import { COPY_LIFE_MS, KEEP_COPIES, keepCopy, pruneCopies } from '../../src/reco
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../src/record/backup/format.ts';
 import { restore } from '../../src/record/backup/restore.ts';
+import { LATEST } from '../../src/record/backup/snapshot.ts';
+import { closeSession } from '../../src/record/ops/session.ts';
 import { filledRecord, freshDb } from './helpers.ts';
 import { failAtRow } from './faults.ts';
 import { SETTINGS, VAULT, WRAPPERS, testClock } from './fixtures.ts';
@@ -118,7 +120,8 @@ test('"replace everything" keeps a safety copy first, then replaces every row an
   assert.equal(c.core.session, undefined);
   assert.deepEqual(await rowsOf(c.db), await rowsOf(a.db));
   assert.deepEqual(await c.db.device.get('device_id'), device);
-  const copies = [...m.store.keys()];
+  const copies = [...m.store.keys()].filter(p => p.startsWith('safety/'));
+  assert.deepEqual([...m.store.keys()].filter(p => !p.startsWith('safety/')), [LATEST]);   // the restored file is the latest snapshot
   assert.equal(copies.length, 1);
   assert.match(copies[0] ?? '', /^safety\/\d{13}\.dcbak$/);
   const safety = readFrame(m.store.get(copies[0] ?? '') ?? new Uint8Array());
@@ -211,4 +214,25 @@ test('private copies keep at most two, and each goes after 7 days', async () => 
   assert.deepEqual([...m.store.keys()].sort(), [`safety/${t0 + day}.dcbak`, `safety/${t0 + 2 * day}.dcbak`]);
   await pruneCopies(m.files, 'safety', t0 + day + COPY_LIFE_MS);
   assert.deepEqual([...m.store.keys()], [`safety/${t0 + 2 * day}.dcbak`]);
+});
+
+test('after "replace everything", the restored file is the latest snapshot, not the data it replaced', async () => {
+  const a = await filledRecord();
+  const file = await exportOf(a.core);
+  const c = await filledRecord();
+  const m = memoryFiles();
+  c.clock.advance(3_600_000);
+  assert.equal(await closeSession(c.core, { files: m.files, sleep: () => new Promise<void>(() => {}), appVersion: '0.1.0' }), 'written');
+  await c.core.unlock(guarded(stubCipher()), opener());
+  assert.deepEqual(await restore(c.core, { file, secret: PASS, backupCipher: opener(), replace: REPLACE(m.files) }), { kind: 'Restored' });
+  assert.deepEqual(m.store.get(LATEST), file);
+});
+
+test('a private copy dated well ahead of the clock goes too; one only a little ahead is kept', async () => {
+  const m = memoryFiles();
+  const t0 = Date.UTC(2026, 0, 5);
+  await keepCopy(m.files, 'safety', t0 + 30 * 86_400_000, 'dcbak', Uint8Array.of(1));   // made while the clock was a month ahead
+  await keepCopy(m.files, 'safety', t0 + 3_600_000, 'dcbak', Uint8Array.of(2));         // the clock since set back an hour
+  await pruneCopies(m.files, 'safety', t0);
+  assert.deepEqual([...m.store.keys()], [`safety/${t0 + 3_600_000}.dcbak`]);
 });

@@ -24,9 +24,13 @@ export async function keepCopy(files: SnapshotFiles, dir: string, nowMs: number,
   for (const name of names.slice(0, Math.max(0, names.length - KEEP_COPIES))) await files.remove(`${dir}/${name}`);
 }
 
-/** Removes the copies made 7 days ago or more. */
+/**
+ * Removes the copies made 7 days ago or more, and any dated more than 7 days ahead: one made while
+ * the clock ran far ahead would otherwise never age once the clock was put right.
+ */
 export async function pruneCopies(files: SnapshotFiles, dir: string, nowMs: number): Promise<void> {
   for (const name of await copiesIn(files, dir)) {
-    if (nowMs - Number(NAME.exec(name)?.[1]) >= COPY_LIFE_MS) await files.remove(`${dir}/${name}`);
+    const age = nowMs - Number(NAME.exec(name)?.[1]);
+    if (age >= COPY_LIFE_MS || age < -COPY_LIFE_MS) await files.remove(`${dir}/${name}`);
   }
 }

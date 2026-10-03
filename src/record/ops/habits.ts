@@ -1,7 +1,7 @@
 import type { Asked, HabitKind, LocalDate, ScheduleEntry, Target, Tier, TierPeriod, Weekday } from '../../rules/types.ts';
 import type { Cue, CueTimes } from '../../rules/cues.ts';
 import { addDays } from '../../rules/dates.ts';
-import { isRetired, scheduleOn, tierOn } from '../../rules/state.ts';
+import { inPlan, isRetired, scheduleOn, tierOn } from '../../rules/state.ts';
 import type { Put, RecordCore } from '../core.ts';
 import type { CueRecord, HabitRecord, Model } from '../model.ts';
 import { cueToParts, defined, habitToParts } from '../mapping.ts';
@@ -74,11 +74,21 @@ function startEarlier<T extends { readonly from: LocalDate }>(history: readonly 
   return history.map((e, i) => (i === 0 && e.from > day ? { ...e, from: day } : e));
 }
 
-/** How many habits are in Focus on a day, leaving out any that has retired. */
+/** How many habits are in the plan and in Focus on a day. */
 function focusCount(habits: Iterable<HabitRecord>, day: LocalDate): number {
   let n = 0;
-  for (const h of habits) if (!isRetired(h) && tierOn(h, day) === 'focus') n++;
+  for (const h of habits) if (inPlan(h, day) && tierOn(h, day) === 'focus') n++;
   return n;
+}
+
+/** Refuses a change that would put more than three habits in Focus on any day from `from` to `today`. */
+function tooManyInFocus(model: Model, changed: HabitRecord, from: LocalDate, today: LocalDate): Refusal | undefined {
+  const after = new Map(model.habits);
+  after.set(changed.id, changed);
+  for (let day = from; day <= today; day = addDays(day, 1)) {
+    if (focusCount(after.values(), day) > MAX_FOCUS) return invalid('three habits are in Focus already');
+  }
+  return undefined;
 }
 
 /** One habit changed by `change`, checked and stored. */
@@ -121,7 +131,8 @@ export function createHabit(core: RecordCore, input: NewHabit): Promise<Result<v
       });
       const problem = habitProblem(habit, s.model.settings.boundary);
       if (problem) return invalid(problem);
-      if (input.tier === 'focus' && focusCount(others, today) >= MAX_FOCUS) return invalid('three habits are in Focus already');
+      const crowded = input.tier === 'focus' ? tooManyInFocus(s.model, habit, from, today) : undefined;
+      if (crowded) return crowded;
       const cues: CueRecord[] = (input.cues ?? []).map(c => defined({
         id: c.id, habitId: input.id, kind: 'cue' as const, text: c.text, times: c.times, fade: c.fade,
         enabled: true, createdOn: s.model.cues.get(c.id)?.createdOn ?? today, private: c.private,
@@ -164,10 +175,11 @@ export function editHabit(core: RecordCore, change: HabitChange): Promise<Result
       schedule = startEarlier(schedule, change.startedOn);
       tierHistory = startEarlier(tierHistory, change.startedOn);
     }
-    return defined({
+    const next = defined({
       ...h, name: change.name?.trim() ?? h.name, sub: change.sub ?? h.sub, target: change.target ?? h.target,
       order: change.order ?? h.order, periods, schedule, tierHistory,
     });
+    return change.startedOn !== undefined ? tooManyInFocus(model, next, change.startedOn, today) ?? next : next;
   });
 }
 
@@ -181,12 +193,14 @@ export function retireHabit(core: RecordCore, input: { readonly id: string; read
 }
 
 export function returnHabit(core: RecordCore, input: { readonly id: string; readonly sheet?: Sheet }): Promise<Result<void>> {
-  return changeHabit(core, input.id, input.sheet, (h, today) => {
+  return changeHabit(core, input.id, input.sheet, (h, today, model) => {
     const last = h.periods.at(-1);
     if (!last || last.until === undefined) return invalid('not retired');
     // back before a day was missed: the retire is simply undone
-    if (last.until >= today) return { ...h, periods: [...h.periods.slice(0, -1), { from: last.from }] };
-    return { ...h, periods: [...h.periods, { from: today }] };
+    const next: HabitRecord = last.until >= today
+      ? { ...h, periods: [...h.periods.slice(0, -1), { from: last.from }] }
+      : { ...h, periods: [...h.periods, { from: today }] };
+    return tooManyInFocus(model, next, today, today) ?? next;
   });
 }
 

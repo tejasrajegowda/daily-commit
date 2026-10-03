@@ -133,3 +133,15 @@ test('a damaged latest.dcbak is replaced at the next lock, and never kept in old
   assert.deepEqual([...m.store.keys()], [LATEST]);
   assert.doesNotThrow(() => readFrame(m.store.get(LATEST) ?? new Uint8Array()));
 });
+
+test('a clock set back after an idle lock still writes the next change', async () => {
+  const { core, clock } = await filledRecord();
+  const m = memoryFiles();
+  const close = closer(core, m.files);
+  clock.advance(2 * 3_600_000);                                            // the app sat open two hours
+  assert.equal(await close(), 'written');
+  clock.advance(-3_600_000);                                               // then the clock is corrected back an hour
+  await reopen(core);
+  assert.equal((await setSetting(core, 'wakePlan', 400)).kind, 'Saved');
+  assert.equal(await close(), 'written');
+});

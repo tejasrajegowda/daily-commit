@@ -10,6 +10,7 @@ import { BODY_TABLES, gunzip, parseBody, type StoredRows } from './body.ts';
 import { SAFETY, keepCopy } from './copies.ts';
 import { sealBackup } from './export.ts';
 import { readFrame, type BackupHeader } from './format.ts';
+import { LATEST, writeSnapshot } from './snapshot.ts';
 
 // Restore, in two phases. First everything is checked, outside any transaction: the file opens
 // with the secret, its header agrees with its vault, and every locked value inside opens under the
@@ -105,7 +106,22 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
     if (!safety) return { kind: 'Locked' };
     await keepCopy(replace.files, SAFETY, core.now(), 'dcbak', safety.bytes);
   }
-  return core.serial(() => replaceAll(core, checked.header, upgradeTables(checked.tables, checked.header.schema_version, input.schemas), replace !== undefined));
+  const result = await core.serial(() => replaceAll(core, checked.header, upgradeTables(checked.tables, checked.header.schema_version, input.schemas), replace !== undefined));
+  if (result.kind === 'Restored' && replace) await becomeLatest(replace.files, input.file);
+  return result;
+}
+
+/**
+ * After "replace everything", the file just restored becomes the latest snapshot: it is a sealed
+ * backup of exactly the rows now stored, and the old latest holds the data that was replaced. If it
+ * can't be written, the old latest is removed, so the next lock writes a fresh one.
+ */
+async function becomeLatest(files: SnapshotFiles, file: Uint8Array): Promise<void> {
+  try {
+    await writeSnapshot(files, { bytes: file });
+  } catch {
+    await files.remove(LATEST).catch(() => {});
+  }
 }
 
 /** Phase 2: one transaction that clears and adds. A failed add is never caught, so it undoes everything. */

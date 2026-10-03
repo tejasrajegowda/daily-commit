@@ -39,12 +39,14 @@ function madeAt(file: Uint8Array | undefined): number | undefined {
 
 /**
  * Seals a snapshot if anything changed since the last one, or returns undefined. Runs inside the
- * lock's turn in the write queue, while the keys are still in memory.
+ * lock's turn in the write queue, while the keys are still in memory. "Changed" is a write stored
+ * in this session (the stamps alone miss one made after the clock was set back), or a newest stamp
+ * later than the last snapshot (a write whose snapshot failed in an earlier session).
  */
 export async function sealSnapshot(db: RecordDb, session: Session, files: SnapshotFiles, now: number, options: BackupOptions): Promise<SealedSnapshot | undefined> {
   const previous = await files.read(LATEST);
   const previousAt = madeAt(previous);
-  if (previousAt !== undefined && (session.lastWriteMs ?? 0) <= previousAt) return undefined;
+  if (previousAt !== undefined && !session.changed && (session.lastWriteMs ?? 0) <= previousAt) return undefined;
   const { bytes, header } = await sealBackup(db, session, now, options);
   const rule = session.model.settings;
   const previousDay = previousAt === undefined ? undefined : appDay(previousAt, rule);

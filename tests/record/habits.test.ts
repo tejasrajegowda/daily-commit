@@ -119,3 +119,16 @@ test('a habit that makes no sense is refused, and nothing is stored', async () =
   for (const h of bad) assert.equal((await createHabit(core, h)).kind, 'Invalid', JSON.stringify(h));
   assert.equal(await db.habits.count(), 0);
 });
+
+test('Focus never holds more than three habits in the plan on any day: retiring, returning and backdating included', async () => {
+  const { core, clock } = await openedRecord();                                 // Monday 2026-01-05
+  for (const id of ['h-a', 'h-b', 'h-c']) assert.equal((await createHabit(core, walk({ id }))).kind, 'Saved');
+  assert.equal((await retireHabit(core, { id: 'h-a' })).kind, 'Saved');         // still in the plan today
+  assert.equal((await createHabit(core, walk({ id: 'h-d' }))).kind, 'Invalid', 'a retiring habit still counts today');
+  clock.set('2026-01-08T09:00:00Z');                                            // h-a is out of the plan now
+  assert.equal((await createHabit(core, walk({ id: 'h-d' }))).kind, 'Saved');
+  assert.equal((await returnHabit(core, { id: 'h-a' })).kind, 'Invalid', 'coming back in Focus would make four');
+  assert.equal((await createHabit(core, walk({ id: 'h-e', tier: 'log', startedOn: '2026-01-05' }))).kind, 'Saved');
+  assert.equal((await createHabit(core, walk({ id: 'h-f', startedOn: '2026-01-05' }))).kind, 'Invalid', 'a backdated Focus habit would make four on past days');
+  assert.equal((await editHabit(core, { id: 'h-d', startedOn: '2026-01-05' })).kind, 'Invalid', 'moving a Focus habit\'s start earlier would make four');
+});

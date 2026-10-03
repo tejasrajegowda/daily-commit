@@ -20,6 +20,8 @@ export interface Session {
   readonly deviceId: string;
   /** the newest change stamp; never stored, worked out at unlock */
   lastWriteMs: number | undefined;
+  /** whether a write was stored since unlock; the snapshot at lock needs it when the clock was set back */
+  changed: boolean;
 }
 
 /** The stamps every row a write touches will carry. */
@@ -137,7 +139,7 @@ export function openRecord(deps: RecordDeps): RecordCore {
       const device = await db.device.get('device_id');
       const lastWriteMs = await latestStamp(db);
       const model = await openModel(cipher, raw);
-      session = { cipher, backup, model, deviceId: String(device?.value ?? ''), lastWriteMs };
+      session = { cipher, backup, model, deviceId: String(device?.value ?? ''), lastWriteMs, changed: false };
     }),
     lock: <T>(beforeDrop?: (session: Session) => Promise<T>) => serial(async (): Promise<T | undefined> => {
       const open = session;
@@ -158,6 +160,7 @@ export function openRecord(deps: RecordDeps): RecordCore {
       if (outcome === 'quota-full') return quotaFull();
       if (outcome !== 'committed') return outcome;
       s.lastWriteMs = stamp.updated_at;
+      s.changed = true;
       plan.apply(s.model);
       return saved(plan.value);
     }),
