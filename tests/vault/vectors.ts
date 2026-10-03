@@ -64,3 +64,6 @@ export const GOLDEN_CODE = 'M2GT5 8X4MP KAFA5 9NANT SBDEN YRB3C NKPJT VDDXR E';
 
 /** The record key sealing "CANARY-TEST" into an observation's r slot, its IV from counterRandom(200). */
 export const GOLDEN_ENVELOPE = {"v": 1, "k": "kJGSk5SVlpeYmZqbnJ2enw", "iv": "yMnKy8zNzs_Q0dLT", "ct": "LPIm3v37E6899EkmYDIldVlVjqQCCDz3IG8c"};
+
+/** "CANARY-TEST body" sealed under the golden vault's backup key, header bytes '{"h":1}', IV twelve 0x77 bytes; hex. */
+export const GOLDEN_BODY = '8485b5a7900a7412dc1a8857066f2ba767c6001c39310108c7833010d350c445';
