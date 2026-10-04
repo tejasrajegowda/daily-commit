@@ -39,6 +39,33 @@ function knownZone(v: unknown): boolean {
   }
 }
 
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+const labelOk = (v: unknown) => typeof v === 'string' && v.trim().length >= 1 && v.length <= 40;
+
+/** A day's shape: a window, blocks inside it, steps in time order, and lights-out, all clock times. */
+function shapeProblem(v: unknown): string | undefined {
+  if (!isObj(v) || !isObj(v.window) || !Array.isArray(v.blocks) || !Array.isArray(v.steps)) return 'not a day shape';
+  const { from, to } = v.window;
+  if (!intIn(from, 0, 1439) || !intIn(to, 0, 1439) || (to as number) <= (from as number)) return 'its window is not a span of the day';
+  if (!intIn(v.lightsOut, 0, 1439)) return 'lights-out is not a clock time';
+  for (const b of v.blocks) {
+    if (!isObj(b) || !labelOk(b.label) || !intIn(b.start, 0, 1439) || !intIn(b.end, 0, 1439)) return 'a block is not a block';
+    if ((b.start as number) >= (b.end as number) || (b.start as number) < (from as number) || (b.end as number) > (to as number)) return 'a block is outside its window';
+  }
+  let last = -1;
+  for (const s of v.steps) {
+    if (!isObj(s) || !labelOk(s.label) || !intIn(s.at, 0, 1439)) return 'a step is not a step';
+    if ((s.at as number) <= last) return 'the steps are not in time order';
+    last = s.at as number;
+  }
+  return undefined;
+}
+
+function shapesProblem(v: unknown): string | undefined {
+  if (!isObj(v)) return 'not a weekday and a weekend shape';
+  return shapeProblem(v.weekday) ?? shapeProblem(v.weekend);
+}
+
 /** What is wrong with one setting's value, or undefined if nothing is. */
 export function settingProblem(name: keyof Settings, value: unknown): string | undefined {
   switch (name) {
@@ -49,6 +76,8 @@ export function settingProblem(name: keyof Settings, value: unknown): string | u
     case 'journeyStart': return realDate(value) ? undefined : 'not a date';
     case 'cuesOn': return typeof value === 'boolean' ? undefined : 'not on or off';
     case 'contact': return typeof value === 'string' ? undefined : 'not text';
+    case 'paused': return typeof value === 'boolean' ? undefined : 'not on or off';
+    case 'dayShapes': return shapesProblem(value);
   }
 }
 

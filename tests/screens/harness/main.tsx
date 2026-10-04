@@ -17,7 +17,8 @@ import { fakePlugin } from '../../vault/fakePlugin.ts';
 import '../../../src/ui/fonts.css';
 import '../../../src/ui/app.css';
 import { HARNESS_CODE, HARNESS_PASSPHRASE, seedRecord } from './seed.ts';
-import { nowOf, readState, type HarnessState } from './state.ts';
+import { dateOfDay, nowOf, readState, type HarnessState } from './state.ts';
+import { closeDay } from '../../../src/record/ops/days.ts';
 
 const DB_NAME = 'daily-commit-harness';
 const SCREENS: readonly ScreenId[] = ['today', 'look', 'habit', 'week', 'month', 'diary', 'notyet', 'plan', 'settings', 'support', 'restore', 'secret'];
@@ -103,6 +104,10 @@ async function enrolFor(state: HarnessState, core: RecordCore, phone: ReturnType
 
 /** What happened before the screen is drawn, for the states that show an outcome. */
 async function prelude(state: HarnessState, deps: AppDeps, phone: ReturnType<typeof fakePlugin>): Promise<void> {
+  if (state.screen === 'today' && state.variant === 'closed') {
+    const today = dateOfDay(state.day);
+    await deps.store.run(core => closeDay(core, { date: today, lightsOut: state.minute }));
+  }
   if (state.screen !== 'lock') return;
   if (state.variant === 'five') for (let i = 0; i < 5; i++) await deps.lock.unlock({ mode: 'own-code', code: '000000' });
   if (state.variant === 'newfinger') {

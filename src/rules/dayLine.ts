@@ -22,6 +22,12 @@ export interface DayShape {
   readonly lightsOut: ClockMinute;
 }
 
+/** The two shapes a week has. */
+export interface DayShapes {
+  readonly weekday: DayShape;
+  readonly weekend: DayShape;
+}
+
 /** Saturday and Sunday use the weekend shape; every other day the weekday one. */
 export function shapeFor(date: LocalDate, weekday: DayShape, weekend: DayShape): DayShape {
   return weekdayOf(date) >= 5 ? weekend : weekday;

@@ -1,0 +1,92 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { DEFAULT_SHAPES } from '../../src/app/dayShapes.ts';
+import { rulesInput } from '../../src/record/read.ts';
+import { closeDay } from '../../src/record/ops/days.ts';
+import { logObservation } from '../../src/record/ops/observations.ts';
+import { todayView, skyWords, valueText } from '../../src/today/todayView.ts';
+import { freshDb } from '../record/helpers.ts';
+import { dateOfDay, readState } from '../screens/harness/state.ts';
+import { seedRecord } from '../screens/harness/seed.ts';
+
+async function viewAt(hash: string) {
+  const state = readState(hash);
+  const seeded = await seedRecord(freshDb(), state);
+  const model = seeded.core.session!.model;
+  return { ...seeded, model, today: dateOfDay(state.day), view: () => todayView(rulesInput(model), model, dateOfDay(state.day), state.minute) };
+}
+
+const names = (rows: readonly { readonly habit: { readonly name: string } }[]) => rows.map(r => r.habit.name);
+
+test('a weekday morning: Focus first (Wake up leads), then the morning Log; keys in drawn order', async () => {
+  const { view } = await viewAt('#age=17&t=06:05');
+  const v = view();
+  assert.equal(v.part, 'morning');
+  assert.equal(v.dayNumber, 17);
+  assert.deepEqual(names(v.morningRows), ['Wake up', 'Walk', 'Practice', 'Plan the day']);
+  assert.deepEqual(v.morningRows.map(r => r.key), [1, 2, 3, 4]);
+  assert.deepEqual(v.openFocus, []);
+});
+
+test('a Saturday has no Practice, and before day 30 there is no Stretch', async () => {
+  const { view } = await viewAt('#age=20&t=10:30');
+  assert.ok(!names(view().morningRows).includes('Practice'));
+  assert.ok(!names(view().morningRows).includes('Stretch'));
+  const later = await viewAt('#age=31&t=10:30');
+  assert.ok(names(later.view().morningRows).includes('Stretch'));
+});
+
+test('the evening lists tonight\'s Log, then Focus still open; answered Focus moves to the chips', async () => {
+  const { core, today, view } = await viewAt('#age=17&t=21:30');
+  let v = view();
+  assert.equal(v.part, 'evening');
+  assert.deepEqual(names(v.eveningRows), ['Read', 'Tidy up', 'Water', 'Mood']);
+  assert.deepEqual(names(v.openFocus), ['Wake up', 'Walk', 'Practice']);
+  assert.equal(v.restOffer, true);
+  assert.equal((await logObservation(core, { habitId: 'h-walk', date: today, value: 'did' })).kind, 'Saved');
+  v = view();
+  assert.deepEqual(names(v.earlier), ['Walk']);
+  assert.deepEqual(names(v.openFocus), ['Wake up', 'Practice']);
+});
+
+test('after the day is closed it is closed, whatever the time', async () => {
+  const { core, today, view } = await viewAt('#age=17&t=22:58');
+  assert.equal((await closeDay(core, { date: today, lightsOut: 1378 })).kind, 'Saved');
+  assert.equal(view().part, 'closed');
+  assert.ok(view().closedAt);
+});
+
+test('no rest day before day 14', async () => {
+  const { view } = await viewAt('#age=10&t=21:30');
+  assert.equal(view().restOffer, false);
+});
+
+test('invariant 4: the morning screen holds nothing from a day before today', async () => {
+  const { view, model, today } = await viewAt('#age=40&t=07:00');
+  const v = view();
+  for (const r of v.morningRows) assert.equal(r.value, model.observations.get(`${r.habit.id}|${today}`)?.value);
+  assert.equal(v.intent, model.days.get(today)?.intent);
+});
+
+test('values read as they are written beside a row', () => {
+  assert.equal(valueText('time', 365), '06:05');
+  assert.equal(valueText('time', 1470), '00:30');
+  assert.equal(valueText('min', 45), '45m');
+  assert.equal(valueText('min', 60), '1h');
+  assert.equal(valueText('min', 90), '1h 30m');
+  assert.equal(valueText('tri', 'partly'), 'partly');
+  assert.equal(valueText('tri', 'not'), 'not today');
+  assert.equal(valueText('tri', 'did'), '');
+  assert.equal(valueText('mood', 4), '4');
+  assert.equal(valueText('tri', undefined), '');
+});
+
+test('the sky says where you are and what is next, from the day shape', () => {
+  const shape = DEFAULT_SHAPES.weekday;
+  assert.deepEqual(skyWords(shape, 300, 240), ['Before the day', 'Up at 06:00']);
+  assert.deepEqual(skyWords(shape, 400, 240), ['Morning', 'Midday at 12:00']);
+  assert.deepEqual(skyWords(shape, 1350, 240), ['Evening', 'Yours until 23:00']);
+  assert.deepEqual(skyWords(shape, 1390, 240), ['Lights out', 'Tomorrow starts at 06:00']);
+  assert.deepEqual(skyWords(shape, 30, 240), ['Lights out', 'Tomorrow starts at 06:00']);
+  for (const t of [0, 300, 700, 1100, 1300, 1439]) assert.doesNotMatch(skyWords(shape, t, 240).join(' '), /[!%]/);
+});

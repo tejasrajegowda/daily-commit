@@ -24,6 +24,7 @@ export { NOTE_WORDS } from './lockNotes.ts';
 export { resultWords } from './resultWords.ts';
 export { finishFirstRun, firstSettings, MIN_PASSPHRASE_CHARS, passphraseLongEnough, prepareVault, sameRecoveryCode, type Prepared } from './firstRunFlow.ts';
 export { readBackupFile, restoreWith, type FileRead, type RestoreMessage, type RestoreStep } from './restoreSteps.ts';
+export { DEFAULT_SHAPES, shapesOf } from './dayShapes.ts';
 
 /** The phone, or the browser standing in for it. */
 export interface DevicePort {

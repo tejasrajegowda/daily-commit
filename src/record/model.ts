@@ -1,5 +1,6 @@
 import type { ClockMinute, DayMinute, Habit, HabitKind, LocalDate, Observation } from '../rules/types.ts';
 import type { Cue } from '../rules/cues.ts';
+import type { DayShapes } from '../rules/dayLine.ts';
 
 // The record as the app works with it once unlocked: the rules' own shapes and units, plus the
 // words and bookkeeping the rules never see. Held in memory only while unlocked.
@@ -76,6 +77,10 @@ export interface Settings {
   readonly lightsOutPlan: ClockMinute;
   readonly cuesOn: boolean;
   readonly contact?: string;
+  /** the blocks and steps of a weekday and of a weekend day; the app's plain default until set */
+  readonly dayShapes?: DayShapes;
+  /** tracking paused: habits hidden, nothing sent; the diary carries on */
+  readonly paused?: boolean;
 }
 
 /** Everything open, in memory. Changed only by record/, after a write has committed. */

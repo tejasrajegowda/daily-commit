@@ -91,7 +91,7 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await h.open(p, 's=today');
   await shows(p, '.today');
   await p.tap('.dock button[data-x="look"]');
-  check('the dock moves between sections', (await p.locator('h1.t-l').innerText()) === 'Look back'
+  check('the dock moves between sections', (await p.locator('h1.t-l').first().innerText()) === 'Look back'
     && (await p.locator('.dock button.on').getAttribute('data-x')) === 'look');
 }
 
@@ -188,6 +188,60 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Replace everything ends Restored', await shows(p, '[data-a="open"]', 20000));
   await p.tap('[data-a="open"]');
   check('... and Open shows the lock', await shows(p, '.lk-pass'));
+}
+
+// Today
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  const valOf = id => p.locator(`.row[data-x="${id}"] .val`).innerText();
+  await h.open(p, 's=today&t=06:05');
+  await shows(p, '.today .row');
+  await p.tap('.row[data-x="h-wake"]');
+  check('Today: tapping an empty time row records now', await until(() => document.querySelector('.row[data-x="h-wake"] .val')?.textContent?.includes('06:05')));
+  await p.tap('.row[data-x="h-plan"]');
+  check('Today: a three-way row opens three choices', (await p.locator('.row[data-x="h-plan"] .opt').count()) === 3);
+  await p.tap('.row[data-x="h-plan"] .opt >> text=Partly');
+  check('Today: a choice sets partly', await until(() => document.querySelector('.row[data-x="h-plan"]')?.getAttribute('data-s') === 'partly'));
+  await p.tap('[data-a="sheet"]');
+  check("Today: the not-today sheet opens", await shows(p, '.sheet[role="dialog"]'));
+  await p.tap('[data-a="nt"][data-x="h-walk"]');
+  await p.tap('[data-a="sheet-ok"]');
+  check('Today: planning one marks it planned rest', await until(() => document.querySelector('.row[data-x="h-walk"]')?.getAttribute('data-s') === 'planned')
+    && (await valOf('h-walk')).includes('planned rest') && (await p.locator('.sheet').count()) === 0);
+  check('Today: the morning shows nothing written on an earlier day', !(await p.locator('#intent').inputValue()));
+  await p.tap('[data-a="sheet"]');
+  await shows(p, '.sheet[role="dialog"]');
+  await p.evaluate(() => window.harness.leave());
+  check('leaving with a sheet open leaves no sheet behind', await gone(p, '.sheet') && (await p.locator('.today').count()) === 0);
+
+  await h.open(p, 's=today&t=21:30');
+  await shows(p, '.today .mood');
+  await p.tap('.mood button[data-x="4"]');
+  check('Today: a mood tap sets 4', await until(() => document.querySelector('.mood button.on')?.textContent === '4'));
+  await p.tap('.row[data-x="h-wake"]');
+  await until(() => document.querySelector('.earlier')?.textContent?.includes('wake up'));
+  check('Today: a hard evening offers the rest day', (await p.locator('[data-a="rest"]').count()) === 2);
+  await p.tap('[data-a="rest"][data-x="use"]');
+  check('Today: the rest day marks only the Focus still unanswered', await until(() => (document.querySelector('.earlier')?.textContent?.split('planned rest').length ?? 0) - 1 === 2)
+    && !(await p.locator('.earlier').innerText()).includes('wake upplanned'));
+  await p.tap('[data-a="close"]');
+  check("Today: That's the day closes it", await until(() => document.querySelector('h1.t-xl')?.textContent?.includes("That's the day")));
+  await p.tap('[data-a="reopen"]');
+  check('Today: Open today again returns to the evening', await until(() => !document.querySelector('h1.t-xl')?.textContent?.includes("That's the day")) && await shows(p, '[data-a="close"]'));
+
+  await h.open(p, 's=today&t=10:30&age=20');
+  await shows(p, '.today .row');
+  check('Today: a Saturday has no weekday-only row', (await p.locator('.row[data-x="h-practice"]').count()) === 0);
+  await h.open(p, 's=today&t=22:58&v=closed');
+  check('Today: a closed day shows its card', await shows(p, '.closed-card'));
+
+  const q = await h.page(LAPTOP, errors);
+  await h.open(q, 's=today&t=06:05');
+  await shows(q, '.today .row');
+  await q.keyboard.press('1');
+  check('Today, laptop: key 1 marks the first row', await q.waitForFunction(() => document.querySelector('.row[data-x="h-wake"] .val')?.textContent?.includes('06:05'), null, { timeout: 8000 }).then(() => true, () => false));
+  check('Today, laptop: the shape of today is there', await q.locator('.shape .sh').count() > 3);
 }
 
 await h.close();
