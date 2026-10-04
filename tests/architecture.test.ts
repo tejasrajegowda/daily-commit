@@ -88,6 +88,25 @@ describe('dependency rule', () => {
     }
   });
 
+  it('features never import vault/, and reach app/ only through app/context.ts', () => {
+    for (const f of all.filter(f => FEATURES.includes(area(f)))) {
+      for (const spec of imports(f)) {
+        const t = target(f, spec);
+        assert.ok(t !== 'vault', `${relative(SRC, f)} imports ${spec}`);
+        if (t === 'app') assert.equal(relative(SRC, join(f, '..', spec)).split(sep).join('/'), 'app/context.ts', `${relative(SRC, f)} imports ${spec}`);
+      }
+    }
+  });
+
+  it('ui/ draws only: it imports only ui/ and React', () => {
+    for (const f of all.filter(f => area(f) === 'ui')) {
+      for (const spec of imports(f)) {
+        const t = target(f, spec);
+        assert.ok(t === 'ui' || spec === 'react' || spec.startsWith('react/') || spec.startsWith('react-dom'), `${relative(SRC, f)} imports ${spec}`);
+      }
+    }
+  });
+
   it('backup code copies rows as stored: no plaintext read side, nothing that opens one row', () => {
     const sample = join(SRC, 'record', 'backup', 'sample.ts');
     assert.deepEqual(backupBreaks(sample, "import { openModel } from '../read.ts';\nconst c = s.cipher;"), ['imports ../read.ts', 'uses openModel', 'uses .cipher']);

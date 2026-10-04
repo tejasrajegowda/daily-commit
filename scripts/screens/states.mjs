@@ -1,6 +1,11 @@
 // The harness states the screenshots and the design gate visit: [id, hash]. Each task adds its own.
 export const STATES = [
-  ['blank', 's=today'],
+  ['lock', 's=lock&t=06:05'],
+  ['lockown', 's=lock&v=own&t=06:05'],
+  ['lockpass', 's=lock&v=pass&t=06:05'],
+  ['lockfive', 's=lock&v=five&t=06:05'],
+  ['locknewfinger', 's=lock&v=newfinger&t=06:05'],
+  ['today-frame', 's=today&t=13:00'],
 ];
 
 /** The two sizes every screen is checked at: a small phone and a laptop. */
