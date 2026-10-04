@@ -58,7 +58,10 @@ export async function checkBackup(file: Uint8Array, secret: Secret, backupCipher
     }
   }
   try {
-    await Promise.all(values.map(({ ctx, env }) => opened.testOpen(vault.keys, ctx, env)));
+    // W and R are opened even when the file holds no locked value, so a file whose keys can't be
+    // opened as unlock opens them is refused here, before anything is written
+    await opened.openKeys(vault);
+    await Promise.all(values.map(({ ctx, env }) => opened.testOpen(vault, ctx, env)));
   } catch (e) {
     throw new BackupError(e instanceof CipherError && e.failure === 'newer-app' ? 'newer-app' : 'damaged');
   }

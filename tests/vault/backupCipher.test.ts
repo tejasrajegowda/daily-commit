@@ -74,10 +74,10 @@ test('test-open: a value of this vault opens; one moved, or another vault\'s, re
   const { made, wraps, sealed } = await golden();
   const opened = await backupCipher().openBody(HEADER, IV, sealed, wraps, PASS);
   const env = await rowCipher(made.keys).seal(OBS, utf8('CANARY-TEST'));
-  await opened.testOpen(made.vault.keys, OBS, env);
-  await assert.rejects(opened.testOpen(made.vault.keys, { ...OBS, id: 'moved' }, env), CipherError);
+  await opened.testOpen(made.vault, OBS, env);
+  await assert.rejects(opened.testOpen(made.vault, { ...OBS, id: 'moved' }, env), CipherError);
   const foreign = await rowCipher((await freshVault()).keys).seal(OBS, utf8('CANARY-TEST'));
-  await assert.rejects(opened.testOpen(made.vault.keys, OBS, foreign), (e: unknown) => e instanceof CipherError && e.failure === 'other-vault');
+  await assert.rejects(opened.testOpen(made.vault, OBS, foreign), (e: unknown) => e instanceof CipherError && e.failure === 'other-vault');
 });
 
 test('test-open unwraps W and R once for a whole file, not once per value', async (t) => {
@@ -85,7 +85,7 @@ test('test-open unwraps W and R once for a whole file, not once per value', asyn
   const opened = await backupCipher().openBody(HEADER, IV, sealed, wraps, PASS);
   const env = await rowCipher(made.keys).seal(OBS, utf8('CANARY-TEST'));
   const unwrap = t.mock.method(crypto.subtle, 'unwrapKey');
-  await Promise.all(Array.from({ length: 50 }, () => opened.testOpen(made.vault.keys, OBS, env)));
+  await Promise.all(Array.from({ length: 50 }, () => opened.testOpen(made.vault, OBS, env)));
   assert.equal(unwrap.mock.callCount(), 2);
 });
 

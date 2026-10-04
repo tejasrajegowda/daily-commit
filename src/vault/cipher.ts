@@ -77,15 +77,26 @@ export interface DataKeyWraps {
   readonly r: { readonly id: string; readonly wrap: Envelope };
 }
 
+/** A vault's key id with its wrapped words and record keys: what opening W and R needs. */
+export interface VaultKeyWraps {
+  readonly kid: string;
+  readonly keys: DataKeyWraps;
+}
+
 /** A backup body that opened. */
 export interface OpenedBackup {
   /** the body exactly as it was sealed */
   readonly body: Uint8Array;
   /**
+   * Checks that the backup's words and record keys open under its master key, naming its own
+   * vault, as unlock will open them. Resolves, or rejects with a CipherError.
+   */
+  openKeys(vault: VaultKeyWraps): Promise<void>;
+  /**
    * Checks that one locked value from the backup opens under the backup's own keys. It says
    * nothing about what is inside: it resolves, or rejects with a CipherError.
    */
-  testOpen(keys: DataKeyWraps, ctx: EnvelopeContext, env: Envelope): Promise<void>;
+  testOpen(vault: VaultKeyWraps, ctx: EnvelopeContext, env: Envelope): Promise<void>;
 }
 
 /**

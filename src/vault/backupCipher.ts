@@ -1,4 +1,4 @@
-import { BackupError, CipherError, type BackupCipher, type DataKeyWraps } from './cipher.ts';
+import { BackupError, CipherError, type BackupCipher, type VaultKeyWraps } from './cipher.ts';
 import { gcmOpen, gcmSeal } from './gcm.ts';
 import { checkKdf, type KekSecret } from './kdf.ts';
 import { deriveBackupKey, importMaster, openDataKeys, unwrapMaster, SecretError, type DataKeys, type OpenKeys } from './keys.ts';
@@ -46,16 +46,23 @@ export function backupCipher(keys?: Pick<OpenKeys, 'backup'>): BackupCipher {
       const body = await gcmOpen(await deriveBackupKey(base), new Uint8Array(iv), new Uint8Array(headerBytes), new Uint8Array(ct));
       if (!body) throw new BackupError('damaged');
       // W and R are opened once per set of wraps, not once per value: a backup holds thousands
-      const opened = new Map<DataKeyWraps, Promise<DataKeys>>();
+      const opened = new Map<VaultKeyWraps, Promise<DataKeys>>();
+      // under the vault's own key id, never the one a wrap names: a wrap naming another is refused
+      const keysOf = (vault: VaultKeyWraps) => {
+        let data = opened.get(vault);
+        if (!data) {
+          data = openDataKeys(master, vault);
+          opened.set(vault, data);
+        }
+        return data;
+      };
       return {
         body,
-        async testOpen(dataKeys, ctx, env) {
-          let data = opened.get(dataKeys);
-          if (!data) {
-            data = openDataKeys(master, { kid: dataKeys.w.wrap.k, keys: dataKeys });
-            opened.set(dataKeys, data);
-          }
-          (await rowCipher(await data).open(ctx, env)).fill(0);
+        async openKeys(vault) {
+          await keysOf(vault);
+        },
+        async testOpen(vault, ctx, env) {
+          (await rowCipher(await keysOf(vault)).open(ctx, env)).fill(0);
         },
       };
     },

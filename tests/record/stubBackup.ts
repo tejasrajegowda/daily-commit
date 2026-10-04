@@ -34,7 +34,8 @@ export function stubBackup(secrets: { readonly passphrase: string; readonly reco
       if (!same(ct.subarray(ct.length - 16), tagOf(headerBytes, iv, body))) throw new BackupError('damaged');
       return {
         body: body.slice(),
-        async testOpen(keys, ctx, env) {
+        async openKeys() {},
+        async testOpen({ keys }, ctx, env) {
           await stubCipher({ r: keys.r.id, w: keys.w.id }).open(ctx, env);
         },
       };

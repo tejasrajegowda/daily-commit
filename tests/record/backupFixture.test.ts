@@ -27,6 +27,6 @@ test('the checked-in v1 backup still reads: its frame, its header, both secrets,
   );
   const vault = tables.vault[0] as VaultRow;
   for (const row of tables.settings as readonly SettingRow[]) {
-    if (row.r) await byPass.testOpen(vault.keys, { table: TABLE_TAGS.settings, id: row.key, slot: 'r' }, row.r);
+    if (row.r) await byPass.testOpen(vault, { table: TABLE_TAGS.settings, id: row.key, slot: 'r' }, row.r);
   }
 });
