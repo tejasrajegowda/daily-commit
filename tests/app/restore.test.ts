@@ -15,6 +15,7 @@ import { replaceWrapper } from '../../src/record/ops/vault.ts';
 import { backupCipher } from '../../src/vault/backupCipher.ts';
 import type { Secret } from '../../src/vault/cipher.ts';
 import { enrolMode } from '../../src/vault/devices.ts';
+import type { VaultPlugin } from '../../src/vault/plugin.ts';
 import { systemRandom } from '../../src/vault/random.ts';
 import { changePassphrase, sessionCiphers, unlockWithSecret } from '../../src/vault/vault.ts';
 import { fillRecord, freshDb } from '../record/helpers.ts';
@@ -167,16 +168,60 @@ test('a phone copy left behind when forgetting failed still never opens the rest
   const other: Secret = { method: 'passphrase', text: 'CANARY other passphrase' };
   await enrolMode(await rowsOf(c.core), other, f.plugin, 'own-code', '24681357');
   await enrolMode(await rowsOf(c.core), other, f.plugin, 'fingerprint');
-  let refuseOnce = true;
+  let refusing = true;                                               // every delete fails during the restore, retry included
   const plugin = { ...f.plugin, remove: async (mode: Parameters<typeof f.plugin.remove>[0]) => {
-    if (refuseOnce) { refuseOnce = false; throw new Error('the phone did not answer'); }
+    if (refusing) throw new Error('the phone did not answer');
     return f.plugin.remove(mode);
   } };
   const m = memoryFiles();
   const machine = lockMachine({ core: c.core, plugin, close: { files: m.files, sleep: never, appVersion: '0.1.0' } });
   assert.deepEqual(await restoreBackup({ core: c.core, plugin, machine }, { file, secret: PASS, backupCipher: backupCipher(), replace: { files: m.files, appVersion: '0.1.0' } }), { kind: 'Restored' });
+  refusing = false;
   assert.deepEqual(machine.state, { kind: 'Locked', offered: ['own-code', 'fingerprint'] });   // left behind
   assert.deepEqual(await machine.unlock({ mode: 'fingerprint' }), { kind: 'CopyGone', offered: [] });
   assert.equal(f.copies.size, 0);
   assert.equal(c.core.session, undefined);
+});
+
+// ── Review R1: a restore of this same vault, and a restore that fails halfway.
+
+test('R1-4: a phone that refuses the first delete still loses every copy, so a copy of this same vault can\'t open the restored record', async () => {
+  const { core } = await realRecord();
+  const exported = await exportBackup(core, OPTS);
+  if (exported.kind !== 'Saved') throw new Error(exported.kind);
+  const f = fakePlugin();
+  assert.equal((await enrolMode(await rowsOf(core), PASS, f.plugin, 'own-code', '24681357')).kind, 'Enrolled');
+  assert.equal((await enrolMode(await rowsOf(core), PASS, f.plugin, 'fingerprint')).kind, 'Enrolled');
+  let refusals = 1;
+  const plugin: VaultPlugin = {
+    ...f.plugin,
+    remove: async mode => {
+      if (refusals > 0) { refusals -= 1; throw new Error('the phone did not answer'); }
+      return f.plugin.remove(mode);
+    },
+  };
+  const m = memoryFiles();
+  const machine = lockMachine({ core, plugin, close: { files: m.files, sleep: never, appVersion: '0.1.0' } });
+  const result = await restoreBackup({ core, plugin, machine }, { file: exported.value.bytes, secret: PASS, backupCipher: backupCipher(), replace: { files: m.files, appVersion: '0.1.0' } });
+  assert.equal(result.kind, 'Restored');
+  assert.equal(f.copies.size, 0);
+  assert.deepEqual(machine.state, { kind: 'Locked', offered: [] });
+  assert.equal((await machine.unlock({ mode: 'fingerprint' })).kind, 'CopyGone');
+  assert.equal(core.session, undefined);
+});
+
+test('R1-8: a restore that fails after the record was locked leaves the machine locked, not saying Open', async () => {
+  const { core } = await realRecord();
+  const exported = await exportBackup(core, OPTS);
+  if (exported.kind !== 'Saved') throw new Error(exported.kind);
+  const m = memoryFiles();
+  m.failOn('write tmp/safety');
+  const f = fakePlugin();
+  const machine = lockMachine({ core, plugin: f.plugin, close: { files: m.files, sleep: never, appVersion: '0.1.0' } });
+  await assert.rejects(
+    restoreBackup({ core, plugin: f.plugin, machine }, { file: exported.value.bytes, secret: PASS, backupCipher: backupCipher(), replace: { files: m.files, appVersion: '0.1.0' } }),
+    /injected failure/,
+  );
+  assert.equal(core.session, undefined);
+  assert.deepEqual(machine.state, { kind: 'Locked', offered: [] });
 });

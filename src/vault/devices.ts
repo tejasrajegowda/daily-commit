@@ -74,7 +74,15 @@ export type DeviceAuth = { readonly mode: 'phone-lock' | 'fingerprint' } | { rea
 
 /** Deletes every device copy: after a restore, and whenever one is found opening the wrong vault. */
 export async function forgetDevice(plugin: VaultPlugin): Promise<void> {
-  for (const mode of await offeredModes(plugin)) await plugin.remove(mode);
+  let failure: unknown;
+  for (const mode of await offeredModes(plugin)) {
+    try {
+      await plugin.remove(mode);
+    } catch (e) {
+      failure ??= e;                                     // the other copies are still deleted
+    }
+  }
+  if (failure !== undefined) throw failure;
 }
 
 /** Opens the vault with a device copy. */

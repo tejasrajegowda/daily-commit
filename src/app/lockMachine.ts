@@ -10,7 +10,8 @@ import { sessionCiphers, unlockWithSecret, type Unopened } from '../vault/vault.
 // The lock's order, as a small machine the screens follow. It never decides that the app was left:
 // the phone's own code decides that and says so. The machine keeps the order: the content blanks
 // at once, a snapshot is sealed while the keys are still there, the keys go, then the file is
-// written. Leaving at any moment, even halfway through an unlock, ends locked.
+// written. Leaving at any moment, even halfway through an unlock, ends locked. It never trusts its
+// own label: anything under way finishes first, then it reads whether the record is really open.
 
 export type LockState =
   /** `offered` is the device unlock choices; undefined while the phone hasn't answered yet */
@@ -62,21 +63,39 @@ export interface LockMachine {
 export function lockMachine(deps: LockDeps): LockMachine {
   const { core, plugin } = deps;
   let state: LockState = core.session ? { kind: 'Open' } : { kind: 'Locked', offered: undefined };
-  /** moved on by every leave, so an unlock started before it never opens anything */
+  /** moved on by every leave, so an unlock or a phone answer started before it is never applied */
   let turn = 0;
+  /** whether the app is in front; the lock screen is drawn only then */
+  let inFront = true;
   let unlocking: Promise<UnlockOutcome> | undefined;
   let leaving: Promise<SnapshotOutcome> | undefined;
   const listeners = new Set<(state: LockState) => void>();
 
   const set = (next: LockState) => {
     state = next;
-    for (const listener of listeners) listener(next);
+    for (const listener of [...listeners]) {
+      try {
+        listener(next);
+      } catch {
+        // a screen that fails to draw never stops the lock; the screens report their own errors
+      }
+    }
   };
 
-  /** Asks the phone which device copies exist, unless something else happened meanwhile. */
+  /** Waits until no unlock and no leave is under way, including one that starts while waiting. */
+  async function settled(): Promise<void> {
+    for (;;) {
+      const seen = [unlocking, leaving];
+      if (!seen[0] && !seen[1]) return;
+      await Promise.allSettled(seen);
+      if (unlocking === seen[0] && leaving === seen[1]) return;
+    }
+  }
+
+  /** Asks the phone which device copies exist; the answer is drawn only if nothing happened meanwhile. */
   async function askPhone(mine: number): Promise<void> {
     const offered = await offeredModes(plugin);
-    if (mine === turn && state.kind === 'Locked') set({ kind: 'Locked', offered });
+    if (mine === turn && inFront && state.kind === 'Locked') set({ kind: 'Locked', offered });
   }
 
   async function opening(how: Secret | DeviceAuth, mine: number): Promise<UnlockOutcome> {
@@ -97,29 +116,37 @@ export function lockMachine(deps: LockDeps): LockMachine {
   }
 
   async function unlock(how: Secret | DeviceAuth): Promise<UnlockOutcome> {
-    if (state.kind !== 'Locked') return { kind: 'NotLocked' };
+    if (state.kind !== 'Locked' || core.session) return { kind: 'NotLocked' };
     const mine = turn;
     set({ kind: 'Unlocking' });
-    const work = opening(how, mine);
-    unlocking = work;
-    try {
-      return await work;
-    } catch (e) {
-      if (mine === turn) {
-        await core.lock();                               // whatever opened goes, without a snapshot
-        set({ kind: 'Locked', offered: undefined });
-        await askPhone(mine);
+    const work = (async () => {
+      try {
+        return await opening(how, mine);
+      } catch (e) {
+        if (mine === turn) {
+          await core.lock();                             // whatever opened goes, without a snapshot
+          set({ kind: 'Locked', offered: undefined });
+          await askPhone(mine);
+        }
+        throw e;
       }
-      throw e;
-    } finally {
-      if (unlocking === work) unlocking = undefined;
-    }
+    })();
+    // the whole unlock, failure handling included, is what a leave or a follow waits for
+    const tracked = work.finally(() => { if (unlocking === tracked) unlocking = undefined; });
+    unlocking = tracked;
+    return tracked;
   }
 
   function leave(): Promise<SnapshotOutcome> {
     if (leaving) return leaving;                         // leaving twice closes once
-    if (state.kind === 'Locked') return Promise.resolve('unchanged');
     turn += 1;
+    inFront = false;
+    // The label is never trusted: a record opened outside the machine, or an unlock still under
+    // way, is closed all the same. Only a record truly locked, with nothing under way, is left as it is.
+    if (state.kind === 'Locked' && !unlocking && !core.session) {
+      if (state.offered !== undefined) set({ kind: 'Locked', offered: undefined });
+      return Promise.resolve('unchanged');
+    }
     set({ kind: 'Locking' });                            // the content blanks at once
     const pending = unlocking;
     // With nothing being unlocked, the lock joins the write queue now, so a save asked for after
@@ -136,18 +163,24 @@ export function lockMachine(deps: LockDeps): LockMachine {
   }
 
   async function resume(): Promise<void> {
-    if (state.kind !== 'Locked') return;
+    inFront = true;
+    const mine = turn;
+    await settled();                                     // a lock still under way finishes first
+    if (mine !== turn || state.kind !== 'Locked') return;
     set({ kind: 'Locked', offered: undefined });
-    await askPhone(turn);
+    await askPhone(mine);
   }
 
   async function follow(): Promise<void> {
+    const mine = turn;
+    await settled();
+    if (mine !== turn) return;                           // the app was left meanwhile, and the leave decided
     if (core.session) {
       set({ kind: 'Open' });
       return;
     }
     set({ kind: 'Locked', offered: undefined });
-    await askPhone(turn);
+    await askPhone(mine);
   }
 
   return {

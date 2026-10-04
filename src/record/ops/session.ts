@@ -42,11 +42,30 @@ export async function closeSession(core: RecordCore, deps: CloseDeps): Promise<S
 }
 
 async function sealInTime(core: RecordCore, session: Session, deps: CloseDeps): Promise<SealedSnapshot | SnapshotOutcome> {
-  const work = sealSnapshot(core.db, session, deps.files, core.now(), deps);
+  let inTime = true;
+  const work = sealSnapshot(core.db, backupUntil(session, () => inTime), deps.files, core.now(), deps);
   work.catch(() => {});      // once abandoned, its late failure is expected and goes nowhere
   try {
     return (await Promise.race([work, deps.sleep(SNAPSHOT_CAP_MS).then(() => 'abandoned' as const)])) ?? 'unchanged';
   } catch {
     return 'failed';
+  } finally {
+    inTime = false;
   }
+}
+
+/**
+ * The session as the seal sees it: once the seal's time is over, its backup key refuses to start
+ * any more work, so an abandoned seal can't go on using it after the lock. A WebCrypto call
+ * already running can't be stopped; it ends, and its result goes nowhere.
+ */
+function backupUntil(session: Session, inTime: () => boolean): Session {
+  const backup = session.backup;
+  if (!backup) return session;
+  const limited: BackupCipher = {
+    sealBody: (body, headerBytes, iv) => (inTime() ? backup.sealBody(body, headerBytes, iv) : Promise.reject(new Error('the lock has passed'))),
+    openBody: (...args) => backup.openBody(...args),
+  };
+  // reads the live session for everything else, so a change it records is still seen
+  return Object.assign(Object.create(session) as Session, { backup: limited });
 }

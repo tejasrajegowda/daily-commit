@@ -4,10 +4,12 @@ import { lockMachine, screenOf, type LockMachine, type LockState } from '../../s
 import type { RecordCore } from '../../src/record/core.ts';
 import type { SnapshotFiles } from '../../src/record/files.ts';
 import { LATEST } from '../../src/record/backup/snapshot.ts';
+import { openSession } from '../../src/record/ops/session.ts';
 import { setSetting } from '../../src/record/ops/settings.ts';
-import type { Secret } from '../../src/vault/cipher.ts';
+import type { BackupCipher, Secret } from '../../src/vault/cipher.ts';
 import { enrolMode } from '../../src/vault/devices.ts';
 import type { VaultPlugin } from '../../src/vault/plugin.ts';
+import { sessionCiphers, unlockWithSecret } from '../../src/vault/vault.ts';
 import { memoryFiles } from '../record/memoryFiles.ts';
 import { fakePlugin } from '../vault/fakePlugin.ts';
 import { PASSPHRASE, realRecord, rowsOf } from './realRecord.ts';
@@ -177,4 +179,165 @@ test('follow: a record locked or opened outside the machine is followed', async 
   assert.deepEqual(t.machine.state, { kind: 'Locked', offered: [] });
   await t.machine.unlock(PASS);
   assert.equal(t.machine.state.kind, 'Open');
+});
+
+// ── Two things at once (review R1). The machine never trusts its own label: it waits for anything
+// under way, then reads whether the record is really open, and the phone's answer only draws the
+// lock screen while the app is in front.
+
+/** A promise held shut until `open()`, and a signal that something reached it. */
+function gate() {
+  let open!: () => void;
+  let reached!: () => void;
+  const shut = new Promise<void>(resolve => { open = resolve; });
+  const arrived = new Promise<void>(resolve => { reached = resolve; });
+  return { open, arrived, wait: async () => { reached(); await shut; } };
+}
+
+/** Files whose read of the latest snapshot (the seal) or write of the new one waits at a gate. */
+const heldAt = (g: ReturnType<typeof gate>, at: 'seal' | 'write') => (files: SnapshotFiles): SnapshotFiles => ({
+  ...files,
+  read: async path => { if (at === 'seal' && path === LATEST) await g.wait(); return files.read(path); },
+  write: async (path, bytes) => { if (at === 'write' && path === 'tmp/snapshot.dcbak') await g.wait(); return files.write(path, bytes); },
+});
+
+/** A phone whose unlock prompt waits at a gate. */
+const promptHeld = (g: ReturnType<typeof gate>) => (p: VaultPlugin): VaultPlugin => ({ ...p, unwrap: async mode => { await g.wait(); return p.unwrap(mode); } });
+
+test('R1-1: leaving drops a record opened outside the machine, even while the machine says Locked', async () => {
+  const t = await setup();
+  await lockAndResume(t.machine);
+  const opened = await unlockWithSecret(await rowsOf(t.core), PASS);
+  if (opened.kind !== 'Unlocked') throw new Error(opened.kind);
+  const { cipher, backup } = sessionCiphers(opened.keys);
+  await openSession(t.core, cipher, backup);                         // first run or a restore, before follow()
+  assert.equal(t.machine.state.kind, 'Locked');
+  await t.machine.leave();
+  assert.equal(t.core.session, undefined);
+  assert.deepEqual(await setSetting(t.core, 'cuesOn', false), { kind: 'Locked' });
+});
+
+test('R1-2: follow during an unlock waits for it, so a leave in between still ends locked', async () => {
+  const g = gate();
+  const t = await setup({ plugin: promptHeld(g) });
+  assert.equal((await enrolMode(await rowsOf(t.core), PASS, t.f.plugin, 'phone-lock')).kind, 'Enrolled');
+  await lockAndResume(t.machine);
+  const unlocking = t.machine.unlock({ mode: 'phone-lock' });
+  await g.arrived;
+  const following = t.machine.follow();
+  const leaving = t.machine.leave();
+  g.open();
+  assert.deepEqual(await unlocking, { kind: 'Left' });
+  await leaving;
+  await following;
+  assert.equal(t.core.session, undefined);
+  assert.equal(screenOf(t.machine.state), 'blank');
+});
+
+test('R1-3: while the snapshot is being written nothing can unlock, and the lock\'s end never covers an open record', async () => {
+  const g = gate();
+  const t = await setup({ files: heldAt(g, 'write') });
+  assert.equal((await enrolMode(await rowsOf(t.core), PASS, t.f.plugin, 'phone-lock')).kind, 'Enrolled');
+  await setSetting(t.core, 'cuesOn', false);
+  const leaving = t.machine.leave();
+  await g.arrived;
+  const following = t.machine.follow();
+  assert.deepEqual(await t.machine.unlock({ mode: 'phone-lock' }), { kind: 'NotLocked' });
+  g.open();
+  assert.equal(await leaving, 'written');
+  await following;
+  assert.equal(t.core.session, undefined);
+  assert.equal(t.machine.state.kind, 'Locked');
+});
+
+test('R1-5: the screen coming back while the lock is still sealing shows the lock screen once the lock is done', async () => {
+  const g = gate();
+  const t = await setup({ files: heldAt(g, 'seal') });
+  const leaving = t.machine.leave();
+  await g.arrived;
+  const resuming = t.machine.resume();
+  g.open();
+  await leaving;
+  await resuming;
+  assert.deepEqual(t.machine.state, { kind: 'Locked', offered: [] });
+  assert.equal(screenOf(t.machine.state), 'lock');
+});
+
+test('R1-5: the screen coming back while a leave waits on an unlock shows the lock screen once both are done', async () => {
+  const g = gate();
+  const t = await setup({ plugin: promptHeld(g) });
+  assert.equal((await enrolMode(await rowsOf(t.core), PASS, t.f.plugin, 'phone-lock')).kind, 'Enrolled');
+  await lockAndResume(t.machine);
+  const unlocking = t.machine.unlock({ mode: 'phone-lock' });
+  await g.arrived;
+  const leaving = t.machine.leave();
+  const resuming = t.machine.resume();
+  g.open();
+  assert.deepEqual(await unlocking, { kind: 'Left' });
+  await leaving;
+  await resuming;
+  assert.equal(t.core.session, undefined);
+  assert.equal(screenOf(t.machine.state), 'lock');
+});
+
+test('R1-6: a screen that throws while drawing never stops the lock or sticks the machine', async () => {
+  const t = await setup();
+  const heard: string[] = [];
+  t.machine.listen(s => { if (s.kind === 'Locking' || s.kind === 'Unlocking') throw new Error('a screen failed to draw'); });
+  t.machine.listen(s => heard.push(s.kind));
+  assert.equal(await t.machine.leave(), 'written');               // the first lock after first run writes a snapshot
+  assert.equal(t.core.session, undefined);
+  assert.deepEqual(heard, ['Locking', 'Locked']);                    // the other screens still heard every change
+  await t.machine.resume();
+  assert.deepEqual(await t.machine.unlock(PASS), { kind: 'Open' });
+});
+
+test('R1-7: follow while the snapshot is sealing keeps the screen black', async () => {
+  const g = gate();
+  const t = await setup({ files: heldAt(g, 'seal') });
+  const leaving = t.machine.leave();
+  await g.arrived;
+  const following = t.machine.follow();
+  assert.equal(screenOf(t.machine.state), 'blank');
+  g.open();
+  await leaving;
+  await following;
+  assert.equal(t.core.session, undefined);
+  assert.equal(screenOf(t.machine.state), 'blank');                 // the app was left: black until it comes back
+});
+
+test('R1-11: leaving while the phone is asked after a wrong passphrase keeps the screen black', async () => {
+  const g = gate();
+  let hold = false;
+  const t = await setup({ plugin: p => ({ ...p, status: async () => { if (hold) await g.wait(); return p.status(); } }) });
+  await lockAndResume(t.machine);
+  hold = true;
+  const unlocking = t.machine.unlock({ method: 'passphrase', text: 'CANARY wrong' });
+  await g.arrived;
+  const leaving = t.machine.leave();                                 // it waits for the unlock, which waits for the phone
+  g.open();
+  assert.deepEqual(await unlocking, { kind: 'WrongSecret' });
+  await leaving;
+  assert.equal(screenOf(t.machine.state), 'blank');
+});
+
+test('R1-9: a snapshot abandoned at its 3 seconds can\'t start using the backup key once the lock has passed', async () => {
+  const g = gate();
+  const t = await setup({ files: heldAt(g, 'seal'), sleep: async () => {} });
+  const live = sessionOf(t.core);
+  if (!live?.backup) throw new Error('no backup key');
+  const inner = live.backup;
+  let sealedAfterLock = false;
+  (live as { backup: BackupCipher }).backup = {
+    sealBody: async (body, header, iv) => { if (t.core.session === undefined) sealedAfterLock = true; return inner.sealBody(body, header, iv); },
+    openBody: (...args) => inner.openBody(...args),
+  };
+  await setSetting(t.core, 'cuesOn', false);
+  const leaving = t.machine.leave();
+  await g.arrived;
+  assert.equal(await leaving, 'abandoned');
+  assert.equal(t.core.session, undefined);
+  g.open();
+  await new Promise(resolve => setTimeout(resolve, 200));           // the abandoned seal runs on, and is refused
+  assert.equal(sealedAfterLock, false);
 });
