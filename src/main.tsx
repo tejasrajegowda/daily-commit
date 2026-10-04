@@ -1,9 +1,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import './ui/fonts.css';
+import './ui/app.css';
 
-// U0: the empty, correctly shaped app. Screens arrive in U4.
+// The empty, correctly shaped app, with the design's stylesheet. Screens arrive in U4's next tasks.
 function App() {
-  return <main style={{ minHeight: '100dvh', background: '#000' }} aria-label="Daily Commit" />;
+  return <main className="app" aria-label="Daily Commit" />;
 }
 
 const root = document.getElementById('root');

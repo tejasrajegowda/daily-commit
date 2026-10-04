@@ -5,11 +5,16 @@
   "description": "A private, local-first habit tracker, day planner and diary.",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1 --port 8310",
-    "build": "vite build",
+    "watch": "vite build --watch",
+    "preview": "vite preview --host 127.0.0.1 --port 8310 --strictPort",
+    "build": "vite build && node scripts/release-check.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "node --test \"tests/**/*.test.ts\"",
-    "check": "npm run typecheck && npm run test"
+    "check": "npm run typecheck && npm run test",
+    "screens:build": "vite build --config vite.harness.config.ts",
+    "screens": "npm run screens:build && node scripts/screens/flows.mjs",
+    "screens:shots": "npm run screens:build && node scripts/screens/shots.mjs",
+    "screens:gate": "npm run screens:build && node scripts/screens/gate.mjs"
   },
   "engines": {
     "node": ">=24"
@@ -24,8 +29,10 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "apca-w3": "^0.1.9",
     "fake-indexeddb": "^6.2.5",
     "fast-check": "^4.10.2",
+    "playwright-core": "1.63.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1"
   }

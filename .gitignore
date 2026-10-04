@@ -15,6 +15,9 @@ _trash/
 # ── Reproducible build output and dependencies ──
 node_modules/
 dist/
+# the screen harness's build and the screen checks' output
+dist-harness/
+screens-out/
 coverage/
 android/app/build/
 android/build/
