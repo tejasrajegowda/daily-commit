@@ -73,6 +73,12 @@ describe('dependency rule', () => {
     }
   });
 
+  it('app/ is the top: rules/, record/ and vault/ never import it', () => {
+    for (const f of all.filter(f => ['rules', 'record', 'vault'].includes(area(f)))) {
+      for (const spec of imports(f)) assert.ok(target(f, spec) !== 'app', `${relative(SRC, f)} imports ${spec}`);
+    }
+  });
+
   it('features never import another feature', () => {
     for (const f of all.filter(f => FEATURES.includes(area(f)))) {
       for (const spec of imports(f)) {
