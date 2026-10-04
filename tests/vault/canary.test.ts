@@ -22,7 +22,7 @@ import { saveReview } from '../../src/record/ops/reviews.ts';
 import { setSetting } from '../../src/record/ops/settings.ts';
 import { closeSession, openSession } from '../../src/record/ops/session.ts';
 import { replaceWrapper, vaultRows } from '../../src/record/ops/vault.ts';
-import { gunzip } from '../../src/record/backup/body.ts';
+import { gunzip, gzip } from '../../src/record/backup/body.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { readFrame } from '../../src/record/backup/format.ts';
 import { restore } from '../../src/record/backup/restore.ts';
@@ -58,7 +58,7 @@ const TEXT_FIELDS = [
 
 /**
  * Locked fields that no operation in record/ writes yet, each with the reason. The run fails if one
- * of them is reached, so this list can only shrink.
+ * of them is reached, and the list is pinned below, so it can only shrink.
  */
 const NOT_WRITTEN_YET: Readonly<Record<string, string>> = {
   'hab.r.settled_at': 'taking the offer to stop asking has no operation until the screens that offer it are built',
@@ -80,7 +80,7 @@ function formsOf(text: string): Buffer[] {
 /** Which forms of which secrets a set of bytes holds. */
 function leaks(bytes: Uint8Array, secrets: readonly string[]): string[] {
   const hay = Buffer.from(bytes);
-  return secrets.flatMap(secret => formsOf(secret).filter(form => hay.includes(form)).map(form => `${secret.slice(0, 12)}Ã¢â‚¬Â¦: ${form.toString('latin1').slice(0, 16)}`));
+  return secrets.flatMap(secret => formsOf(secret).filter(form => hay.includes(form)).map(form => `${secret.slice(0, 12)}…: ${form.toString('latin1').slice(0, 16)}`));
 }
 
 /** Records which locked fields each seal carried, and which held the canary. */
@@ -102,33 +102,53 @@ function recording(cipher: RowCipher) {
   return { cipher: wrapped, reached, carried };
 }
 
-/** Every stored row of every table, as JSON, and every locked value's bytes after its base64url is undone. */
-async function storedBytes(db: RecordDb): Promise<{ readonly where: string; readonly bytes: Uint8Array }[]> {
-  const out: { where: string; bytes: Uint8Array }[] = [];
-  for (const table of db.tables) {
-    const rows = (await table.toArray()) as Record<string, unknown>[];
-    out.push({ where: `rows of ${table.name}`, bytes: Buffer.from(JSON.stringify(rows)) });
-    for (const row of rows) {
-      for (const value of Object.values(row)) {
-        if (typeof value !== 'object' || value === null) continue;
-        for (const [name, part] of Object.entries(value)) {
-          if (typeof part === 'string' && /^[A-Za-z0-9_-]+$/.test(part)) out.push({ where: `${table.name} ${name}`, bytes: Buffer.from(part, 'base64url') });
-        }
-      }
-    }
+type Place = { readonly where: string; readonly bytes: Uint8Array };
+
+/** Every string inside some JSON, at any depth, with its base64url undone: each locked value's bytes. */
+function innerValues(where: string, json: unknown, out: Place[] = []): Place[] {
+  if (typeof json === 'string') {
+    if (/^[A-Za-z0-9_-]+$/.test(json)) out.push({ where, bytes: Buffer.from(json, 'base64url') });
+  } else if (typeof json === 'object' && json !== null) {
+    for (const [name, part] of Object.entries(json)) innerValues(`${where} ${name}`, part, out);
   }
   return out;
 }
 
-/** A file as kept, plus what is inside it: a backup's body once opened and gunzipped, or a gzip copy unzipped. */
-async function fileBytes(path: string, bytes: Uint8Array, secret: Secret): Promise<{ readonly where: string; readonly bytes: Uint8Array }[]> {
-  const out = [{ where: path, bytes }];
+/** Every stored row of every table, as JSON, and every locked value's bytes after its base64url is undone. */
+async function storedBytes(db: RecordDb): Promise<Place[]> {
+  const out: Place[] = [];
+  for (const table of db.tables) {
+    const rows = (await table.toArray()) as Record<string, unknown>[];
+    out.push({ where: `rows of ${table.name}`, bytes: Buffer.from(JSON.stringify(rows)) });
+    innerValues(table.name, rows, out);
+  }
+  return out;
+}
+
+/**
+ * A file as kept, plus what is inside it: a backup's body once opened and gunzipped, or a gzip copy
+ * unzipped, and then every value inside that with its base64url undone. A file can hold a row the
+ * record no longer has (a page swept from the trash), so the file is searched as deeply as the rows.
+ */
+async function fileBytes(path: string, bytes: Uint8Array, secret: Secret): Promise<Place[]> {
+  const out: Place[] = [{ where: path, bytes }];
+  let inner: Uint8Array | undefined;
   if (path.endsWith('.dcbak')) {
     const f = readFrame(bytes);
     const opened = await backupCipher().openBody(f.headerBytes, f.iv, f.ct, f.header.wrappers, secret);
-    out.push({ where: `${path}, body unzipped`, bytes: await gunzip(opened.body) });
+    inner = await gunzip(opened.body);
   } else if (path.endsWith('.gz')) {
-    out.push({ where: `${path}, unzipped`, bytes: await gunzip(bytes) });
+    inner = await gunzip(bytes);
+  }
+  if (inner) {
+    out.push({ where: `${path}, unzipped`, bytes: inner });
+    let json: unknown;
+    try {
+      json = JSON.parse(Buffer.from(inner).toString('utf8'));
+    } catch {
+      json = undefined;
+    }
+    innerValues(`${path}, unzipped,`, json, out);
   }
   return out;
 }
@@ -246,4 +266,24 @@ test('nothing in src/ uses the browser\'s other stores: no localStorage, session
   });
   const named = files(src).filter(f => /\b(?:localStorage|sessionStorage|caches)\b/.test(readFileSync(f, 'utf8')));
   assert.deepEqual(named, []);
+});
+
+// ── Review R3: the search itself, pinned, so weakening it fails here.
+
+test('R3-6: the search undoes base64url inside a file too: UTF-16 of the canary, wrapped, is found only once the copy is opened', async () => {
+  const wrapped = Buffer.from(CANARY, 'utf16le').toString('base64url');
+  const copy = await gzip(Buffer.from(JSON.stringify({ entries: [{ id: 'e-gone', w: { v: 1, k: 'k', iv: 'iv', ct: wrapped } }] })));
+  const places = await fileBytes('safety/old.gz', copy, PASS);
+  assert.deepEqual(leaks(places[0]!.bytes, [CANARY]), []);                       // the file as kept hides it
+  assert.deepEqual(leaks(places[1]!.bytes, [CANARY]), []);                       // and so does the copy unzipped
+  assert.ok(places.some(p => leaks(p.bytes, [CANARY]).length > 0));             // a value inside it gives it away
+});
+
+test('R3-6: a planted leak, base64url of the canary, is found in the bytes as kept', () => {
+  assert.ok(leaks(Buffer.from(Buffer.from(`x${CANARY}`).toString('base64url')), [CANARY]).length > 0);
+  assert.ok(leaks(Buffer.from(`x${CANARY}`, 'utf16le'), [CANARY]).length > 0);
+});
+
+test('R3-7: the fields exempted from the canary are pinned: adding one fails here, and the list can only shrink', () => {
+  assert.deepEqual(Object.keys(NOT_WRITTEN_YET), ['hab.r.settled_at']);
 });

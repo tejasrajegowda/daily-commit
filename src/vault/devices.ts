@@ -31,7 +31,11 @@ export type EnrolResult =
   | { readonly kind: 'CodeTooShort' }
   /** a fingerprint can be added only within own-code mode */
   | { readonly kind: 'NeedsOwnCode' }
-  /** the new copy didn't open back to the same key; it was deleted, and nothing else changed */
+  /**
+   * the new copy didn't open back to the same key, and it was deleted. The other modes are as they
+   * were; but the phone keeps one copy per mode, so a mode that was being set up again (a code
+   * being changed) is now off, and is set up again with the passphrase
+   */
   | { readonly kind: 'NotVerified' };
 
 const codeOk = (code: string | undefined): code is string => code !== undefined && new RegExp(`^[0-9]{${MIN_CODE_DIGITS},}$`).test(code);
@@ -48,8 +52,8 @@ export async function enrolMode(rows: VaultRowsIn, auth: Secret, plugin: VaultPl
     await plugin.enrol(mode, toBase64url(raw), mode === 'own-code' ? code : undefined);
     const back = mode === 'own-code' ? await plugin.verifyCode(code ?? '') : await plugin.unwrap(mode);
     let same = false;
-    if (back.kind === 'Key') {
-      const bytes = fromBase64url(back.masterKey);
+    const bytes = back.kind === 'Key' ? masterBytes(back.masterKey) : undefined;
+    if (bytes) {
       same = sameBytes(bytes, raw);
       bytes.fill(0);
     }
@@ -90,23 +94,34 @@ export async function unlockWithDevice(rows: VaultRowsIn, plugin: VaultPlugin, a
   const back = auth.mode === 'own-code' ? await plugin.verifyCode(auth.code) : await plugin.unwrap(auth.mode);
   if (back.kind === 'Cancelled') return back;
   if (back.kind === 'WrongCode' && back.triesLeft > 0) return back;
-  if (back.kind !== 'Key') {
-    await plugin.remove(auth.mode);
-    return { kind: 'CopyGone', offered: await offeredModes(plugin) };
-  }
-  // a copy that can't open this vault's W and R counts as missing, and so does every copy made beside it
-  const gone = async (): Promise<DeviceUnlock> => {
-    await forgetDevice(plugin);
-    return { kind: 'CopyGone', offered: [] };
-  };
+  // the fifth wrong code: the code goes, and the fingerprint that lives inside it, whatever the phone did
+  if (back.kind === 'WrongCode') return gone(plugin, ['own-code', 'fingerprint']);
+  if (back.kind !== 'Key') return gone(plugin, [auth.mode]);
+  // A copy that can't open this vault's W and R counts as missing. Only that copy goes: another
+  // copy may have been made for this vault since, and every copy is checked the same way when used.
   const raw = masterBytes(back.masterKey);
-  if (!raw) return gone();
+  if (!raw) return gone(plugin, [auth.mode]);
   try {
     return { kind: 'Unlocked', keys: await openKeys(raw, rows.vault) };
   } catch (e) {
-    if (e instanceof CipherError) return gone();
+    if (e instanceof CipherError) return gone(plugin, [auth.mode]);
     throw e;
   }
+}
+
+/**
+ * Deletes these copies and says which choices are left. A delete the phone refuses doesn't change
+ * the answer: the copy can never open this vault, and the passphrase is what is asked for.
+ */
+async function gone(plugin: VaultPlugin, modes: readonly DeviceMode[]): Promise<DeviceUnlock> {
+  for (const mode of modes) {
+    try {
+      await plugin.remove(mode);
+    } catch {
+      // the copy stays on the phone, refused again each time it is tried; the native plugin reports it (U5)
+    }
+  }
+  return { kind: 'CopyGone', offered: (await offeredModes(plugin)).filter(mode => !modes.includes(mode)) };
 }
 
 /** A master key handed back as text, or undefined if it isn't 32 bytes of base64url. */

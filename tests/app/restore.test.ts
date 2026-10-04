@@ -160,7 +160,7 @@ test('restore through the app forgets every phone copy; the restored file then o
   assert.deepEqual(sessionOf(c.core)?.model, sessionOf(a.core)?.model);
 });
 
-test('a phone copy left behind when forgetting failed still never opens the restored vault: the first device unlock deletes every copy', async () => {
+test('a phone copy left behind when forgetting failed still never opens the restored vault: each is deleted as it is tried', async () => {
   const a = await filledReal();
   const file = await exportOf(a.core);
   const c = await realRecord('CANARY other passphrase');
@@ -178,7 +178,8 @@ test('a phone copy left behind when forgetting failed still never opens the rest
   assert.deepEqual(await restoreBackup({ core: c.core, plugin, machine }, { file, secret: PASS, backupCipher: backupCipher(), replace: { files: m.files, appVersion: '0.1.0' } }), { kind: 'Restored' });
   refusing = false;
   assert.deepEqual(machine.state, { kind: 'Locked', offered: ['own-code', 'fingerprint'] });   // left behind
-  assert.deepEqual(await machine.unlock({ mode: 'fingerprint' }), { kind: 'CopyGone', offered: [] });
+  assert.deepEqual(await machine.unlock({ mode: 'fingerprint' }), { kind: 'CopyGone', offered: ['own-code'] });
+  assert.deepEqual(await machine.unlock({ mode: 'own-code', code: '24681357' }), { kind: 'CopyGone', offered: [] });
   assert.equal(f.copies.size, 0);
   assert.equal(c.core.session, undefined);
 });
