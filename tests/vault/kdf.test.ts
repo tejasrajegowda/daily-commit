@@ -92,3 +92,11 @@ test('a passphrase never opens with recovery settings, nor a code with passphras
   await assert.rejects(deriveKek(REC, { passphrase: 'CANARY' }), CipherError);
   await assert.rejects(deriveKek(PASS, { code: new Uint8Array(25) }), CipherError);
 });
+
+test('a passphrase is measured as it is stretched: code points after NFC and trimming', async () => {
+  const { passphraseLength, MIN_PASSPHRASE_CHARS } = await import('../../src/vault/kdf.ts');
+  assert.equal(MIN_PASSPHRASE_CHARS, 15);
+  assert.equal(passphraseLength('  river stone  '), 11);
+  assert.equal(passphraseLength('é'.repeat(3)), 3);
+  assert.equal(passphraseLength('😀😀'), 2);
+});

@@ -64,6 +64,17 @@ export function passphraseBytes(text: string): Uint8Array<ArrayBuffer> {
   return utf8Bytes(text.normalize('NFC').trim());
 }
 
+/**
+ * The fewest characters a new passphrase may have: the floor NIST SP 800-63B-4 sets when a password
+ * is the only thing that opens something. Five ordinary words clear it.
+ */
+export const MIN_PASSPHRASE_CHARS = 15;
+
+/** A passphrase's length as it will be stretched: characters (code points) after NFC and trimming. */
+export function passphraseLength(text: string): number {
+  return [...text.normalize('NFC').trim()].length;
+}
+
 const KEK_USE = { name: 'AES-GCM', length: 256 } as const;
 
 /** What was typed: the passphrase's text, or a recovery code's 25 bytes. */

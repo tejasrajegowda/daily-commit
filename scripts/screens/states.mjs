@@ -6,6 +6,10 @@ export const STATES = [
   ['lockfive', 's=lock&v=five&t=06:05'],
   ['locknewfinger', 's=lock&v=newfinger&t=06:05'],
   ['today-frame', 's=today&t=13:00'],
+  ['first1', 's=first&t=13:00'],
+  ['found', 's=first&v=found&t=13:00'],
+  ['restore', 's=restore&t=13:00'],
+  ['restore-replace', 's=restore&v=replace&t=13:00'],
 ];
 
 /** The two sizes every screen is checked at: a small phone and a laptop. */

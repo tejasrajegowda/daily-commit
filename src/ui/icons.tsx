@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 // One family: a 24px grid, 1.6 stroke, round ends (the stroke is set in app.css on .i). Fills only
 // where a fill means "recorded".
 
-const svg = (body: ReactNode, cls = 'i') => (
-  <svg className={cls} viewBox="0 0 24 24" aria-hidden="true">{body}</svg>
+const svg = (body: ReactNode, style?: CSSProperties) => (
+  <svg className="i" viewBox="0 0 24 24" aria-hidden="true" style={style}>{body}</svg>
 );
 
 const dim = { fill: 'currentColor', fillOpacity: 0.55 } as const;
@@ -25,7 +25,7 @@ export const I = {
     <path d="M12 11.6v3.2c0 2.1.6 3.8 1.7 5.3" /><path d="M8.7 20.3c-1-1.7-1.5-3.5-1.5-5.5v-2.9a4.8 4.8 0 0 1 9.6 0v2.5" />
     <path d="M5.3 17.7c-.5-1.2-.8-2.5-.8-3.9v-1.9a7.5 7.5 0 0 1 12.8-5.3" /><path d="M19.2 9.3c.2.8.3 1.7.3 2.6v2.3" /><path d="M16.7 18.6c.2-.9.3-1.8.3-2.8" />
   </>),
-  back: () => svg(<path d="M14.5 5.5 8 12l6.5 6.5" />),
+  back: (style?: CSSProperties) => svg(<path d="M14.5 5.5 8 12l6.5 6.5" />, style),
   chev: () => svg(<path d="m9.5 6 6 6-6 6" />),
   plus: () => svg(<path d="M12 5v14M5 12h14" />),
   search: () => svg(<><circle cx="11" cy="11" r="6" /><path d="m20 20-4.3-4.3" /></>),

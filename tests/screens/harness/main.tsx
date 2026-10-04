@@ -7,6 +7,10 @@ import type { AppDeps, DevicePort, Nav, ScreenId, UnlockHow } from '../../../src
 import { memoryFiles } from '../../../src/device/browser.ts';
 import { openRecord, type RecordCore } from '../../../src/record/core.ts';
 import { openDb } from '../../../src/record/db.ts';
+import { exportBackup } from '../../../src/record/backup/export.ts';
+import { frame, readFrame } from '../../../src/record/backup/format.ts';
+import { LATEST } from '../../../src/record/backup/snapshot.ts';
+import { jsonBytes, toBase64url } from '../../../src/record/bytes.ts';
 import { vaultRows } from '../../../src/record/ops/vault.ts';
 import { enrolMode } from '../../../src/vault/devices.ts';
 import { fakePlugin } from '../../vault/fakePlugin.ts';
@@ -26,6 +30,36 @@ export interface HarnessControls {
   /** the app came back to the front */
   resume(): Promise<void>;
   unlock(how: UnlockHow): Promise<string>;
+  /** a backup file for the restore flows, as base64url: another record's, this one's, a newer one or a damaged one */
+  backup(kind: 'source' | 'mine' | 'newer' | 'damaged'): Promise<string>;
+}
+
+/** A backup of a second invented record, made in its own database. */
+async function sourceBackup(state: HarnessState): Promise<Uint8Array> {
+  const name = `${DB_NAME}-source`;
+  await deleteDb(name);
+  const { core } = await seedRecord(openDb({ name, indexedDB, IDBKeyRange }), { ...state, day: 12 });
+  return backupOf(core);
+}
+
+async function backupOf(core: RecordCore): Promise<Uint8Array> {
+  const made = await exportBackup(core, { appVersion: '0.1.0' });
+  if (made.kind !== 'Saved') throw new Error(`harness backup: ${made.kind}`);
+  return made.value.bytes;
+}
+
+/** The same file under a header that names a later format. */
+function newerOf(file: Uint8Array): Uint8Array {
+  const f = readFrame(file);
+  return frame(jsonBytes({ ...f.header, format_version: f.header.format_version + 1 }), f.ct);
+}
+
+/** The same file with one byte of its locked body changed. */
+function damagedOf(file: Uint8Array): Uint8Array {
+  const bytes = file.slice();
+  const at = bytes.length - 20;
+  bytes[at] = (bytes[at] ?? 0) ^ 1;
+  return bytes;
 }
 
 declare global {
@@ -83,7 +117,8 @@ async function start(): Promise<void> {
   const db = openDb({ name: DB_NAME, indexedDB, IDBKeyRange });
   const phone = fakePlugin();
   let core: RecordCore;
-  if (state.screen === 'first' || state.screen === 'restore') {
+  const empty = state.screen === 'first' || (state.screen === 'restore' && state.variant !== 'replace');
+  if (empty) {
     const now = nowOf(state);
     core = openRecord({ db, now: () => now });
   } else {
@@ -96,10 +131,17 @@ async function start(): Promise<void> {
   const { device, leave, resume } = harnessDevice(phone.plugin);
   const deps = assemble(core, device);
   await prelude(state, deps, phone);
+  let source: Promise<Uint8Array> | undefined;
+  const sourceFile = () => (source ??= sourceBackup(state));
+  if (state.screen === 'first' && state.variant === 'found') await device.files.write(LATEST, await sourceFile());
   window.harness = {
     leave: async () => { leave(); await deps.machine.leave(); },
     resume: async () => { resume(); await deps.machine.resume(); },
     unlock: async how => (await deps.lock.unlock(how)).kind,
+    backup: async kind => {
+      const file = kind === 'mine' ? await backupOf(core) : await sourceFile();
+      return toBase64url(kind === 'newer' ? newerOf(file) : kind === 'damaged' ? damagedOf(file) : file);
+    },
   };
   const initial: Nav | undefined = (SCREENS as readonly string[]).includes(state.screen) ? { screen: state.screen as ScreenId, variant: state.variant } : undefined;
   const root = document.getElementById('root');

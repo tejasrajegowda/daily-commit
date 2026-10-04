@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { clockMinuteOf } from '../rules/dates.ts';
+import { LATEST } from '../record/backup/snapshot.ts';
+import { FirstRun, type FoundCopy } from '../first-run/FirstRun.tsx';
+import { Restore } from '../first-run/Restore.tsx';
 import { LockScreen } from '../lock/LockScreen.tsx';
 import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
 import { AppContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
+import { readBackupFile } from './restoreSteps.ts';
 
 // The app: it draws exactly what the lock allows. Black until the phone answers, the lock screen
 // while locked, and the record only while it is open. Leaving ends whatever was open on screen, and
@@ -17,7 +21,10 @@ const SECTION: Partial<Record<ScreenId, Section>> = {
 };
 
 /** Screens drawn without the bars. */
-const BARE: ReadonlySet<ScreenId> = new Set(['restore', 'secret']);
+const BARE: ReadonlySet<ScreenId> = new Set(['secret']);
+
+/** Restore runs as a flow of its own: it stays on screen through the lock it causes, and a leave ends it. */
+type Flow = { readonly kind: 'restore'; readonly preset?: FoundCopy } | undefined;
 
 const TITLES: Record<ScreenId, string> = {
   today: 'Today', look: 'Look back', habit: 'Habit', week: 'This week', month: 'This month', diary: 'Diary', notyet: 'Not yet',
@@ -42,17 +49,27 @@ const isNight = (minute: number) => minute >= 1140 || minute < 300;
 export function App({ deps, initial }: { readonly deps: AppDeps; readonly initial?: Nav }) {
   const { core, machine, store, lock, device, clock } = deps;
   const state: LockState = useSyncExternalStore(change => machine.listen(() => change()), () => machine.state);
-  const [nav, setNav] = useState<Nav>(initial ?? HOME);
+  const [nav, setNav] = useState<Nav>(initial && initial.screen !== 'restore' ? initial : HOME);
+  const [flow, setFlow] = useState<Flow>(initial?.screen === 'restore' ? { kind: 'restore' } : undefined);
   const [hasVault, setHasVault] = useState<boolean | undefined>(undefined);
+  const [found, setFound] = useState<FoundCopy | undefined>(undefined);
   const [passphraseOnly, setPassphraseOnly] = useState(false);
   const offered = useRef<readonly DeviceMode[]>([]);
   if (state.kind === 'Locked' && state.offered !== undefined) offered.current = state.offered;
 
   useEffect(() => {
     let live = true;
-    void core.hasVault().then(v => { if (live) setHasVault(v); });
+    void (async () => {
+      const v = await core.hasVault();
+      // a new phone: Android may have put back a locked copy before the app first opened
+      const copy = v ? undefined : await device.files.read(LATEST).catch(() => undefined);
+      const read = copy ? readBackupFile(copy) : undefined;
+      if (!live) return;
+      if (read?.kind === 'File') setFound({ bytes: read.bytes, madeAt: read.madeAt });
+      setHasVault(v);
+    })();
     return () => { live = false; };
-  }, [core]);
+  }, [core, device]);
 
   useEffect(() => machine.listen(next => {
     store.changed();
@@ -63,6 +80,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     if (next.kind === 'Locking') {
       lock.clear();
       setPassphraseOnly(false);
+      setFlow(undefined);
       setNav(HOME);                                      // nothing that was open on screen survives a lock
     }
   }), [machine, store, lock]);
@@ -83,7 +101,21 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     document.documentElement.dataset.phase = isNight(clockMinuteOf(minute, tz)) ? 'night' : 'dawn';
   }, [minute, tz]);
 
-  const navValue = useMemo(() => ({ nav, go: (screen: ScreenId, variant = '') => { setNav({ screen, variant }); window.scrollTo(0, 0); } }), [nav]);
+  const navValue = useMemo(() => ({
+    nav,
+    go: (screen: ScreenId, variant = '') => {
+      if (screen === 'restore') setFlow({ kind: 'restore' });
+      else setNav({ screen, variant });
+      window.scrollTo(0, 0);
+    },
+  }), [nav]);
+  const closeRestore = (outcome: 'back' | 'restored') => {
+    setFlow(undefined);
+    if (outcome === 'restored') {
+      setHasVault(true);
+      void machine.resume();                             // the lock screen, asking the phone afresh
+    }
+  };
   // the rail's Lock: the app stays in front, so once locked it asks the phone again and the lock screen shows
   const leave = () => void machine.leave().then(() => machine.resume());
   const onNav = (to: Section | 'settings') => navValue.go(to);
@@ -91,8 +123,10 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   const screen = screenOf(state);
   let body: ReactNode = null;
   let bare = true;
-  if (hasVault === false) body = <div className="center-col first" />;  // the first day arrives with its task
-  else if (hasVault === undefined || screen === 'blank') body = null;
+  if (hasVault === undefined) body = null;
+  else if (flow?.kind === 'restore') body = <Restore replacing={hasVault} preset={flow.preset} onClose={closeRestore} />;
+  else if (hasVault === false) body = <FirstRun found={found} onRestore={preset => setFlow({ kind: 'restore', preset })} onDone={() => setHasVault(true)} />;
+  else if (screen === 'blank') body = null;
   else if (screen === 'lock') body = <LockScreen offered={offered.current} busy={state.kind === 'Unlocking'} passphraseOnly={passphraseOnly} setPassphraseOnly={setPassphraseOnly} />;
   else {
     body = recordScreen(nav);

@@ -108,6 +108,88 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check("laptop: the rail's Lock locks", await gone(p, '.today') && await shows(p, '.lk-pass'));
 }
 
+// the first day (phone)
+{
+  const p = await h.page(PHONE, errors);
+  await h.open(p, 's=first');
+  check('first day: step 1 shows, with Restore offered', await shows(p, '.first .steps') && (await p.locator('[data-a="restore"]').count()) === 1);
+  check('first day: the welcome names no condition and no therapy', !/\bOCD\b|\bERP\b/.test(await p.locator('.first').innerText()));
+  await p.tap('[data-a="fstep"]');
+  await p.fill('input.pass', 'short one');
+  check('first day: the meter says the minimum under 15 characters', (await p.locator('[data-a="meter"]').innerText()).includes('At least 15'));
+  await p.tap('[data-a="fstep"]');
+  check('first day: a short passphrase is refused', (await p.locator('h1.t-l').innerText()) === 'Choose a passphrase'
+    && (await p.locator('[data-a="meter"]').innerText()).includes('longer'));
+  await p.fill('input.pass', 'CANARY river stone lamp cloud');
+  check('first day: four words is strong', (await p.locator('[data-a="meter"]').innerText()).includes('Strong'));
+  await p.tap('[data-a="fstep"]');
+  check('first day: the recovery code shows as nine groups', await shows(p, '[data-a="code"]', 20000) && (await p.locator('[data-a="code"] span').count()) === 9);
+  const code = (await p.locator('[data-a="code"] span').allInnerTexts()).join(' ');
+  await p.tap('[data-a="fstep"]');
+  await p.fill('.typeback-in', code.replace(/^./, c => (c === 'A' ? 'B' : 'A')));
+  await p.tap('[data-a="finish"]');
+  check('first day: a wrong type-back stays on step 4 and says so', await shows(p, '.panel.note') && (await p.locator('h1.t-l').innerText()) === 'Type it back');
+  await p.fill('.typeback-in', code.toLowerCase());
+  check('first day: typing back draws the groups', (await p.locator('.typeback span.done').count()) === 8);
+  await p.tap('[data-a="finish"]');
+  check('first day: finishing opens Today', await shows(p, '.today', 20000));
+  await p.evaluate(() => window.harness.leave());
+  await p.evaluate(() => window.harness.resume());
+  check("first day: afterwards the phone's lock opens it", await shows(p, '.lk-finger'));
+}
+
+// restore
+{
+  const p = await h.page(PHONE, errors);
+  const setFile = async kind => {
+    const b64 = await p.evaluate(k => window.harness.backup(k), kind);
+    await p.setInputFiles('input[type=file]', { name: 'backup.dcbak', mimeType: 'application/octet-stream', buffer: Buffer.from(b64, 'base64url') });
+  };
+  await h.open(p, 's=first&v=found');
+  check('a copy Android put back leads to Restore', await shows(p, '[data-a="restore"]') && (await p.locator('h1.t-l').innerText()).includes('came back'));
+  await p.tap('[data-a="restore"]');
+  check('restore: the copy is already chosen', (await p.locator('.file-row').innerText()).includes('Made '));
+  await p.fill('input.pass', PASSPHRASE);
+  await p.tap('[data-a="restore-go"]');
+  check('restore into an empty phone ends Restored', await shows(p, '[data-a="open"]', 20000));
+  await p.tap('[data-a="open"]');
+  check('Restored, then Open, shows the lock with the passphrase only', await shows(p, '.lk-pass'));
+
+  for (const [kind, said, words, secret] of [['source', 'wrong', 'recovery code', 'CANARY not the passphrase'], ['newer', 'newer', 'newer version', null], ['damaged', 'damaged', 'damaged', PASSPHRASE]]) {
+    await h.open(p, 's=restore');
+    await shows(p, '[data-a="choose"]');
+    await setFile(kind);
+    if (secret) {
+      await p.fill('input.pass', secret);
+      await p.tap('[data-a="restore-go"]');
+    }
+    check(`restore says: ${said}`, await shows(p, '[data-a="restore-note"]', 20000) && (await p.locator('[data-a="restore-note"]').innerText()).toLowerCase().includes(words));
+  }
+
+  await h.open(p, 's=restore&v=replace');
+  await shows(p, '[data-a="choose"]');
+  check('restore from Settings: Back says Settings', (await p.locator('[data-a="back"]').innerText()).includes('Settings'));
+  await setFile('mine');
+  await p.fill('input.pass', PASSPHRASE);
+  await p.tap('[data-a="restore-go"]');
+  check("this record's own backup asks before replacing, without 'different record'", await shows(p, '[data-a="replace"]', 20000)
+    && (await p.locator('[data-a="restore-note"]').count()) === 0);
+  await p.tap('[data-a="leave"]');
+  check('Leave it changes nothing: the record is still open', await shows(p, '.today'));
+
+  await h.open(p, 's=restore&v=replace');
+  await shows(p, '[data-a="choose"]');
+  await setFile('source');
+  await p.fill('input.pass', PASSPHRASE);
+  await p.tap('[data-a="restore-go"]');
+  check("another record's file asks first, and says so", await shows(p, '[data-a="replace"]', 20000)
+    && (await p.locator('[data-a="restore-note"]').innerText()).includes('different record'));
+  await p.tap('[data-a="replace"]');
+  check('Replace everything ends Restored', await shows(p, '[data-a="open"]', 20000));
+  await p.tap('[data-a="open"]');
+  check('... and Open shows the lock', await shows(p, '.lk-pass'));
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');
