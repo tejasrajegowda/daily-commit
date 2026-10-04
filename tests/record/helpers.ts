@@ -1,6 +1,6 @@
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { openDb, type RecordDb } from '../../src/record/db.ts';
-import { openRecord } from '../../src/record/core.ts';
+import { openRecord, type RecordCore } from '../../src/record/core.ts';
 import { firstRun } from '../../src/record/ops/firstRun.ts';
 import { openSession } from '../../src/record/ops/session.ts';
 import { createHabit } from '../../src/record/ops/habits.ts';
@@ -34,9 +34,14 @@ export async function openedRecord(iso = '2026-01-05T09:00:00Z') {
  */
 export async function filledRecord() {
   const t = await openedRecord();
-  const { core, clock } = t;
-  await core.lock();
-  await openSession(core, guarded(stubCipher()), guardedBackup(stubBackup()));
+  await t.core.lock();
+  await openSession(t.core, guarded(stubCipher()), guardedBackup(stubBackup()));
+  await fillRecord(t.core, t.clock);
+  return t;
+}
+
+/** Writes filledRecord's rows into any open record whose clock starts on 2026-01-05. */
+export async function fillRecord(core: RecordCore, clock: ReturnType<typeof testClock>): Promise<void> {
   const must = async (what: string, pending: Promise<{ readonly kind: string }>) => {
     const result = await pending;
     if (result.kind !== 'Saved') throw new Error(`${what}: ${result.kind}`);
@@ -53,5 +58,4 @@ export async function filledRecord() {
   await must('not yet', saveNotYet(core, { id: 'n-later', text: 'CANARY-TEST later' }));
   await must('reminder', deleteCue(core, { id: 'c-walk' }));                                   // leaves a tombstone
   await must('review', saveReview(core, { period: 'week', start: '2026-01-05', answers: { went: 'CANARY-TEST' } }));
-  return t;
 }
