@@ -15,6 +15,8 @@ export const STATES = [
   ['look60', 's=look&t=12:30&age=60'],
   ['look120', 's=look&t=12:30&age=120'],
   ['habit', 's=habit&v=h-wake&t=12:30&age=40'],
+  ['week', 's=week&t=10:30'],
+  ['month', 's=month&t=12:30&age=60&v=steady'],
   ['first1', 's=first&t=13:00'],
   ['found', 's=first&v=found&t=13:00'],
   ['restore', 's=restore&t=13:00'],

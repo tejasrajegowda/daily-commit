@@ -13,7 +13,7 @@ import { parseJsonBytes } from '../../src/record/bytes.ts';
 import { runMigrations } from '../../src/record/migrations.ts';
 import { LOCKED } from '../../src/record/payload.ts';
 import { firstRun } from '../../src/record/ops/firstRun.ts';
-import { createHabit, editHabit, retireHabit, returnHabit, swapFocus } from '../../src/record/ops/habits.ts';
+import { createHabit, editHabit, retireHabit, returnHabit, settleHabit, swapFocus } from '../../src/record/ops/habits.ts';
 import { clearObservation, logObservation, planDay } from '../../src/record/ops/observations.ts';
 import { closeDay, reopenDay, saveDayWords } from '../../src/record/ops/days.ts';
 import { restoreEntry, restoreNotYet, saveEntry, saveNotYet, trashEntry, trashNotYet } from '../../src/record/ops/words.ts';
@@ -60,9 +60,7 @@ const TEXT_FIELDS = [
  * Locked fields that no operation in record/ writes yet, each with the reason. The run fails if one
  * of them is reached, and the list is pinned below, so it can only shrink.
  */
-const NOT_WRITTEN_YET: Readonly<Record<string, string>> = {
-  'hab.r.settled_at': 'taking the offer to stop asking has no operation until the screens that offer it are built',
-};
+const NOT_WRITTEN_YET: Readonly<Record<string, string>> = {};
 
 /** Every form the canary could leak in: UTF-8, UTF-16 either way round, and base64 or base64url at each alignment. */
 function formsOf(text: string): Buffer[] {
@@ -190,6 +188,7 @@ test('canary level 1: through every write path into every locked field, then fou
   await must('swap', swapFocus(core, { into: 'h-b', out: 'h-a' }));
   await must('retire', retireHabit(core, { id: 'h-b' }));
   await must('return', returnHabit(core, { id: 'h-b' }));
+  await must('settle', settleHabit(core, { id: 'h-b' }));
   await must('log', logObservation(core, { habitId: 'h-a', date: '2026-01-07', value: 'did' }));
   await must('backfill', logObservation(core, { habitId: 'h-a', date: '2026-01-06', value: 'partly' }));
   await must('plan', planDay(core, { date: '2026-01-08', plans: [{ habitId: 'h-a', reason: 'travelling' }], restDay: true }));
@@ -285,5 +284,5 @@ test('R3-6: a planted leak, base64url of the canary, is found in the bytes as ke
 });
 
 test('R3-7: the fields exempted from the canary are pinned: adding one fails here, and the list can only shrink', () => {
-  assert.deepEqual(Object.keys(NOT_WRITTEN_YET), ['hab.r.settled_at']);
+  assert.deepEqual(Object.keys(NOT_WRITTEN_YET), []);
 });

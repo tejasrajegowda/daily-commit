@@ -89,13 +89,16 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
   const observations: object[] = [];
   const days: object[] = [];
   const entries: object[] = [];
+  // the "steady" variant keeps Walk done every day, for the offer to stop asking (eight steady weeks)
+  const steady = state.variant === 'steady';
   for (let d = 1; d < state.day; d++) {
-    const opened = next() >= 1 / 9;
+    const opened = next() >= 1 / 9 || steady;
     const date = dateOfDay(d);
     const weekday = ((d - 1) % 7) as Weekday;
     const evening = Date.parse(`${date}T21:00:00Z`);
     for (const h of HABITS) {
-      const value = valueFor(h, next);                   // drawn for every habit, so a skipped day keeps the rest the same
+      const drawn = valueFor(h, next);                   // drawn for every habit, so a skipped day keeps the rest the same
+      const value = steady && h.id === 'h-walk' ? 'did' : drawn;
       if (!opened || value === undefined || d < h.startDay || !h.days.includes(weekday)) continue;
       const o: ObservationRecord = { habitId: h.id, date, kind: h.kind, value, loggedAt: evening, isBackfill: false, editedAfterClose: false };
       observations.push(await storedRow(cipher, 'observations', observationToParts(o), stamp));

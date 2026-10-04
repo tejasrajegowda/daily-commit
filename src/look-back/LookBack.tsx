@@ -1,5 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react';
-import { useApp, useModel, useNav, useToday } from '../app/context.ts';
+import { monthDue, useApp, useModel, useNav, useToday } from '../app/context.ts';
 import { rulesInput } from '../record/read.ts';
 import { dayNumber, hasOpened } from '../rules/journey.ts';
 import { countWord } from '../rules/words.ts';
@@ -112,6 +112,12 @@ export function LookBack() {
             </div>
           </div>
 
+          {monthDue(model, today) && (
+            <button type="button" className="panel due" data-a="nav" data-x="month" onClick={() => go('month')}>
+              <span><span className="eb">Ready · once a month</span><span className="t-m">{monthOfLast(today)}, in words</span>
+                <span className="meta">A few minutes, whenever you like this week. Nothing happens if you don't.</span></span>{I.chev()}
+            </button>
+          )}
           <div className="phone-only stack">
             {focus.map(h => {
               const n = numbersOf(input, h, start, today);
@@ -190,6 +196,10 @@ export function LookBack() {
               <p className="meta" style={{ margin: '16px 0 0' }}>One square per day; brightness is how many of the things in focus that day happened. A habit that settles into Log leaves its Focus days as they were, so the count only ever covers what was in focus then.</p>
             </div>
           )}
+          {day >= 8 && (
+            <div className="list"><button type="button" className="li" data-a="nav" data-x="week" onClick={() => go('week')}>
+              <span><span className="nm">The week, in words</span><span className="sub">Monday to Sunday, said once a week</span></span><span className="end">{I.chev()}</span></button></div>
+          )}
           <div className="phone-only">{laterPanel}</div>
         </div>
       </main>
@@ -197,6 +207,10 @@ export function LookBack() {
     </div>
   );
 }
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+/** The month before today's. */
+const monthOfLast = (today: string) => MONTHS[(Number(today.slice(5, 7)) + 10) % 12] ?? '';
 
 function datesBack(today: string, days: number): string {
   return new Date(Date.parse(`${today}T00:00:00Z`) - (days - 1) * 86_400_000).toISOString().slice(0, 10);

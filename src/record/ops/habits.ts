@@ -204,6 +204,30 @@ export function returnHabit(core: RecordCore, input: { readonly id: string; read
   });
 }
 
+/**
+ * Takes the offer to stop asking (§8 #30): the habit settles into Log from tomorrow, keeping every
+ * day it was logged, and its Focus slot is free. A habit already settled is left as it is.
+ */
+export function settleHabit(core: RecordCore, input: { readonly id: string; readonly sheet?: Sheet }): Promise<Result<void>> {
+  return core.write({
+    tables: ['habits'],
+    async prepare(s, stamp) {
+      const h = s.model.habits.get(input.id);
+      if (!h) return invalid('no such habit');
+      if (h.settledAt !== undefined) return { puts: [], apply: () => {}, value: undefined };
+      const tomorrow = addDays(judgedNow(core, s, input.sheet).today, 1);
+      const next: HabitRecord = { ...h, settledAt: stamp.updated_at, tierHistory: withEntry(h.tierHistory, { tier: 'log', from: tomorrow }, sameTier) };
+      const problem = habitProblem(next, s.model.settings.boundary);
+      if (problem) return invalid(problem);
+      return {
+        puts: [{ table: 'habits', row: await storedRow(s.cipher, 'habits', habitToParts(next), stamp) }],
+        apply: m => { m.habits.set(next.id, next); },
+        value: undefined,
+      };
+    },
+  });
+}
+
 export function swapFocus(core: RecordCore, input: { readonly into?: string; readonly out?: string; readonly sheet?: Sheet }): Promise<Result<void>> {
   return core.write({
     tables: ['habits'],

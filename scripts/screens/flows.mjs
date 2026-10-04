@@ -269,6 +269,28 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
     && !(await q.locator('.side .panel .eb').first().innerText()).toUpperCase().startsWith('TODAY'));
 }
 
+// reviews
+{
+  const p = await h.page(PHONE, errors);
+  await h.open(p, 's=week&t=10:30');
+  check('week: the week in words', await shows(p, '.wk-row') && (await p.locator('.band b').count()) > 0);
+  await p.tap('[data-a="wstep"]');
+  await p.fill('#wk-changed', 'CANARY week note');
+  await p.tap('[data-a="wstep"]');
+  check('week: the pager reaches the last card', (await p.locator('.dots i.on').count()) === 1 && (await p.locator('.phone-only [data-a="week-done"]').count()) === 1);
+  await p.locator('.phone-only [data-a="week-done"]').tap();
+  check("week: That's the week returns to Look back", await shows(p, '.hcard'));
+  await h.open(p, 's=month&t=12:30&age=40');
+  check('month: before day 60 it says when it opens', (await p.locator('h1.t-l').first().innerText()) === 'Opens on day 60');
+  await h.open(p, 's=look&t=12:30&age=60');
+  check('Look back offers the monthly review in its first week', await shows(p, '.panel.due'));
+  await h.open(p, 's=month&t=12:30&age=60&v=steady');
+  check('month: the month in words, and a steady habit offered to settle', await shows(p, '.mo-row') && await shows(p, '[data-a="settle"][data-x="yes"]'));
+  await p.locator('.phone-only [data-a="settle"][data-x="yes"]').tap();
+  check('month: settling says so', await p.waitForFunction(() => [...document.querySelectorAll('.panel .eb')].some(e => e.textContent === 'Settled'), null, { timeout: 8000 }).then(() => true, () => false));
+  check('reviews: no numbers as scores, no exclamation', !/[!%]/.test(await p.locator('#view').innerText()));
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');
