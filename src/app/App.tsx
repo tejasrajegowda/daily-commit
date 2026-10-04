@@ -4,6 +4,8 @@ import { LATEST } from '../record/backup/snapshot.ts';
 import { FirstRun, type FoundCopy } from '../first-run/FirstRun.tsx';
 import { Restore } from '../first-run/Restore.tsx';
 import { LockScreen } from '../lock/LockScreen.tsx';
+import { Habit } from '../look-back/Habit.tsx';
+import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
 import { AppContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
@@ -39,6 +41,8 @@ function Placeholder({ screen }: { readonly screen: ScreenId }) {
 function recordScreen(nav: Nav): ReactNode {
   switch (nav.screen) {
     case 'today': return <Today />;
+    case 'look': return <LookBack />;
+    case 'habit': return <Habit />;
     default: return <Placeholder screen={nav.screen} />;
   }
 }

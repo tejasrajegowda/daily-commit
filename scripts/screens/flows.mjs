@@ -91,7 +91,7 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await h.open(p, 's=today');
   await shows(p, '.today');
   await p.tap('.dock button[data-x="look"]');
-  check('the dock moves between sections', (await p.locator('h1.t-l').first().innerText()) === 'Look back'
+  check('the dock moves between sections', (await p.locator('.scr .eb').first().innerText()).toUpperCase() === 'LOOK BACK'
     && (await p.locator('.dock button.on').getAttribute('data-x')) === 'look');
 }
 
@@ -242,6 +242,31 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await q.keyboard.press('1');
   check('Today, laptop: key 1 marks the first row', await q.waitForFunction(() => document.querySelector('.row[data-x="h-wake"] .val')?.textContent?.includes('06:05'), null, { timeout: 8000 }).then(() => true, () => false));
   check('Today, laptop: the shape of today is there', await q.locator('.shape .sh').count() > 3);
+}
+
+// Look back
+{
+  const p = await h.page(PHONE, errors);
+  await h.open(p, 's=look&t=12:30');
+  check('Look back: a card for each habit in Focus', await shows(p, '.hcard') && (await p.locator('.hcard').count()) === 3);
+  check('Look back: the views still to come are named', (await p.locator('.later').first().innerText()).includes('Wake-time trend'));
+  await p.tap('.hcard[data-x="h-walk"]');
+  check("Look back: a card opens the habit's page", await shows(p, '.cal') && (await p.locator('h1.t-l').first().innerText()) === 'Walk');
+  await p.tap('.scr [data-a="nav"][data-x="look"]');
+  check('Look back: Back returns', await shows(p, '.hcard'));
+  await h.open(p, 's=look&t=12:30&age=1');
+  check('Look back, day 1: the record starts today', (await p.locator('.said-panel').first().innerText()).includes('The record starts today'));
+  await h.open(p, 's=look&t=12:30&age=120');
+  check('Look back, day 120: the months field and the trend are there', await shows(p, '.fld') && (await p.locator('svg.trend').count()) === 1);
+  check('Look back: no score words, no internal flags', !/[!%]|is_backfill|edited_after_close|reopened_count/.test(await p.locator('#view').innerText()));
+
+  const q = await h.page(LAPTOP, errors);
+  await h.open(q, 's=look&t=12:30');
+  await shows(q, '.evi .c');
+  const before = await q.locator('.side .panel .eb').first().innerText();
+  await q.locator('.evi .cells').first().locator('.c[data-a="sel"]').nth(2).click();
+  check('Look back, laptop: clicking a column shows that day', (await q.locator('.side .panel .eb').first().innerText()) !== before
+    && !(await q.locator('.side .panel .eb').first().innerText()).toUpperCase().startsWith('TODAY'));
 }
 
 await h.close();
