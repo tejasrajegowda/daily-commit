@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { rulesInput } from '../../src/record/read.ts';
 import { saveReview } from '../../src/record/ops/reviews.ts';
-import { lastWeek, monthView, weekView } from '../../src/reviews/reviewView.ts';
+import { lastWeek, monthView, togetherWords, weekView } from '../../src/reviews/reviewView.ts';
+import type { HabitRecord } from '../../src/record/model.ts';
 import { monthDue } from '../../src/app/reviewsDue.ts';
 import { freshDb } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
@@ -56,4 +57,16 @@ test('the review is due in the first week of a month from day 60, until it is cl
   assert.equal(monthDue(m.model, m.today), false);
   const late = await at(68);                                 // 13 March
   assert.equal(monthDue(late.model, late.today), false);
+});
+
+test('what went well together reads as a sentence whatever the habits are called', () => {
+  const h = (id: string, name: string, kind: HabitRecord['kind']) => [id, { id, name, kind } as HabitRecord] as const;
+  const byId = new Map([h('a', 'Ate well', 'tri'), h('b', 'Walk', 'tri'), h('c', 'Read', 'min'), h('d', 'Up', 'time'), h('e', 'Mood', 'mood')]);
+  const said = (then: string, withValue = 1, withoutValue = 0) =>
+    togetherWords({ when: 'a', then, withDays: 10, withoutDays: 10, withValue, withoutValue }, byId);
+  assert.equal(said('b'), 'On the days ate well was done, walk was done more often than on the other days.');
+  assert.equal(said('c', 40, 20), 'On the days ate well was done, read ran longer — about 40m, against 20m on the other days.');
+  assert.equal(said('d', 400, 430), 'On the days ate well was done, up came earlier — about 06:40, against 07:10 on the other days.');
+  assert.equal(said('e', 4, 3), 'On the days ate well was done, mood was higher on more of the evenings.');
+  assert.equal(said('missing'), '');
 });

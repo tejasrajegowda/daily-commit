@@ -105,11 +105,12 @@ export function monthView(input: RulesInput, model: Model, today: LocalDate): Mo
 export function togetherWords(t: Together, byId: ReadonlyMap<string, HabitRecord>): string {
   const when = byId.get(t.when), then = byId.get(t.then);
   if (!when || !then) return '';
-  const on = `On the days of ${when.name.toLowerCase()}`;
+  // A habit's name is free text ("Walk", "Ate well"), so it is used as a label, never as a verb.
+  const on = `On the days ${when.name.toLowerCase()} was done`;
   switch (then.kind) {
     case 'time': return `${on}, ${then.name.toLowerCase()} came earlier — about ${hm(t.withValue)}, against ${hm(t.withoutValue)} on the other days.`;
     case 'min': return `${on}, ${then.name.toLowerCase()} ran longer — about ${dur(t.withValue)}, against ${dur(t.withoutValue)} on the other days.`;
     case 'mood': return `${on}, mood was higher on more of the evenings.`;
-    default: return `${on}, ${then.name.toLowerCase()} happened on more of the days.`;
+    default: return `${on}, ${then.name.toLowerCase()} was done more often than on the other days.`;
   }
 }
