@@ -27,6 +27,8 @@ export const STATES = [
   ['secret-owncode', 's=secret&v=owncode&t=13:00'],
   ['secret-newcode', 's=secret&v=newcode&t=13:00'],
   ['secret-check', 's=secret&v=check&t=13:00'],
+  ['support', 's=support&t=13:00'],
+  ['paused', 's=today&v=paused&t=13:00'],
   ['first1', 's=first&t=13:00'],
   ['found', 's=first&v=found&t=13:00'],
   ['restore', 's=restore&t=13:00'],

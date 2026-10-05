@@ -77,6 +77,8 @@ export interface Settings {
   readonly lightsOutPlan: ClockMinute;
   readonly cuesOn: boolean;
   readonly contact?: string;
+  /** the standing note for a bad night, written in advance; shown only in Support */
+  readonly badNightNote?: string;
   /** the blocks and steps of a weekday and of a weekend day; the app's plain default until set */
   readonly dayShapes?: DayShapes;
   /** tracking paused: habits hidden, nothing sent; the diary carries on */

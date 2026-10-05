@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EVENING_FROM } from '../../src/today/todayView.ts';
-import { checkinLines, dayLines, MORNING_UNTIL, SETTINGS_WORDS, sizeWords, whenWords } from '../../src/settings/settingsWords.ts';
+import { checkinLines, dayLines, MORNING_UNTIL, SETTINGS_WORDS, sizeWords, SUPPORT_WORDS, whenWords } from '../../src/settings/settingsWords.ts';
+import { PAUSED_WORDS } from '../../src/app/pausedWords.ts';
 import type { CueRecord, Settings } from '../../src/record/model.ts';
 
 const SETTINGS: Settings = { tz: 'Asia/Kolkata', boundary: 240, journeyStart: '2026-01-05', wakePlan: 390, lightsOutPlan: 1380, cuesOn: true };
@@ -17,6 +18,8 @@ function allWords(): string[] {
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
   walk(SETTINGS_WORDS);
+  walk(SUPPORT_WORDS);
+  walk(PAUSED_WORDS);
   for (const l of dayLines(SETTINGS)) out.push(l.nm, l.sub);
   for (const f of ['Secret.tsx', 'Settings.tsx']) out.push(readFileSync(join(import.meta.dirname, '..', '..', 'src', 'settings', f), 'utf8'));
   return out;

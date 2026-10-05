@@ -85,6 +85,7 @@ test('records from storage give the rules their exact shapes, so a cue is never 
 test('settings are stored one row each, under their stored names, the contact under the words key', () => {
   assert.deepEqual(settingToParts('wakePlan', 390), { plain: { key: 'wake_plan' }, r: { value: 390 } });
   assert.deepEqual(settingToParts('contact', 'CANARY-TEST'), { plain: { key: 'contact' }, w: { value: 'CANARY-TEST' } });
+  assert.deepEqual(settingToParts('badNightNote', 'CANARY-TEST'), { plain: { key: 'bad_night_note' }, w: { value: 'CANARY-TEST' } });
   const withContact: Settings = { ...settings, contact: 'CANARY-TEST' };
   const values = new Map(settingEntries(withContact).map(([name, value]) => [SETTING_KEYS[name], value] as const));
   assert.deepEqual(settingsFromValues(values), withContact);

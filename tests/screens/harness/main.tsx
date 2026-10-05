@@ -1,5 +1,6 @@
 // The harness page: the state from the URL, a fresh invented record, the stand-in phone, then the
 // real app. Every state starts from nothing: changing the hash reloads the page.
+import { setSetting } from '../../../src/record/ops/settings.ts';
 import { createRoot } from 'react-dom/client';
 import { App } from '../../../src/app/App.tsx';
 import { assemble } from '../../../src/app/compose.ts';
@@ -111,6 +112,7 @@ async function prelude(state: HarnessState, deps: AppDeps, phone: ReturnType<typ
     const today = dateOfDay(state.day);
     await deps.store.run(core => closeDay(core, { date: today, lightsOut: state.minute }));
   }
+  if (state.variant === 'paused') await deps.store.run(core => setSetting(core, 'paused', true));
   if (state.screen !== 'lock') return;
   if (state.variant === 'five') for (let i = 0; i < 5; i++) await deps.lock.unlock({ mode: 'own-code', code: '000000' });
   if (state.variant === 'newfinger') {

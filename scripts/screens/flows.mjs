@@ -460,6 +460,42 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Privacy: no loud lines', !/[!%]/.test(await p.locator('.settings').innerText()));
 }
 
+// Support and pause
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  await h.open(p, 's=support&t=13:00');
+  check('Support: the helpline is there, and nothing is loud', await shows(p, '.phone-n') && !/[!%]/.test(await p.locator('main').innerText()));
+  await p.tap('[data-a="contact-edit"]');
+  await p.fill('input[aria-label="A name and number"]', 'CANARY-TEST 000');
+  await p.tap('[data-a="contact-save"]');
+  check('Support: someone you trust is kept', await until(() => document.querySelector('[data-a="contact"]')?.textContent === 'CANARY-TEST 000'));
+  await p.fill('[data-a="badnight"]', 'CANARY-TEST note');
+  await p.tap('h1');
+  await p.tap('[data-a="support-back"]');
+  await shows(p, '.settings');
+  await p.tap('[data-a="support"]');
+  check('Support: the note for a bad night is kept', await until(() => document.querySelector('[data-a="badnight"]')?.value === 'CANARY-TEST note'));
+
+  await h.open(p, 's=settings&t=13:00');
+  await shows(p, '.settings');
+  await p.tap('[data-a="pause"]');
+  await until(() => document.querySelector('[data-a="pause"] .toggle')?.classList.contains('on'));
+  await p.tap('.dock button[data-x="today"]');
+  check('Pause: Today shows "Tracking is paused" in place of the habits', await shows(p, '[data-a="paused"]') && (await p.locator('.row').count()) === 0);
+  await p.tap('.dock button[data-x="look"]');
+  check('Pause: so does Look back', await shows(p, '[data-a="paused"]'));
+  await p.tap('.dock button[data-x="diary"]');
+  check('Pause: the diary is unchanged', await gone(p, '[data-a="paused"]') && await shows(p, '.diary .page'));
+  await p.tap('.dock button[data-x="today"]');
+  await p.tap('[data-a="paused-settings"]');
+  await shows(p, '[data-a="pause"]');
+  await p.tap('[data-a="pause"]');
+  await until(() => !document.querySelector('[data-a="pause"] .toggle')?.classList.contains('on'));
+  await p.tap('.dock button[data-x="today"]');
+  check('Pause: off again, Today asks as before', await shows(p, '.today') && (await p.locator('[data-a="paused"]').count()) === 0);
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');

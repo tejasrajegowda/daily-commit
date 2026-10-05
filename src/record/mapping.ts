@@ -121,13 +121,16 @@ export function reviewFromParts(plain: Plain, opened: Opened): ReviewRecord {
  */
 export const SETTING_KEYS = {
   tz: 'tz', boundary: 'boundary', journeyStart: 'journey_start', wakePlan: 'wake_plan', lightsOutPlan: 'lights_out_plan', cuesOn: 'cues_on', contact: 'contact',
-  dayShapes: 'day_shapes', paused: 'paused',
+  dayShapes: 'day_shapes', paused: 'paused', badNightNote: 'bad_night_note',
 } as const satisfies Record<keyof Settings, string>;
 
-/** One setting as its row's parts: the trusted contact under the words key, every other under the record key. */
+/** The settings that are someone's own words: kept under the words key. */
+const WORDS_SETTINGS: ReadonlySet<keyof Settings> = new Set(['contact', 'badNightNote']);
+
+/** One setting as its row's parts: the trusted contact and the bad-night note under the words key, every other under the record key. */
 export function settingToParts(name: keyof Settings, value: unknown): Parts {
   const plain = { key: SETTING_KEYS[name] };
-  return name === 'contact' ? { plain, w: { value } } : { plain, r: { value } };
+  return WORDS_SETTINGS.has(name) ? { plain, w: { value } } : { plain, r: { value } };
 }
 
 /** All settings, from their rows' values keyed by stored key. */
@@ -136,7 +139,7 @@ export function settingsFromValues(values: ReadonlyMap<string, unknown>): Settin
   return defined({
     tz: get('tz') as string, boundary: get('boundary') as number, journeyStart: get('journeyStart') as LocalDate,
     wakePlan: get('wakePlan') as number, lightsOutPlan: get('lightsOutPlan') as number, cuesOn: get('cuesOn') as boolean,
-    contact: get('contact') as string | undefined,
+    contact: get('contact') as string | undefined, badNightNote: get('badNightNote') as string | undefined,
     dayShapes: get('dayShapes') as Settings['dayShapes'], paused: get('paused') as boolean | undefined,
   });
 }

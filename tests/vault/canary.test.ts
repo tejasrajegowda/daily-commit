@@ -209,6 +209,7 @@ test('canary level 1: through every write path into every locked field, then fou
   await must('delete reminder', deleteCue(core, { id: 'c-a' }));
   await must('review', saveReview(core, { period: 'week', start: '2026-01-05', answers: { went: `${CANARY} went` }, close: true }));
   await must('setting', setSetting(core, 'contact', `${CANARY} contact 2`));
+  await must('bad-night note', setSetting(core, 'badNightNote', `${CANARY} bad night`));
   const changed = await changePassphrase(await rowsNow(core), PASS, NEXT.text, systemRandom, clock.now());
   if (changed.kind !== 'Done') throw new Error(changed.kind);
   await must('passphrase change', replaceWrapper(core, changed.value));

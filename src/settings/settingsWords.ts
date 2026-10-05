@@ -97,3 +97,12 @@ export const SETTINGS_WORDS = {
   newCode: { nm: 'Make a new recovery code', sub: 'if the paper is lost, or someone has seen it' },
   supportRow: { nm: 'Support', sub: 'always here, in the same place' },
 } as const;
+
+export const SUPPORT_WORDS = {
+  intro: 'Always in this place. Never highlighted, never triggered by anything you log.',
+  manas: 'Tele-MANAS · free · 24 hours · Government of India',
+  elsewhere: 'findahelpline.com lists free lines by country.',
+  trusted: 'Stored only on this phone. The app never contacts anyone.',
+  notePlaceholder: "If you're reading this on a bad night…",
+  noteMeta: "Written by you, for you. It's only ever shown here.",
+} as const;

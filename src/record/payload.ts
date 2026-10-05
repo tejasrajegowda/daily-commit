@@ -31,7 +31,7 @@ export const STAMP_FIELDS = ['updated_at', 'updated_by', 'deleted_at'] as const;
 
 /** Which fields each table locks, and under which key: `r` the record, `w` the words. */
 export const LOCKED: Readonly<Record<LockedTable, { readonly r: readonly string[]; readonly w: readonly string[] }>> = {
-  settings: { r: ['value'], w: ['value'] },     // the trusted contact under w, every other setting under r
+  settings: { r: ['value'], w: ['value'] },     // the contact and the bad-night note under w, every other setting under r
   habits: { r: ['name', 'sub', 'kind', 'periods', 'tiers', 'schedule', 'target', 'order', 'settled_at', 'replaces'], w: [] },
   observations: { r: ['kind', 'value', 'planned', 'logged_at', 'is_backfill', 'edited_after_close'], w: [] },
   days: { r: ['closed_at', 'lights_out', 'rest_day', 'reopened_count'], w: ['intent', 'remark', 'bad_night_note'] },

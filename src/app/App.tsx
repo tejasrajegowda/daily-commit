@@ -11,6 +11,7 @@ import { Month } from '../reviews/Month.tsx';
 import { Plan } from '../plan/Plan.tsx';
 import { Secret } from '../settings/Secret.tsx';
 import { Settings } from '../settings/Settings.tsx';
+import { Support } from '../settings/Support.tsx';
 import { applyDisplay } from '../ui/display.ts';
 import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
@@ -18,6 +19,7 @@ import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
 import { AppContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
+import { PausedGate } from './Paused.tsx';
 import { readBackupFile } from './restoreSteps.ts';
 import { displayOf } from './yourData.ts';
 
@@ -47,16 +49,20 @@ function Placeholder({ screen }: { readonly screen: ScreenId }) {
   return <div className="scr"><main className="col"><h1 className="t-l">{TITLES[screen]}</h1></main></div>;
 }
 
+/** The screens that show habits: while tracking is paused, one quiet panel stands in for them. */
+const paused = (nav: Nav, screen: ReactNode) => <PausedGate title={TITLES[nav.screen]}>{screen}</PausedGate>;
+
 function recordScreen(nav: Nav): ReactNode {
   switch (nav.screen) {
-    case 'today': return <Today />;
-    case 'look': return <LookBack />;
-    case 'habit': return <Habit />;
-    case 'week': return <Week />;
+    case 'today': return paused(nav, <Today />);
+    case 'look': return paused(nav, <LookBack />);
+    case 'habit': return paused(nav, <Habit />);
+    case 'week': return paused(nav, <Week />);
     case 'diary': return <Diary />;
     case 'notyet': return <NotYet />;
     case 'plan': return <Plan />;
-    case 'month': return <Month />;
+    case 'month': return paused(nav, <Month />);
+    case 'support': return <Support />;
     case 'settings': return <Settings key={nav.variant} />;
     case 'secret': return <Secret key={nav.variant} />;
     default: return <Placeholder screen={nav.screen} />;

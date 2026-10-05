@@ -75,7 +75,8 @@ export function settingProblem(name: keyof Settings, value: unknown): string | u
     case 'lightsOutPlan': return intIn(value, 0, 1439) ? undefined : 'not a clock time';
     case 'journeyStart': return realDate(value) ? undefined : 'not a date';
     case 'cuesOn': return typeof value === 'boolean' ? undefined : 'not on or off';
-    case 'contact': return typeof value === 'string' ? undefined : 'not text';
+    case 'contact':
+    case 'badNightNote': return typeof value === 'string' ? undefined : 'not text';
     case 'paused': return typeof value === 'boolean' ? undefined : 'not on or off';
     case 'dayShapes': return shapesProblem(value);
   }
