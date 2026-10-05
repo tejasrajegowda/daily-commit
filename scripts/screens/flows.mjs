@@ -164,6 +164,7 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('first day: the note under the code promises only what every code keeps (the check symbol can be U)',
     (await p.locator('[data-a="code"] + p').innerText()).startsWith('No I, L or O anywhere'));
   await p.tap('[data-a="fstep"]');
+  check('first day: the type-back field is a password field, so the keyboard keeps nothing', (await p.getAttribute('.typeback-in', 'type')) === 'password');
   check('first day: before typing, every place in the type-back shows its dots',
     ((await p.locator('.typeback').innerText()).match(/·····/g) ?? []).length === 8);
   await p.fill('.typeback-in', code.replace(/^./, c => (c === 'A' ? 'B' : 'A')));

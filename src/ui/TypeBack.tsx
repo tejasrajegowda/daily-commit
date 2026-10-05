@@ -16,7 +16,7 @@ export function TypeBack({ typed, onChange, label = 'Recovery code, typed back' 
           return <span key={i}>{dots}</span>;
         })}
       </div>
-      <input className="typeback-in" aria-label={label} value={typed} maxLength={60}
+      <input className="typeback-in" type="password" aria-label={label} value={typed} maxLength={60}
         autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
         style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0 }}
         onChange={e => onChange(e.currentTarget.value)} />
