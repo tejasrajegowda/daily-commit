@@ -31,6 +31,8 @@ const HOME: Nav = { screen: 'today', variant: '' };
 
 const SECTION: Partial<Record<ScreenId, Section>> = {
   today: 'today', look: 'look', habit: 'look', week: 'look', month: 'look', diary: 'diary', notyet: 'diary', plan: 'plan',
+  // Settings and Support are reached from Plan on a phone, so its tab stays lit there, as the design draws it
+  settings: 'plan', support: 'plan',
 };
 
 /** Screens drawn without the bars. */

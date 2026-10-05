@@ -362,6 +362,9 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
   await h.open(p, 's=plan&t=13:00');
   check('Plan: three Focus slots and Log', await shows(p, '.slots') && (await p.locator('.slot').count()) === 3 && (await p.locator('.pl-log').count()) > 3);
+  await p.tap('#view [data-a="nav"][data-x="settings"]');
+  check('Plan: on a phone the gear opens Settings, with Plan still lit', await shows(p, '.settings') && (await p.locator('#dock .on').innerText()) === 'Plan');
+  await h.open(p, 's=plan&t=13:00');
   await p.tap('.slot[data-x="h-wake"]');
   check('Plan: a row opens the edit sheet on a phone', await shows(p, '.sheet[role="dialog"] [data-a="editor"]') && (await p.locator('.sheet h2').innerText()) === 'Wake up');
   check("Plan: an existing habit's kind can't be changed", await p.locator('.sheet .seg button:not(.on)').first().isDisabled());

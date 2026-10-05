@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { resultWords, shapesOf, useApp, useModel, useToday } from '../app/context.ts';
+import { resultWords, shapesOf, useApp, useModel, useNav, useToday } from '../app/context.ts';
 import type { HabitRecord } from '../record/model.ts';
 import { deleteCue, saveCue } from '../record/ops/cues.ts';
 import { createHabit, editHabit, retireHabit, returnHabit, swapFocus } from '../record/ops/habits.ts';
@@ -39,6 +39,7 @@ export function Plan() {
   const model = useModel();
   const today = useToday();
   const wide = useWide();
+  const { go } = useNav();
   const [editing, setEditing] = useState<string | 'new' | undefined>(undefined);
   const [newId, setNewId] = useState(() => core.newId());
   if (!model || !today) return null;
@@ -50,7 +51,9 @@ export function Plan() {
 
   const list = (
     <>
-      <div className="between"><h1 className="t-l">Plan</h1></div>
+      {/* a phone has no rail, so Settings is reached from here */}
+      <div className="between"><h1 className="t-l">Plan</h1>
+        <button type="button" className="btn btn--text phone-only" data-a="nav" data-x="settings" aria-label="Settings" onClick={() => go('settings')}>{I.gear()}</button></div>
       <p className="meta" style={{ margin: '4px 0 0' }}>{PLAN_WORDS.intro}</p>
       <div className="group">
         <div className="eb"><span>Focus · three slots</span><span>scored</span></div>

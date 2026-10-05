@@ -12,7 +12,7 @@ const NAV: readonly (readonly [Section, string, () => ReactNode])[] = [
 ];
 
 export interface FrameProps {
-  /** the section lit in the bars; undefined on a screen of its own, such as Settings */
+  /** the section lit in the bars; undefined on a screen of its own, such as the secret screens */
   readonly section?: Section;
   readonly settingsOn?: boolean;
   /** no bars: the lock, the first day, restore and the secret screens */
