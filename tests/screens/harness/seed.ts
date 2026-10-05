@@ -91,20 +91,23 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
   const entries: object[] = [];
   // the "steady" variant keeps Walk done every day, for the offer to stop asking (eight steady weeks)
   const steady = state.variant === 'steady';
+  // canary=1 marks yesterday: a wake-up at 06:55, an hour and 25 minutes of practice, and a marked intent
+  const marked = (d: number) => state.canary && d === state.day - 1;
   for (let d = 1; d < state.day; d++) {
-    const opened = next() >= 1 / 9 || steady;
+    const opened = next() >= 1 / 9 || steady || marked(d);
     const date = dateOfDay(d);
     const weekday = ((d - 1) % 7) as Weekday;
     const evening = Date.parse(`${date}T21:00:00Z`);
     for (const h of HABITS) {
       const drawn = valueFor(h, next);                   // drawn for every habit, so a skipped day keeps the rest the same
-      const value = steady && h.id === 'h-walk' ? 'did' : drawn;
+      const value = steady && h.id === 'h-walk' ? 'did' : marked(d) && h.id === 'h-wake' ? 415 : marked(d) && h.id === 'h-practice' ? 85 : drawn;
       if (!opened || value === undefined || d < h.startDay || !h.days.includes(weekday)) continue;
       const o: ObservationRecord = { habitId: h.id, date, kind: h.kind, value, loggedAt: evening, isBackfill: false, editedAfterClose: false };
       observations.push(await storedRow(cipher, 'observations', observationToParts(o), stamp));
     }
     const lightsOut = 1360 + Math.round(next() * 14) * 5;
-    const intent = INTENTS[Math.floor(next() * INTENTS.length)];
+    const drawnIntent = INTENTS[Math.floor(next() * INTENTS.length)];
+    const intent = marked(d) ? 'CANARY-TEST yesterday' : drawnIntent;
     if (!opened) continue;
     const day: DayRecord = { date, closedAt: Date.parse(`${date}T22:30:00Z`), lightsOut, restDay: false, reopenedCount: 0, intent };
     days.push(await storedRow(cipher, 'days', dayToParts(day), stamp));

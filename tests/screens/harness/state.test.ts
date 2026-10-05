@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import { dateOfDay, nowOf, readState, START } from './state.ts';
 
 test('the URL hash gives the screen, the variant, the time and the day, with defaults', () => {
-  assert.deepEqual(readState(''), { screen: 'today', variant: '', minute: 780, day: 17 });
-  assert.deepEqual(readState('#s=lock&v=own&t=06:05&age=60'), { screen: 'lock', variant: 'own', minute: 365, day: 60 });
+  assert.deepEqual(readState(''), { screen: 'today', variant: '', minute: 780, day: 17, canary: false });
+  assert.deepEqual(readState('#s=lock&v=own&t=06:05&age=60'), { screen: 'lock', variant: 'own', minute: 365, day: 60, canary: false });
 });
 
 test('a time or a day that is not a number falls back to the default', () => {
-  assert.deepEqual(readState('#t=soon&age=x'), { screen: 'today', variant: '', minute: 780, day: 17 });
+  assert.deepEqual(readState('#t=soon&age=x'), { screen: 'today', variant: '', minute: 780, day: 17, canary: false });
   assert.equal(readState('#t=25:00').minute, 780);
   assert.equal(readState('#age=0').day, 1);
+  assert.equal(readState('#canary=1').canary, true);
 });
 
 test('day 1 is the start, a Monday, and the clock is that day at the given minute, in UTC', () => {

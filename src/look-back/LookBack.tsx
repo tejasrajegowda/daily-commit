@@ -161,7 +161,7 @@ export function LookBack() {
           </div>
           {log.length > 0 && (
             <div className="panel wide-only" style={{ padding: '22px 24px' }}>
-              <div className="panel-h"><span className="eb">Also recorded · never scored</span><span className="meta">no counts, no runs, nothing to fail</span></div>
+              <div className="panel-h"><span className="eb">Also recorded · never scored</span><span className="meta">no counts, no runs, no score</span></div>
               <div className="evi logrow" style={{ gridTemplateColumns: '214px max-content minmax(70px,1fr)', rowGap: cs >= 20 ? 10 : 6 }}>
                 {log.map(h => [
                   <div key={`l${h.id}`} className="lab"><span className="nm">{h.name}</span></div>,

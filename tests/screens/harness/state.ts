@@ -10,6 +10,8 @@ export interface HarnessState {
   readonly minute: number;
   /** age=, the day number counted from 1; default 17 */
   readonly day: number;
+  /** canary=1: yesterday holds marked values, for the check that the morning shows no earlier day */
+  readonly canary: boolean;
 }
 
 /** The record's first day: a Monday. */
@@ -32,6 +34,7 @@ export function readState(hash: string): HarnessState {
     variant: q.get('v') || '',
     minute: minuteOf(q.get('t')) ?? 780,
     day: q.has('age') && Number.isInteger(age) ? Math.max(1, age) : 17,
+    canary: q.get('canary') === '1',
   };
 }
 

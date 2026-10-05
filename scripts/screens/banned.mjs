@@ -13,6 +13,7 @@ export const NEVER = [
 /** Moral vocabulary (§8 #37): describe, don't evaluate. */
 export const MORAL = [
   ['failed', '§8 #37'],
+  ['fail', '§8 #37 (the root of "failed")'],
   ['missed', '§8 #37'],
   ['broken', '§8 #37'],
   ['lost', '§8 #37'],

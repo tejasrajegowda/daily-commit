@@ -80,6 +80,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   const [hasVault, setHasVault] = useState<boolean | undefined>(undefined);
   const [found, setFound] = useState<FoundCopy | undefined>(undefined);
   const [passphraseOnly, setPassphraseOnly] = useState(false);
+  const [writing, setWriting] = useState(false);
   const offered = useRef<readonly DeviceMode[]>([]);
   if (state.kind === 'Locked' && state.offered !== undefined) offered.current = state.offered;
 
@@ -114,6 +115,15 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   useEffect(() => {
     void displayOf(deps).then(applyDisplay, () => {});   // this device's contrast and dimming, before unlock
   }, [deps]);
+
+  useEffect(() => {
+    // the diary page has focus: the bars step back while it is written in
+    const track = () => setWriting(document.activeElement instanceof HTMLElement && document.activeElement.matches('.diary [data-a="page-text"]'));
+    const later = () => setTimeout(track);              // focus has moved on only after focusout
+    document.addEventListener('focusin', track);
+    document.addEventListener('focusout', later);
+    return () => { document.removeEventListener('focusin', track); document.removeEventListener('focusout', later); };
+  }, []);
 
   useEffect(() => {
     const stopLeave = device.onLeave(() => void machine.leave());
@@ -166,7 +176,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   return (
     <AppContext.Provider value={deps}>
       <NavContext.Provider value={navValue}>
-        <Frame bare={bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
+        <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
           {body}
         </Frame>
       </NavContext.Provider>

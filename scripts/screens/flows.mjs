@@ -510,6 +510,39 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Pause: off again, Today asks as before', await shows(p, '.today') && (await p.locator('[data-a="paused"]').count()) === 0);
 }
 
+// the diary's writing mode: the bars step back while the page has focus
+{
+  const p = await h.page(PHONE, errors);
+  await h.open(p, 's=diary&t=22:20');
+  await shows(p, '[data-a="page-text"]');
+  await p.focus('[data-a="page-text"]');
+  check('diary: writing on the page dims the bars', await shows(p, '.app.is-writing'));
+  await p.locator('[data-a="page-text"]').evaluate(e => e.blur());
+  check('diary: leaving the page brings them back', await gone(p, '.app.is-writing'));
+}
+
+// invariant 4: the morning holds nothing logged on an earlier day (§8)
+{
+  const marks = ['1h 25m', '06:55', 'CANARY-TEST yesterday'];
+  const drawn = p => p.evaluate(() => {
+    const view = document.getElementById('view');
+    return `${view?.innerText ?? ''}\n${[...(view?.querySelectorAll('textarea, input') ?? [])].map(e => e.value).join('\n')}`;
+  });
+  for (const size of [PHONE, LAPTOP]) {
+    const p = await h.page(size, errors);
+    await h.open(p, 's=today&t=06:30&canary=1');
+    await shows(p, '.today');
+    const text = await drawn(p);
+    check(`invariant 4 (${size.name}): the morning shows none of yesterday's values`, marks.every(m => !text.includes(m)));
+  }
+  // the marks really are in the record: Practice's total differs with them
+  const q = await h.page(LAPTOP, errors);
+  const total = async hash => { await h.open(q, hash); await shows(q, '.scr'); return /([\dhm ]+) in all/.exec(await drawn(q))?.[1]; };
+  const plain = await total('s=habit&v=h-practice&t=12:30');
+  const markedTotal = await total('s=habit&v=h-practice&t=12:30&canary=1');
+  check("invariant 4: yesterday's marked values are in the record", plain !== undefined && markedTotal !== undefined && plain !== markedTotal);
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');
