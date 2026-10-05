@@ -63,7 +63,9 @@ export function idWrittenAt(ms: number, n: number): string {
 
 /** First run, the habits as of the state's day, the finished days before it, today up to the state's minute. */
 export async function seedFixture(db: RecordDb, state: HarnessState, fx: HarnessFixture): Promise<Seeded> {
-  const started = await startRecord(db, state, { ...HARNESS_SETTINGS, ...fx.settings, journeyStart: fx.start });
+  // set up at the day's start (04:00), so today's events, stamped later, keep their own minutes: a change stamp
+  // never goes back before the newest one stored
+  const started = await startRecord(db, { ...state, minute: Math.min(state.minute, 240) }, { ...HARNESS_SETTINGS, ...fx.settings, journeyStart: fx.start });
   const { core, cipher, stamp, clock } = started;
   const day = (d: number) => dateOfDay(d, fx.start);
   const today = day(state.day);

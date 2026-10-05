@@ -56,6 +56,7 @@ test('a handed-in record is drawn as of the state: its start, its tiers on that 
   assert.deepEqual([...m.days.keys()].sort(), ['2026-03-02', '2026-03-04', '2026-03-05']);
   // today at 12:00: the morning's wake-up and intent, not the evening's walk or the close
   assert.equal(m.observations.get('wake|2026-03-05')?.value, 398);
+  assert.equal(m.observations.get('wake|2026-03-05')?.loggedAt, Date.UTC(2026, 2, 5, 6, 40), 'logged at its own minute');
   assert.equal(m.observations.has('walk|2026-03-05'), false);
   assert.equal(m.days.get('2026-03-05')?.closedAt, undefined);
   assert.deepEqual([...m.entries.values()].map(e => e.body), ['CANARY page one']);
