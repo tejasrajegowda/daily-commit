@@ -55,5 +55,16 @@ export function browserPort(): DevicePort {
       document.addEventListener('visibilitychange', shown);
       return () => document.removeEventListener('visibilitychange', shown);
     },
+    // the browser's own download stands in for the phone's "save as"
+    async saveFile(name, bytes) {
+      const url = URL.createObjectURL(new Blob([bytes.slice()], { type: 'application/octet-stream' }));
+      const a = Object.assign(document.createElement('a'), { href: url, download: name });
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      return true;
+    },
+    async spaceUsed() {
+      return (await navigator.storage?.estimate?.())?.usage;
+    },
   };
 }

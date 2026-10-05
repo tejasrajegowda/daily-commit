@@ -86,6 +86,9 @@ function harnessDevice(plugin: DevicePort['plugin']) {
     files: memoryFiles(),
     onLeave(cb) { leaving.add(cb); return () => { leaving.delete(cb); }; },
     onResume(cb) { resuming.add(cb); return () => { resuming.delete(cb); }; },
+    // the phone's "save as": the flows read the name of what was saved
+    async saveFile(name) { document.documentElement.dataset.saved = name; return true; },
+    async spaceUsed() { return 2.4 * 1024 * 1024; },
   };
   return { device, leave: () => { for (const cb of leaving) cb(); }, resume: () => { for (const cb of resuming) cb(); } };
 }

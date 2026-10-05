@@ -683,3 +683,6 @@ button.hm-app:active img{transform:scale(.94)}
    Nowhere else in the app is red. It is a confirm the person asked for, never a warning about them. */
 .btn--delete{background:oklch(.56 .17 25);color:#fff;box-shadow:none}
 .btn--delete:active{transform:scale(.98)}
+
+/* Settings → Display → dim at night: a faint black veil after 19:00; black stays exactly black */
+[data-dim][data-phase="night"] body::after{content:"";position:fixed;inset:0;background:rgb(0 0 0/.15);pointer-events:none;z-index:2147483647}

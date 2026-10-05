@@ -363,6 +363,38 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Plan, laptop: selecting switches the editor', await q.waitForFunction(() => document.querySelector('main [data-a="editor"] h2')?.textContent === 'Walk', null, { timeout: 8000 }).then(() => true, () => false));
 }
 
+// Settings
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  await h.open(p, 's=settings&t=13:00');
+  check('Settings: every group shows on a phone', await shows(p, '.settings') && (await p.locator('.set-grp').count()) === 7);
+  const text = await p.locator('.settings').innerText();
+  check('Settings: no stale lines', !['Clock app', '60 seconds', 'export once a week'].some(w => text.includes(w)) && !/[!%]/.test(text));
+  await p.locator('[data-a="contrast"]').fill('70');
+  check('Settings: the contrast slider sets --k', await until(() => document.documentElement.style.getPropertyValue('--k') === '0.7'));
+  await p.tap('[data-a="pause"]');
+  check('Settings: pause tracking switches on', await until(() => document.querySelector('[data-a="pause"] .toggle')?.classList.contains('on')));
+  await p.tap('[data-a="pause"]');
+  check('Settings: and off again', await until(() => !document.querySelector('[data-a="pause"] .toggle')?.classList.contains('on')));
+  await p.tap('[data-a="export"]');
+  check('Settings: Export hands a locked copy to the save picker', await until(() => /^backup-\d{4}-\d{2}-\d{2}\.dcbak$/.test(document.documentElement.dataset.saved ?? ''))
+    && (await p.locator('[data-a="exported"]').innerText()) === 'Saved where you chose.');
+  check('Settings: the space used reads in MB', text.includes('On this phone · 2.4 MB'));
+  await p.tap('[data-a="support"]');
+  check('Settings: Support is reachable', await until(() => document.querySelector('h1')?.textContent === 'Support'));
+  await h.open(p, 's=settings&t=13:00');
+  await shows(p, '.settings');
+  await p.tap('[data-a="done"]');
+  check('Settings: Done goes to Plan', await shows(p, '.slots'));
+  const q = await h.page(LAPTOP, errors);
+  await h.open(q, 's=settings&t=13:00');
+  await shows(q, '.settings');
+  check('Settings, laptop: Display is open first', (await q.locator('main[data-cat="display"]').count()) === 1);
+  await q.click('[data-a="setcat"][data-x="about"]');
+  check('Settings, laptop: a category switches the panel', await shows(q, 'main[data-cat="about"]') && (await q.locator('main[data-cat="about"]').textContent()).includes("What the lock can't do"));
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');

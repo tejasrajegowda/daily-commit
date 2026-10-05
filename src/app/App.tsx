@@ -9,6 +9,8 @@ import { NotYet } from '../diary/NotYet.tsx';
 import { Habit } from '../look-back/Habit.tsx';
 import { Month } from '../reviews/Month.tsx';
 import { Plan } from '../plan/Plan.tsx';
+import { Settings } from '../settings/Settings.tsx';
+import { applyDisplay } from '../ui/display.ts';
 import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
@@ -16,6 +18,7 @@ import { Frame, type Section } from '../ui/Shell.tsx';
 import { AppContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
 import { readBackupFile } from './restoreSteps.ts';
+import { displayOf } from './yourData.ts';
 
 // The app: it draws exactly what the lock allows. Black until the phone answers, the lock screen
 // while locked, and the record only while it is open. Leaving ends whatever was open on screen, and
@@ -53,6 +56,7 @@ function recordScreen(nav: Nav): ReactNode {
     case 'notyet': return <NotYet />;
     case 'plan': return <Plan />;
     case 'month': return <Month />;
+    case 'settings': return <Settings />;
     default: return <Placeholder screen={nav.screen} />;
   }
 }
@@ -98,6 +102,10 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
       setNav(HOME);                                      // nothing that was open on screen survives a lock
     }
   }), [machine, store, lock]);
+
+  useEffect(() => {
+    void displayOf(deps).then(applyDisplay, () => {});   // this device's contrast and dimming, before unlock
+  }, [deps]);
 
   useEffect(() => {
     const stopLeave = device.onLeave(() => void machine.leave());

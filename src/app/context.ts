@@ -26,6 +26,8 @@ export { finishFirstRun, firstSettings, MIN_PASSPHRASE_CHARS, passphraseLongEnou
 export { readBackupFile, restoreWith, type FileRead, type RestoreMessage, type RestoreStep } from './restoreSteps.ts';
 export { DEFAULT_SHAPES, shapesOf } from './dayShapes.ts';
 export { monthDue } from './reviewsDue.ts';
+export { displayOf, exportCopy, lastCopyAt, saveDisplay, spaceUsed, type ExportOutcome } from './yourData.ts';
+export type { Display } from '../record/ops/device.ts';
 export { checkCode, finishNewCode, fingerprintOff, newPassphrase, setMode, startNewCode, type PendingCode, type SecretOutcome } from './secretFlows.ts';
 
 /** The phone, or the browser standing in for it. */
@@ -39,6 +41,10 @@ export interface DevicePort {
   onLeave(cb: () => void): () => void;
   /** calls back when the app comes to the front again */
   onResume(cb: () => void): () => void;
+  /** the system "save as": true once saved, false if the person backed out. Absent where there is none. */
+  saveFile?(name: string, bytes: Uint8Array): Promise<boolean>;
+  /** bytes the app's storage holds on this device, if the device can say */
+  spaceUsed?(): Promise<number | undefined>;
 }
 
 export interface AppDeps {
