@@ -1,4 +1,4 @@
-import { MIN_PASSPHRASE_CHARS } from '../app/context.ts';
+import { MIN_PASSPHRASE_CHARS } from './firstRunFlow.ts';
 
 // The passphrase meter: length is what makes it strong, so it counts words once the passphrase is
 // long enough, and never shows more than two bars before that. It sees the text only to measure it.

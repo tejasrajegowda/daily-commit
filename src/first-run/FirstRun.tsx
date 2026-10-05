@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react';
-import { finishFirstRun, firstSettings, prepareVault, useApp, type Prepared } from '../app/context.ts';
+import { finishFirstRun, firstSettings, meter, prepareVault, useApp, type Bars, type Prepared } from '../app/context.ts';
 import { I } from '../ui/icons.tsx';
-import { codeGroups, typedGroups } from './codeGroups.ts';
-import { meter, type Bars } from './meter.ts';
+import { codeGroups } from '../ui/codeGroups.ts';
+import { TypeBack } from '../ui/TypeBack.tsx';
 import { madeAtWords } from './restoreWords.ts';
 
 // The first day: four steps, once, never repeated. The passphrase is read from its field once, at
@@ -138,7 +138,6 @@ export function FirstRun(props: FirstRunProps) {
   }
 
   if (!prepared) return null;
-  const groups = typedGroups(typed);
   const onFinish = async () => {
     if (busy) return;
     setBusy(true);
@@ -156,20 +155,7 @@ export function FirstRun(props: FirstRunProps) {
       <Steps step={4} />
       <h1 className="t-l" style={{ marginTop: 10 }}>Type it back</h1>
       <p className="body" style={{ margin: '12px 0 0' }}>From the paper, not from memory. This is how both of us know the code you wrote down works.</p>
-      <div style={{ position: 'relative' }}>
-        <div className="code well typeback" aria-hidden="true">
-          {Array.from({ length: 9 }, (_, i) => {
-            const done = groups.done[i];
-            if (done !== undefined) return <span key={i} className="done">{done}</span>;
-            if (i === groups.done.length) return <span key={i} className="cur">{groups.current}<i className="caret" /></span>;
-            return <span key={i}>{i === 8 ? '·' : '·····'}</span>;
-          })}
-        </div>
-        <input className="typeback-in" aria-label="Recovery code, typed back" value={typed} maxLength={60}
-          autoComplete="off" autoCapitalize="characters" autoCorrect="off" spellCheck={false}
-          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0 }}
-          onChange={e => { setTyped(e.currentTarget.value); setMismatch(false); }} />
-      </div>
+      <TypeBack typed={typed} onChange={text => { setTyped(text); setMismatch(false); }} />
       {mismatch && <div style={{ margin: '0 0 18px' }}><Note title="That doesn't match" text="Check each group against the paper, then finish again." /></div>}
       {refused && <div style={{ margin: '0 0 18px' }}><Note title="Not saved" text={refused} /></div>}
       <p className="meta" style={{ margin: '0 0 12px' }}>There's no skip. Once it matches, the app opens and this never appears again.</p>

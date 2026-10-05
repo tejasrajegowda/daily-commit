@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { meter } from '../../src/first-run/meter.ts';
+import { meter } from '../../src/app/meter.ts';
 
 test('under 15 characters is never more than two bars, and says the minimum', () => {
   assert.deepEqual(meter(''), { bars: 0, label: 'At least 15 characters' });

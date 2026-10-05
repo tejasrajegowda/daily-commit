@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { codeGroups, typedGroups } from '../../src/first-run/codeGroups.ts';
+import { codeGroups, typedGroups } from '../../src/ui/codeGroups.ts';
 import { newRecoveryCode } from '../../src/vault/recovery.ts';
 import { systemRandom } from '../../src/vault/random.ts';
 

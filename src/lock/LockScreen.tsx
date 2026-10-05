@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { NOTE_WORDS, useApp, useLockNote, type DeviceMode, type LockNote } from '../app/context.ts';
 import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
-import { CodePad, MAX_DIGITS, MIN_DIGITS } from './CodePad.tsx';
+import { CodePad, MAX_DIGITS, MIN_DIGITS } from '../ui/CodePad.tsx';
 import { fingerprintKey, lockLayout } from './lockView.ts';
 
 // The lock screen. What it offers comes only from the device copies that exist. The passphrase is

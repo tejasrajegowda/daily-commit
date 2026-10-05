@@ -1,4 +1,4 @@
-import { I } from '../ui/icons.tsx';
+import { I } from './icons.tsx';
 
 // The keypad for an own code: six dots to start, more appear past six, and the button shows once
 // six digits are in. It only draws: the digits themselves are kept by the screen, never here.
