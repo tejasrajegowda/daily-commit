@@ -9,6 +9,7 @@ import { NotYet } from '../diary/NotYet.tsx';
 import { Habit } from '../look-back/Habit.tsx';
 import { Month } from '../reviews/Month.tsx';
 import { Plan } from '../plan/Plan.tsx';
+import { Secret } from '../settings/Secret.tsx';
 import { Settings } from '../settings/Settings.tsx';
 import { applyDisplay } from '../ui/display.ts';
 import { Week } from '../reviews/Week.tsx';
@@ -56,7 +57,8 @@ function recordScreen(nav: Nav): ReactNode {
     case 'notyet': return <NotYet />;
     case 'plan': return <Plan />;
     case 'month': return <Month />;
-    case 'settings': return <Settings />;
+    case 'settings': return <Settings key={nav.variant} />;
+    case 'secret': return <Secret key={nav.variant} />;
     default: return <Placeholder screen={nav.screen} />;
   }
 }

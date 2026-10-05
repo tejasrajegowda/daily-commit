@@ -136,6 +136,10 @@ async function start(): Promise<void> {
     await enrolFor(state, core, phone);
     await core.lock();
   }
+  if (state.screen === 'settings' || state.screen === 'secret') {
+    const rows = await vaultRows(core);
+    if (rows) await enrolMode(rows, PASS, phone.plugin, 'phone-lock');   // the first day's default on a phone
+  }
   const { device, leave, resume } = harnessDevice(phone.plugin);
   const deps = assemble(core, device);
   await prelude(state, deps, phone);

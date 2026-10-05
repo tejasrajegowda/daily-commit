@@ -29,7 +29,7 @@ export { monthDue } from './reviewsDue.ts';
 export { meter, type Bars } from './meter.ts';
 export { displayOf, exportCopy, lastCopyAt, saveDisplay, spaceUsed, type ExportOutcome } from './yourData.ts';
 export type { Display } from '../record/ops/device.ts';
-export { checkCode, finishNewCode, fingerprintOff, newPassphrase, setMode, startNewCode, type PendingCode, type SecretOutcome } from './secretFlows.ts';
+export { checkCode, finishNewCode, fingerprintOff, modesNow, newPassphrase, secretOpens, setMode, startNewCode, type PendingCode, type SecretOutcome } from './secretFlows.ts';
 
 /** The phone, or the browser standing in for it. */
 export interface DevicePort {

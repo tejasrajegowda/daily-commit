@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { checkCode, finishNewCode, newPassphrase, setMode, startNewCode } from '../../src/app/secretFlows.ts';
+import { checkCode, finishNewCode, modesNow, newPassphrase, secretOpens, setMode, startNewCode } from '../../src/app/secretFlows.ts';
 import { testDeps } from './deps.ts';
 import { PASSPHRASE, realRecord, rowsOf } from './realRecord.ts';
 import { unlockWithSecret } from '../../src/vault/vault.ts';
@@ -49,4 +49,14 @@ test('an own code that the phone cannot confirm leaves the phone lock and the pa
   assert.deepEqual([...phone.copies.keys()], ['phone-lock']);
   assert.equal(await opens(r.core, 'passphrase', PASSPHRASE), true);
   assert.equal((await setMode(deps, PASS, 'own-code', '123')).kind, 'CodeTooShort');
+});
+
+test('secretOpens checks a passphrase without changing anything; modesNow reads what the phone holds', async () => {
+  const r = await realRecord();
+  const { deps } = testDeps(r.core);
+  assert.equal(await secretOpens(deps, PASS), true);
+  assert.equal(await secretOpens(deps, { method: 'passphrase', text: 'CANARY wrong one' }), false);
+  assert.deepEqual(await modesNow(deps), []);
+  await setMode(deps, PASS, 'phone-lock');
+  assert.deepEqual(await modesNow(deps), ['phone-lock']);
 });

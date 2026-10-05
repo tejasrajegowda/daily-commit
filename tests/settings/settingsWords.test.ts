@@ -18,7 +18,7 @@ function allWords(): string[] {
   };
   walk(SETTINGS_WORDS);
   for (const l of dayLines(SETTINGS)) out.push(l.nm, l.sub);
-  out.push(readFileSync(join(import.meta.dirname, '..', '..', 'src', 'settings', 'Settings.tsx'), 'utf8'));
+  for (const f of ['Secret.tsx', 'Settings.tsx']) out.push(readFileSync(join(import.meta.dirname, '..', '..', 'src', 'settings', f), 'utf8'));
   return out;
 }
 
@@ -26,7 +26,7 @@ test('Settings has no stale lines from the design rounds, and no exclamation mar
   for (const w of allWords()) {
     for (const stale of ['Clock app', '60 seconds', 'export once a week']) assert.ok(!w.includes(stale), `stale: ${stale}`);
   }
-  for (const w of allWords().slice(0, -1)) assert.ok(!/[!%]/.test(w), `"${w}"`);
+  for (const w of allWords().slice(0, -2)) assert.ok(!/[!%]/.test(w), `"${w}"`);
 });
 
 test("Settings' morning ends where Today's does", () => {

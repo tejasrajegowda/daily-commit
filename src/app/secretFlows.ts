@@ -1,7 +1,7 @@
 import { replaceWrapper, vaultRows } from '../record/ops/vault.ts';
 import type { Result } from '../record/results.ts';
 import type { Secret } from '../vault/cipher.ts';
-import { enrolMode, type EnrolResult } from '../vault/devices.ts';
+import { enrolMode, offeredModes, type EnrolResult } from '../vault/devices.ts';
 import type { DeviceMode } from '../vault/plugin.ts';
 import { changePassphrase, replaceRecoveryCode, unlockWithSecret, type Unopened } from '../vault/vault.ts';
 import type { StoredWrap } from '../vault/stored.ts';
@@ -56,11 +56,19 @@ export async function finishNewCode(deps: AppDeps, shown: PendingCode, typed: st
   return result;
 }
 
-/** Whether the code on paper opens this record. Nothing changes. */
-export async function checkCode(deps: AppDeps, typed: string): Promise<boolean> {
+/** Whether a passphrase or recovery code opens this record. Nothing changes. */
+export async function secretOpens(deps: AppDeps, secret: Secret): Promise<boolean> {
   const r = await rows(deps);
   if (!r) return false;
-  return (await unlockWithSecret(r, { method: 'recovery', text: typed })).kind === 'Unlocked';
+  return (await unlockWithSecret(r, secret)).kind === 'Unlocked';
+}
+
+/** Whether the code on paper opens this record. Nothing changes. */
+export const checkCode = (deps: AppDeps, typed: string): Promise<boolean> => secretOpens(deps, { method: 'recovery', text: typed });
+
+/** The ways of opening set up on this device now. */
+export async function modesNow(deps: AppDeps): Promise<readonly DeviceMode[]> {
+  return deps.device.deviceModes ? offeredModes(deps.device.plugin) : [];
 }
 
 /** Sets up a way of opening on this device: the phone's lock, an own code, or the fingerprint inside own-code mode. */

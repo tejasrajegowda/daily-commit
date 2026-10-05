@@ -148,6 +148,8 @@ const PROBE = () => {
           for (const hit of stack) {
             if (hit === el || el.contains(hit) || hit.contains(el)) return false; // reached our own text
             const hcs = getComputedStyle(hit);
+            // a fully transparent layer (the typed-back code's field) hides nothing
+            if (Number(hcs.opacity) === 0) continue;
             const a = (hcs.backgroundColor.match(/-?[\d.]+/g) || [])[3];
             const opaque = (a === undefined ? hcs.backgroundColor !== 'transparent' : Number(a) >= 0.5);
             if (opaque || hit.tagName === 'IMG' || hit.tagName === 'CANVAS') {

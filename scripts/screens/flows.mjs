@@ -395,6 +395,71 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Settings, laptop: a category switches the panel', await shows(q, 'main[data-cat="about"]') && (await q.locator('main[data-cat="about"]').textContent()).includes("What the lock can't do"));
 }
 
+// Privacy and the keys to the record
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 15000 }).then(() => true, () => false);
+  await h.open(p, 's=settings&v=privacy&t=13:00');
+  check("Privacy: the phone's lock is how it opens", await shows(p, '[data-a="unlockmode"][data-x="phone"].on'));
+  await p.tap('[data-a="unlockmode"][data-x="own"]');
+  check('Privacy: a separate code asks for the passphrase first', await shows(p, '[data-a="auth"]'));
+  await p.fill('input.pass', 'CANARY not the passphrase');
+  await p.tap('[data-a="auth"]');
+  check('Privacy: a wrong passphrase says so', await shows(p, '[data-a="secret-note"]', 15000));
+  await p.fill('input.pass', PASSPHRASE);
+  await p.tap('[data-a="auth"]');
+  await shows(p, '.pad', 15000);
+  await typeCode(p, CODE);
+  await p.tap('[data-a="pinok"]');
+  check('Privacy: own code, step 2 asks for it again', await until(() => document.querySelector('h1')?.textContent === 'Type it again'));
+  await typeCode(p, '13572468');
+  await p.tap('[data-a="pinok"]');
+  check('Privacy: two different codes start again', await until(() => document.querySelector('h1')?.textContent === 'Choose a code') && await shows(p, '[data-a="secret-note"]'));
+  await typeCode(p, CODE);
+  await p.tap('[data-a="pinok"]');
+  await until(() => document.querySelector('h1')?.textContent === 'Type it again');
+  await typeCode(p, CODE);
+  await p.tap('[data-a="pinok"]');
+  check('Privacy: own code is set, through the real enrolment', await until(() => document.querySelector('[data-a="secret-done"]')?.textContent === 'Your code is set'));
+  await p.tap('[data-a="done"]');
+  check('Privacy: back in Settings the separate code is chosen, with the fingerprint switch', await shows(p, '[data-a="unlockmode"][data-x="own"].on') && await shows(p, '[data-a="biotoggle"]'));
+
+  await h.open(p, 's=secret&v=pass&t=13:00');
+  await shows(p, '[data-a="pass-change"]');
+  await p.fill('input[aria-label="Current passphrase"]', PASSPHRASE);
+  await p.fill('input[aria-label="New passphrase"]', 'too short');
+  await p.tap('[data-a="pass-change"]');
+  check('Change passphrase: under 15 characters is refused', await until(() => document.querySelector('[data-a="secret-note"]')?.textContent?.includes('at least 15 characters')));
+  await p.fill('input[aria-label="Current passphrase"]', PASSPHRASE);
+  await p.fill('input[aria-label="New passphrase"]', 'CANARY river stone lamp cloud');
+  await p.tap('[data-a="pass-change"]');
+  check('Change passphrase: Changed', await until(() => document.querySelector('[data-a="secret-done"]')?.textContent === 'Changed'));
+
+  await h.open(p, 's=secret&v=newcode&t=13:00');
+  await shows(p, '[data-a="auth"]');
+  await p.fill('input.pass', PASSPHRASE);
+  await p.tap('[data-a="auth"]');
+  check('New recovery code: shown after the passphrase', await shows(p, '[data-a="code"]', 15000));
+  const code = await p.locator('[data-a="code"] span').allTextContents();
+  await p.tap('[data-a="written"]');
+  await p.fill('input.typeback-in', 'ABCDE');
+  await p.tap('[data-a="finish"]');
+  check('New recovery code: a wrong type-back keeps the old one', await shows(p, '[data-a="secret-note"]'));
+  await p.fill('input.typeback-in', code.join(' '));
+  await p.tap('[data-a="finish"]');
+  check('New recovery code: typed back, it is in use', await until(() => document.querySelector('[data-a="secret-done"]')?.textContent === 'The new code is in use'));
+
+  await h.open(p, 's=secret&v=check&t=13:00');
+  await shows(p, '[data-a="check"]');
+  await p.fill('input.typeback-in', 'ABCDE ABCDE');
+  await p.tap('[data-a="check"]');
+  check("Check the code: a wrong one says it doesn't match", await shows(p, '[data-a="secret-note"]', 15000));
+
+  await h.open(p, 's=settings&v=notverified&t=13:00');
+  check('Privacy: a code the phone could not confirm shows "The separate code is off"', await shows(p, '[data-a="notverified"]'));
+  check('Privacy: no loud lines', !/[!%]/.test(await p.locator('.settings').innerText()));
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');

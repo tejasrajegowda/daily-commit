@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { displayOf, exportCopy, lastCopyAt, saveDisplay, spaceUsed, useApp, useModel, useNav, type Display, type ExportOutcome } from '../app/context.ts';
+import { displayOf, exportCopy, fingerprintOff, lastCopyAt, modesNow, saveDisplay, spaceUsed, useApp, useModel, useNav, type DeviceMode, type Display, type ExportOutcome } from '../app/context.ts';
 import { setSetting } from '../record/ops/settings.ts';
 import { applyDisplay } from '../ui/display.ts';
 import { I } from '../ui/icons.tsx';
@@ -23,9 +23,11 @@ export function Settings() {
   const deps = useApp();
   const { core, store } = deps;
   const model = useModel();
-  const { go } = useNav();
+  const { nav, go } = useNav();
   const wide = useWide();
-  const [cat, setCat] = useState<Category>('display');
+  const notVerified = nav.variant === 'notverified';
+  const [cat, setCat] = useState<Category>(notVerified ? 'privacy' : CATEGORIES.some(c => c[0] === nav.variant) ? nav.variant as Category : 'display');
+  const [modes, setModes] = useState<readonly DeviceMode[] | undefined>(undefined);
   const [display, setDisplay] = useState<Display | undefined>(undefined);
   const [copyAt, setCopyAt] = useState<number | undefined>(undefined);
   const [space, setSpace] = useState<number | undefined>(undefined);
@@ -34,8 +36,9 @@ export function Settings() {
 
   useEffect(() => {
     let live = true;
-    void Promise.all([displayOf(deps), lastCopyAt(deps), spaceUsed(deps)]).then(([d, at, used]) => {
+    void Promise.all([displayOf(deps), lastCopyAt(deps), spaceUsed(deps), modesNow(deps)]).then(([d, at, used, m]) => {
       if (!live) return;
+      setModes(m);
       setDisplay(d);
       setCopyAt(at);
       setSpace(used);
@@ -87,11 +90,39 @@ export function Settings() {
         </div>
       );
     },
-    privacy: () => (
-      <div className="list">
-        <Row line={{ nm: 'Locks the moment you leave', sub: "switching apps, or the screen going off. Picking a file or sharing from inside the app doesn't count" }} />
-      </div>
-    ),
+    privacy: () => {
+      const own = modes?.includes('own-code') ?? false;
+      const phone = modes?.includes('phone-lock') ?? false;
+      const finger = modes?.includes('fingerprint') ?? false;
+      const choice = (k: 'phone' | 'own', on: boolean, line: Line) => (
+        <button type="button" className={`li opt-li${on ? ' on' : ''}`} data-a="unlockmode" data-x={k} aria-pressed={on} onClick={on ? undefined : () => go('secret', k === 'own' ? 'owncode' : 'phone')}>
+          <span><span className="nm">{line.nm}</span><span className="sub">{line.sub}</span></span><span className="radio" aria-hidden="true" /></button>
+      );
+      return (
+        <>
+          {deps.device.deviceModes && (
+            <>
+              <p className="eb" style={{ margin: '0 4px 10px' }}>{W.opensOn(wide)}</p>
+              <div className="list">
+                {choice('phone', phone, W.phoneLock)}
+                {choice('own', own, W.ownCode)}
+                {own && <Row line={W.finger} a="biotoggle" end={<Toggle on={finger} />}
+                  onClick={() => (finger ? void fingerprintOff(deps).then(() => modesNow(deps)).then(setModes) : go('secret', 'finger'))} />}
+                {own && <Row line={W.changeCode} a="changecode" end={<Chev />} onClick={() => go('secret', 'owncode')} />}
+              </div>
+              {notVerified && <div className="panel note" data-a="notverified" style={{ marginTop: 12 }}><p className="eb">{W.notVerified.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{W.notVerified.text}</p></div>}
+            </>
+          )}
+          <Note>{deps.device.deviceModes ? W.passAlways : W.passOnly}</Note>
+          <div className="list" style={{ marginTop: 22 }}>
+            <Row line={W.locks} />
+            <Row line={W.changePass} a="changepass" end={<Chev />} onClick={() => go('secret', 'pass')} />
+            <Row line={W.checkCode} a="checkcode" end={<Chev />} onClick={() => go('secret', 'check')} />
+            <Row line={W.newCode} a="newcode" end={<Chev />} onClick={() => go('secret', 'newcode')} />
+          </div>
+        </>
+      );
+    },
     data: () => (
       <>
         <div className="list">
