@@ -24,6 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { harness } from './page.mjs';
 import { STATES } from './states.mjs';
+import { screenProblems } from './rules.mjs';
 
 const CONFIG = {
   viewports: [
@@ -470,6 +471,8 @@ for (const vp of CONFIG.viewports) {
       bgHint: [0, 0, 0],
     });
     findings = findings.concat(analyse({ ...vp, name: vp.name }, probe, sample).map(f => ({ ...f, state: id })));
+    // R1: the binding wellbeing rules, on the text and colours drawn (§8)
+    for (const problem of await screenProblems(page)) findings.push({ viewport: vp.name, gate: 'R1 wellbeing-rules', level: 'BLOCKER', msg: problem, state: id });
   }
 }
 await h.close();

@@ -106,7 +106,7 @@ export const PLAN_WORDS = {
   intro: 'Back of house. Changed on Sundays, not every day.',
   recorded: 'The raw thing is stored — a time, or minutes — never a yes or no. Targets can change later without rewriting the past.',
   focus: 'Focus is scored and holds three.',
-  log: 'Log is kept and never scored — it can’t be failed.',
+  log: 'Log is kept and never scored.',
   privateOn: 'The words stay locked with your diary.',
   privateOff: 'Without it, the words appear in the notification, and Android keeps them in its notification history.',
   nudge: 'A reminder only nudges: it asks nothing, is never repeated, and stays quiet between lights out and waking.',

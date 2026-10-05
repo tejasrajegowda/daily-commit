@@ -259,7 +259,7 @@ export function Today() {
           );
         })}
       </div>
-      <p className="meta" style={{ margin: '16px 14px 0' }}>Reminder text. It has no ticks and it can't be failed — it's what a good {weekend ? 'weekend day' : 'weekday'} looks like, not a list to complete.</p>
+      <p className="meta" style={{ margin: '16px 14px 0' }}>Reminder text. It has no ticks and nothing in it is scored — it's what a good {weekend ? 'weekend day' : 'weekday'} looks like, not a list to complete.</p>
     </>
   );
 

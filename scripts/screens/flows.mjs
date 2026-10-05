@@ -2,8 +2,9 @@
 // node scripts/screens/flows.mjs (after npm run screens:build) → PASS/FAIL lists, exit 1 on any FAIL.
 import { harness } from './page.mjs';
 import { SIZES } from './states.mjs';
+import { screenProblems } from './rules.mjs';
 
-const h = await harness();
+const h = await harness({ rules: true });
 const errors = [];
 const ok = [];
 const check = (name, cond) => (cond ? ok : errors).push(name);
@@ -15,6 +16,19 @@ const PASSPHRASE = 'CANARY harness passphrase';
 const shows = (p, sel, timeout = 8000) => p.waitForSelector(sel, { state: 'attached', timeout }).then(() => true, () => false);
 const gone = (p, sel, timeout = 8000) => p.waitForSelector(sel, { state: 'detached', timeout }).then(() => true, () => false);
 const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a="pin"][data-x="${k}"]`); };
+
+// the wellbeing-rules check itself, on three pages made for it
+{
+  const p = await h.page(PHONE, errors);
+  const page = body => p.setContent(`<!doctype html><body style="background:#000;color:#ddd"><div id="app">${body}</div><div id="layer"></div></body>`);
+  await page('<p>Walk · 5 of the last 7 days</p><button class="btn--delete" style="background:oklch(.56 .17 25)">Move to trash</button>');
+  check('rules check: a clean page, with the diary delete in red, passes', (await screenProblems(p)).length === 0);
+  await page('<p>A 12-day streak</p>');
+  check('rules check: a banned word is found', (await screenProblems(p)).some(x => x.includes('"streak"')));
+  await page('<p>Walk <span style="color:oklch(.6 .2 25)">not done</span></p>');
+  check('rules check: red outside the delete is found', (await screenProblems(p)).some(x => x.startsWith('red outside')));
+  check('rules check: every flow step is swept', typeof p.sweep === 'function');
+}
 
 // the harness itself
 {
