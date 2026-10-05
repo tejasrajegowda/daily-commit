@@ -78,3 +78,12 @@ test('a new code is 25 bytes from the random source, printed', () => {
 test('printing refuses anything but 25 bytes', () => {
   assert.throws(() => printCode(new Uint8Array(24)), RangeError);
 });
+
+test('a printed code never holds I, L or O, check symbol included, as the first-run screen says', () => {
+  fc.assert(fc.property(fc.uint8Array({ minLength: RECOVERY_BYTES, maxLength: RECOVERY_BYTES }), bytes => {
+    assert.doesNotMatch(printCode(bytes), /[ILO]/);
+  }));
+  const endsInU = Array.from({ length: 400 }, (_, i) => printCode(new Uint8Array(RECOVERY_BYTES).fill(i % 256).map((b, j) => (b * 31 + j * i) & 255)))
+    .some(c => c.endsWith('U'));
+  assert.ok(endsInU, 'the check symbol can be U, so the screen must not promise "no U"');
+});

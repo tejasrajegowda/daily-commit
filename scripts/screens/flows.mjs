@@ -140,7 +140,19 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.tap('[data-a="fstep"]');
   check('first day: the recovery code shows as nine groups', await shows(p, '[data-a="code"]', 20000) && (await p.locator('[data-a="code"] span').count()) === 9);
   const code = (await p.locator('[data-a="code"] span').allInnerTexts()).join(' ');
+  const checkRow = await p.evaluate(() => {
+    const box = document.querySelector('[data-a="code"]').getBoundingClientRect();
+    const spans = [...document.querySelectorAll('[data-a="code"] span')].map(s => s.getBoundingClientRect());
+    const last = spans[8], rows = new Set(spans.slice(0, 8).map(r => Math.round(r.top)));
+    return rows.size === 2 && last.top >= Math.max(...spans.slice(0, 8).map(r => r.bottom))
+      && Math.abs((last.left + last.right) / 2 - (box.left + box.right) / 2) < 4;
+  });
+  check('first day: the eight groups fill two rows and the check symbol has its own, centred', checkRow);
+  check('first day: the note under the code promises only what every code keeps (the check symbol can be U)',
+    (await p.locator('[data-a="code"] + p').innerText()).startsWith('No I, L or O anywhere'));
   await p.tap('[data-a="fstep"]');
+  check('first day: before typing, every place in the type-back shows its dots',
+    ((await p.locator('.typeback').innerText()).match(/·····/g) ?? []).length === 8);
   await p.fill('.typeback-in', code.replace(/^./, c => (c === 'A' ? 'B' : 'A')));
   await p.tap('[data-a="finish"]');
   check('first day: a wrong type-back stays on step 4 and says so', await shows(p, '.panel.note') && (await p.locator('h1.t-l').innerText()) === 'Type it back');

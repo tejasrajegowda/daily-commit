@@ -131,7 +131,7 @@ export function FirstRun(props: FirstRunProps) {
         <h1 className="t-l" style={{ marginTop: 10 }}>Your recovery code</h1>
         <p className="body" style={{ margin: '12px 0 0' }}>If you ever forget your passphrase, this is the only way back into the diary. Write it on paper and keep it away from this phone and your laptop.</p>
         <div className="code well" data-a="code">{codeGroups(prepared.code).map((g, i) => <span key={i}>{g}</span>)}</div>
-        <p className="meta" style={{ margin: '0 0 22px' }}>No I, L, O or U anywhere — so nothing can be misread when it's handwritten. If this code and the passphrase are both lost, the diary cannot be opened by anyone, including you.</p>
+        <p className="meta" style={{ margin: '0 0 22px' }}>No I, L or O anywhere — so nothing can be misread when it's handwritten. If this code and the passphrase are both lost, the diary cannot be opened by anyone, including you.</p>
         {next("I've written it down", () => setStep(4), 'Next, you type it back. There is no skip.')}
       </div>
     );

@@ -11,8 +11,9 @@ export function TypeBack({ typed, onChange, label = 'Recovery code, typed back' 
         {Array.from({ length: 9 }, (_, i) => {
           const done = groups.done[i];
           if (done !== undefined) return <span key={i} className="done">{done}</span>;
-          if (i === groups.done.length) return <span key={i} className="cur">{groups.current}<i className="caret" /></span>;
-          return <span key={i}>{i === 8 ? '·' : '·····'}</span>;
+          const dots = i === 8 ? '·' : '·····';
+          if (i === groups.done.length) return <span key={i} className="cur">{groups.current || <><i className="caret" /><span>{dots}</span></>}{groups.current && <i className="caret" />}</span>;
+          return <span key={i}>{dots}</span>;
         })}
       </div>
       <input className="typeback-in" aria-label={label} value={typed} maxLength={60}
