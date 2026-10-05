@@ -15,10 +15,12 @@ export interface LockScreenProps {
   /** the person chose the passphrase; kept by the app, so a failed try's brief blank doesn't forget it */
   readonly passphraseOnly: boolean;
   setPassphraseOnly(on: boolean): void;
+  readonly byCode: boolean;
+  setByCode(on: boolean): void;
 }
 
 export function LockScreen(props: LockScreenProps) {
-  const { offered, busy, passphraseOnly, setPassphraseOnly } = props;
+  const { offered, busy, passphraseOnly, setPassphraseOnly, byCode, setByCode } = props;
   const { lock } = useApp();
   const note = useLockNote();
   const wide = useWide();
@@ -26,7 +28,7 @@ export function LockScreen(props: LockScreenProps) {
 
   if (layout === 'passphrase') {
     const back = !wide && offered.length > 0 && passphraseOnly;
-    return <PassphraseLock wide={wide} note={note} busy={busy} back={back ? (offered.includes('own-code') ? 'Use your code' : 'Use fingerprint') : undefined} onBack={() => setPassphraseOnly(false)} />;
+    return <PassphraseLock wide={wide} note={note} busy={busy} code={byCode} setCode={setByCode} back={back ? (offered.includes('own-code') ? 'Use your code' : 'Use fingerprint') : undefined} onBack={() => setPassphraseOnly(false)} />;
   }
   if (layout === 'code') return <CodeLock bio={fingerprintKey(offered)} note={note} busy={busy} onPassphrase={() => setPassphraseOnly(true)} />;
   return (
@@ -52,15 +54,21 @@ function NoteCard({ note }: { readonly note: LockNote }) {
   );
 }
 
-function PassphraseLock(p: { readonly wide: boolean; readonly note: LockNote | undefined; readonly busy: boolean; readonly back?: string; onBack(): void }) {
+function PassphraseLock(p: { readonly wide: boolean; readonly note: LockNote | undefined; readonly busy: boolean; readonly code: boolean; setCode(on: boolean): void; readonly back?: string; onBack(): void }) {
   const { lock } = useApp();
   const field = useRef<HTMLInputElement>(null);
+  // the recovery code stands in for a forgotten passphrase: the first day's "the only way back"
+  const { code, setCode } = p;
   const open = () => {
     const el = field.current;
     if (!el || p.busy) return;
     const text = el.value;
     el.value = '';
-    if (text.trim()) void lock.unlock({ method: 'passphrase', text });
+    if (text.trim()) void lock.unlock({ method: code ? 'recovery' : 'passphrase', text });
+  };
+  const switchTo = (next: boolean) => {
+    if (field.current) field.current.value = '';
+    setCode(next);
   };
   return (
     <div className="lock">
@@ -68,11 +76,12 @@ function PassphraseLock(p: { readonly wide: boolean; readonly note: LockNote | u
       <p className="eb lk-eb" style={p.note ? { marginBottom: 22 } : undefined}>Locked</p>
       {p.note && <NoteCard note={p.note} />}
       <form className="lk-pass" onSubmit={e => { e.preventDefault(); open(); }}>
-        <input ref={field} className="pass" type="password" placeholder="Passphrase" aria-label="Passphrase"
-          autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={p.busy} />
+        <input ref={field} className="pass" type="password" placeholder={code ? 'Recovery code' : 'Passphrase'} aria-label={code ? 'Recovery code' : 'Passphrase'}
+          autoComplete="off" autoCapitalize={code ? 'characters' : 'off'} autoCorrect="off" spellCheck={false} disabled={p.busy} />
         <button type="submit" className="btn btn--primary wide" data-a="unlock" disabled={p.busy}>{p.busy ? 'Opening…' : 'Open'}</button>
       </form>
-      <p className="lk-hint">{p.wide ? 'This computer never remembers it, and the app locks again when you leave the tab.' : 'Five words. Your phone never stores them.'}</p>
+      <p className="lk-hint">{code ? "The code from the first day, as written on paper. Spaces don't matter." : p.wide ? 'This computer never remembers it, and the app locks again when you leave the tab.' : 'Five words. Your phone never stores them.'}</p>
+      <button type="button" className="btn btn--text lk-alt" data-a="usecode" disabled={p.busy} onClick={() => switchTo(!code)}>{code ? 'Use the passphrase instead' : 'Use the recovery code instead'}</button>
       {p.back && <button type="button" className="btn btn--text lk-alt" data-a="lockbio" onClick={p.onBack}>{p.back}</button>}
     </div>
   );

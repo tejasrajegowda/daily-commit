@@ -63,6 +63,19 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.press('input.pass', 'Enter');
   check('the passphrase (with Enter) opens Today', await shows(p, '.today', 15000));
 
+  await h.open(p, 's=lock');
+  await shows(p, '[data-a="lockpass"]');
+  await p.tap('[data-a="lockpass"]');
+  await p.tap('[data-a="usecode"]');
+  check('the lock offers the recovery code instead of the passphrase', await shows(p, 'input[aria-label="Recovery code"]'));
+  await p.fill('input.pass', 'ABCDE ABCDE ABCDE ABCDE ABCDE ABCDE ABCDE ABCDE A');
+  await p.tap('[data-a="unlock"]');
+  check('a wrong recovery code says so and stays locked', await shows(p, '.lk-note') && (await p.locator('.today').count()) === 0);
+  const paperCode = await p.evaluate(() => window.harness.recoveryCode);
+  await p.fill('input.pass', paperCode.toLowerCase().replace(/ /g, ''));
+  await p.tap('[data-a="unlock"]');
+  check('the recovery code from paper opens Today (spaces and case forgiven)', await shows(p, '.today', 15000));
+
   await h.open(p, 's=lock&v=own');
   await shows(p, '.pad');
   check('own code: the keypad starts with six empty dots', (await p.locator('.pins i').count()) === 6 && (await p.locator('.pins i.on').count()) === 0);
@@ -476,6 +489,22 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.fill('input[aria-label="New passphrase"]', 'CANARY river stone lamp cloud');
   await p.tap('[data-a="pass-change"]');
   check('Change passphrase: Changed', await until(() => document.querySelector('[data-a="secret-done"]')?.textContent === 'Changed'));
+
+  await h.open(p, 's=secret&v=pass&t=13:00');
+  await shows(p, '[data-a="pass-change"]');
+  await p.tap('[data-a="pass-usecode"]');
+  const resetCode = await p.evaluate(() => window.harness.recoveryCode);
+  await p.fill('input[aria-label="Recovery code"]', resetCode);
+  await p.fill('input[aria-label="New passphrase"]', 'CANARY a forgotten one replaced');
+  await p.tap('[data-a="pass-change"]');
+  check('Change passphrase: the recovery code stands in for a forgotten one', await until(() => document.querySelector('[data-a="secret-done"]')?.textContent === 'Changed'));
+  await p.evaluate(() => window.harness.leave());
+  await p.evaluate(() => window.harness.resume());
+  if (await shows(p, '[data-a="lockpass"]', 3000)) await p.tap('[data-a="lockpass"]');
+  await shows(p, '.lk-pass');
+  await p.fill('input.pass', 'CANARY a forgotten one replaced');
+  await p.tap('[data-a="unlock"]');
+  check('Change passphrase: the new passphrase then opens the record', await shows(p, '.today', 15000));
 
   await h.open(p, 's=secret&v=newcode&t=13:00');
   await shows(p, '[data-a="auth"]');

@@ -35,6 +35,8 @@ export interface HarnessControls {
   unlock(how: UnlockHow): Promise<string>;
   /** a backup file for the restore flows, as base64url: another record's, this one's, a newer one or a damaged one */
   backup(kind: 'source' | 'mine' | 'newer' | 'damaged'): Promise<string>;
+  /** the invented record's recovery code, as the first day would have shown it (none for an empty record) */
+  readonly recoveryCode: string | undefined;
 }
 
 /** A backup of a second invented record, made in its own database. */
@@ -129,12 +131,13 @@ async function start(): Promise<void> {
   const db = openDb({ name: DB_NAME, indexedDB, IDBKeyRange });
   const phone = fakePlugin();
   let core: RecordCore;
+  let recoveryCode: string | undefined;
   const empty = state.screen === 'first' || (state.screen === 'restore' && state.variant !== 'replace');
   if (empty) {
     const now = nowOf(state);
     core = openRecord({ db, now: () => now });
   } else {
-    core = (fixture ? await seedFixture(db, state, fixture) : await seedRecord(db, state)).core;
+    ({ core, recoveryCode } = fixture ? await seedFixture(db, state, fixture) : await seedRecord(db, state));
   }
   if (state.screen === 'lock') {
     await enrolFor(state, core, phone);
@@ -158,6 +161,7 @@ async function start(): Promise<void> {
       const file = kind === 'mine' ? await backupOf(core) : await sourceFile();
       return toBase64url(kind === 'newer' ? newerOf(file) : kind === 'damaged' ? damagedOf(file) : file);
     },
+    recoveryCode,
   };
   const initial: Nav | undefined = (SCREENS as readonly string[]).includes(state.screen) ? { screen: state.screen as ScreenId, variant: state.variant } : undefined;
   const root = document.getElementById('root');

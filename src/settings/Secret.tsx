@@ -89,22 +89,26 @@ function ChangePassphrase() {
   const [note, setNote] = useState<{ title: string; text: string } | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
+  const [code, setCode] = useState(false);              // a forgotten passphrase: the recovery code stands in
   if (done) return <Done title="Changed" text="Your new passphrase opens everything from now on. Copies saved before today still open with the previous one, until new copies replace them over the next few days." />;
   const change = async () => {
     const a = current.current;
     const b = next.current;
     if (!a || !b || busy) return;
-    const was: Typed = { method: 'passphrase', text: a.value };
+    const was: Typed = { method: code ? 'recovery' : 'passphrase', text: a.value };
     const now = b.value;
+    // read once, then emptied, whatever the outcome (C9)
+    a.value = '';
+    b.value = '';
+    setStrength(meter(''));
     setBusy(true);
     const outcome = await newPassphrase(deps, was, now);
     setBusy(false);
-    if (outcome.kind === 'Saved') {
-      a.value = '';
-      b.value = '';
-      setDone(true);
-    } else if (outcome.kind === 'TooShort') setNote({ title: 'A little longer', text: 'A new passphrase needs at least 15 characters. Five ordinary words is plenty.' });
-    else if (outcome.kind === 'WrongSecret') setNote({ title: "That isn't the current one", text: 'Check the current passphrase. Nothing was changed.' });
+    if (outcome.kind === 'Saved') setDone(true);
+    else if (outcome.kind === 'TooShort') setNote({ title: 'A little longer', text: 'A new passphrase needs at least 15 characters. Five ordinary words is plenty.' });
+    else if (outcome.kind === 'WrongSecret') setNote(code
+      ? { title: "That code didn't open it", text: 'Check the recovery code against the paper. Nothing was changed.' }
+      : { title: "That isn't the current one", text: 'Check the current passphrase. Nothing was changed.' });
     else setNote({ title: 'Not changed', text: "That couldn't be saved. Your passphrase is as it was." });
   };
   return (
@@ -112,10 +116,12 @@ function ChangePassphrase() {
       <h1 className="t-l" style={{ marginTop: 14 }}>Change passphrase</h1>
       <p className="body" style={{ margin: '12px 0 0' }}>Only the lock on your record changes. Nothing in it is rewritten, so this takes a moment.</p>
       <form onSubmit={e => { e.preventDefault(); void change(); }}>
-        <input ref={current} className="pass" type="password" aria-label="Current passphrase" placeholder="Current passphrase" style={{ marginTop: 22 }} disabled={busy} {...field} onInput={() => setNote(undefined)} />
+        <input ref={current} className="pass" type="password" aria-label={code ? 'Recovery code' : 'Current passphrase'} placeholder={code ? 'Recovery code' : 'Current passphrase'} style={{ marginTop: 22 }} disabled={busy} {...field} onInput={() => setNote(undefined)} />
         <input ref={next} className="pass" type="password" aria-label="New passphrase" placeholder="New passphrase" style={{ marginTop: 12 }} disabled={busy} {...field}
           onInput={e => { setStrength(meter(e.currentTarget.value)); setNote(undefined); }} />
       </form>
+      <button type="button" className="btn btn--text" data-a="pass-usecode" disabled={busy} style={{ marginTop: 6 }}
+        onClick={() => { if (current.current) current.current.value = ''; setNote(undefined); setCode(!code); }}>{code ? 'Use the current passphrase instead' : 'Forgotten it? Use the recovery code instead'}</button>
       <Meter bars={strength.bars} label={strength.label} extra={strength.label.startsWith('At least') ? ' · five ordinary words is plenty' : ' · at least 15 characters; five ordinary words is plenty'} />
       {note && <Note title={note.title} text={note.text} />}
       <button type="button" className="btn btn--primary wide" data-a="pass-change" disabled={busy} style={{ marginTop: 18 }} onClick={() => void change()}>{busy ? 'Changing…' : 'Change it'}</button>

@@ -82,6 +82,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   const [hasVault, setHasVault] = useState<boolean | undefined>(undefined);
   const [found, setFound] = useState<FoundCopy | undefined>(undefined);
   const [passphraseOnly, setPassphraseOnly] = useState(false);
+  const [byCode, setByCode] = useState(false);          // the recovery code in place of the passphrase, kept across a failed try
   const [writing, setWriting] = useState(false);
   const offered = useRef<readonly DeviceMode[]>([]);
   if (state.kind === 'Locked' && state.offered !== undefined) offered.current = state.offered;
@@ -105,10 +106,12 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     if (next.kind === 'Open') {
       lock.clear();
       setPassphraseOnly(false);
+      setByCode(false);
     }
     if (next.kind === 'Locking') {
       lock.clear();
       setPassphraseOnly(false);
+      setByCode(false);
       setFlow(undefined);
       setNav(HOME);                                      // nothing that was open on screen survives a lock
     }
@@ -169,7 +172,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   else if (flow?.kind === 'restore') body = <Restore replacing={hasVault} preset={flow.preset} onClose={closeRestore} />;
   else if (hasVault === false) body = <FirstRun found={found} onRestore={preset => setFlow({ kind: 'restore', preset })} onDone={() => setHasVault(true)} />;
   else if (screen === 'blank') body = null;
-  else if (screen === 'lock') body = <LockScreen offered={offered.current} busy={state.kind === 'Unlocking'} passphraseOnly={passphraseOnly} setPassphraseOnly={setPassphraseOnly} />;
+  else if (screen === 'lock') body = <LockScreen offered={offered.current} busy={state.kind === 'Unlocking'} passphraseOnly={passphraseOnly} setPassphraseOnly={setPassphraseOnly} byCode={byCode} setByCode={setByCode} />;
   else {
     body = recordScreen(nav);
     bare = BARE.has(nav.screen);
