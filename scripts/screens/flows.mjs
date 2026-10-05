@@ -65,6 +65,7 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
 
   await h.open(p, 's=lock&v=own');
   await shows(p, '.pad');
+  check('own code: the keypad starts with six empty dots', (await p.locator('.pins i').count()) === 6 && (await p.locator('.pins i.on').count()) === 0);
   await typeCode(p, '24681');
   check('own code: Open stays hidden below six digits', !(await p.locator('[data-a="pinok"]').isVisible()));
   await typeCode(p, '357');
