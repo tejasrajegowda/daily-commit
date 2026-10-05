@@ -155,7 +155,8 @@ export function cueForRules(c: CueRecord): Cue {
 
 /** The settings the notification schedule needs, under the rules' names. */
 export function cueSettingsOf(s: Settings): CueSettings {
-  return { cuesOn: s.cuesOn, wake: s.wakePlan, lightsOut: s.lightsOutPlan, boundary: s.boundary };
+  // pausing tracking sends nothing (§8 #31), whatever the reminders switch says
+  return { cuesOn: s.cuesOn && s.paused !== true, wake: s.wakePlan, lightsOut: s.lightsOutPlan, boundary: s.boundary };
 }
 
 /**

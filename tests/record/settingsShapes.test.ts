@@ -28,3 +28,10 @@ test('a block outside its window, steps out of order, or a pause that is not on 
   assert.equal((await setSetting(core, 'dayShapes', backwards)).kind, 'Invalid');
   assert.equal((await setSetting(core, 'paused', 'yes' as unknown as boolean)).kind, 'Invalid');
 });
+
+test('while tracking is paused the reminder schedule is empty, whatever the reminders switch says', async () => {
+  const { cueSettingsOf } = await import('../../src/record/mapping.ts');
+  const base = { tz: 'UTC', boundary: 240, journeyStart: '2026-01-05', wakePlan: 420, lightsOutPlan: 1380, cuesOn: true };
+  assert.equal(cueSettingsOf(base).cuesOn, true);
+  assert.equal(cueSettingsOf({ ...base, paused: true }).cuesOn, false);
+});

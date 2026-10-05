@@ -26,6 +26,7 @@ export { finishFirstRun, firstSettings, MIN_PASSPHRASE_CHARS, passphraseLongEnou
 export { readBackupFile, restoreWith, type FileRead, type RestoreMessage, type RestoreStep } from './restoreSteps.ts';
 export { DEFAULT_SHAPES, shapesOf } from './dayShapes.ts';
 export { monthDue } from './reviewsDue.ts';
+export { checkCode, finishNewCode, fingerprintOff, newPassphrase, setMode, startNewCode, type PendingCode, type SecretOutcome } from './secretFlows.ts';
 
 /** The phone, or the browser standing in for it. */
 export interface DevicePort {
