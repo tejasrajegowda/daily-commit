@@ -1,4 +1,4 @@
-// The harness page: the state from the URL, a fresh invented record, the stand-in phone, then the
+// The harness page: the state from the URL, a fresh invented record (or one handed in, fixture.ts), the stand-in phone, then the
 // real app. Every state starts from nothing: changing the hash reloads the page.
 import { setSetting } from '../../../src/record/ops/settings.ts';
 import { createRoot } from 'react-dom/client';
@@ -17,6 +17,7 @@ import { enrolMode } from '../../../src/vault/devices.ts';
 import { fakePlugin } from '../../vault/fakePlugin.ts';
 import '../../../src/ui/fonts.css';
 import '../../../src/ui/app.css';
+import { seedFixture } from './fixture.ts';
 import { HARNESS_CODE, HARNESS_PASSPHRASE, seedRecord } from './seed.ts';
 import { dateOfDay, nowOf, readState, type HarnessState } from './state.ts';
 import { closeDay } from '../../../src/record/ops/days.ts';
@@ -109,7 +110,7 @@ async function enrolFor(state: HarnessState, core: RecordCore, phone: ReturnType
 /** What happened before the screen is drawn, for the states that show an outcome. */
 async function prelude(state: HarnessState, deps: AppDeps, phone: ReturnType<typeof fakePlugin>): Promise<void> {
   if (state.screen === 'today' && state.variant === 'closed') {
-    const today = dateOfDay(state.day);
+    const today = dateOfDay(state.day, state.start);
     await deps.store.run(core => closeDay(core, { date: today, lightsOut: state.minute }));
   }
   if (state.variant === 'paused') await deps.store.run(core => setSetting(core, 'paused', true));
@@ -122,7 +123,8 @@ async function prelude(state: HarnessState, deps: AppDeps, phone: ReturnType<typ
 }
 
 async function start(): Promise<void> {
-  const state = readState(location.hash);
+  const fixture = window.harnessFixture;
+  const state = readState(location.hash, fixture?.start);
   await deleteDb(DB_NAME);
   const db = openDb({ name: DB_NAME, indexedDB, IDBKeyRange });
   const phone = fakePlugin();
@@ -132,7 +134,7 @@ async function start(): Promise<void> {
     const now = nowOf(state);
     core = openRecord({ db, now: () => now });
   } else {
-    core = (await seedRecord(db, state)).core;
+    core = (fixture ? await seedFixture(db, state, fixture) : await seedRecord(db, state)).core;
   }
   if (state.screen === 'lock') {
     await enrolFor(state, core, phone);

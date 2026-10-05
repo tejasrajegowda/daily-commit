@@ -12,6 +12,8 @@ export interface HarnessState {
   readonly day: number;
   /** canary=1: yesterday holds marked values, for the check that the morning shows no earlier day */
   readonly canary: boolean;
+  /** the date of day 1: START, or a handed-in record's own */
+  readonly start: string;
 }
 
 /** The record's first day: a Monday. */
@@ -26,7 +28,7 @@ function minuteOf(text: string | null): number | undefined {
   return minute < 1440 ? minute : undefined;
 }
 
-export function readState(hash: string): HarnessState {
+export function readState(hash: string, start: string = START): HarnessState {
   const q = new URLSearchParams(hash.replace(/^#/, ''));
   const age = Number(q.get('age'));
   return {
@@ -35,15 +37,16 @@ export function readState(hash: string): HarnessState {
     minute: minuteOf(q.get('t')) ?? 780,
     day: q.has('age') && Number.isInteger(age) ? Math.max(1, age) : 17,
     canary: q.get('canary') === '1',
+    start,
   };
 }
 
-/** The calendar date of a day number; day 1 is START. */
-export function dateOfDay(day: number): string {
-  return new Date(Date.parse(`${START}T00:00:00Z`) + (day - 1) * DAY_MS).toISOString().slice(0, 10);
+/** The calendar date of a day number; day 1 is `start`. */
+export function dateOfDay(day: number, start: string = START): string {
+  return new Date(Date.parse(`${start}T00:00:00Z`) + (day - 1) * DAY_MS).toISOString().slice(0, 10);
 }
 
 /** The harness's fixed clock: the day, at the minute, in UTC. */
 export function nowOf(state: HarnessState): number {
-  return Date.parse(`${dateOfDay(state.day)}T00:00:00Z`) + state.minute * 60_000;
+  return Date.parse(`${dateOfDay(state.day, state.start)}T00:00:00Z`) + state.minute * 60_000;
 }

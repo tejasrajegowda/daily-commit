@@ -69,23 +69,44 @@ export interface Seeded {
   readonly recoveryCode: string;
 }
 
-/** First run on `db`, the habits, then the finished days before `state.day`; the record is left open. */
-export async function seedRecord(db: RecordDb, state: HarnessState): Promise<Seeded> {
+/** A record after first run, open, with its ciphers, for a seed to fill. */
+export interface Started extends Seeded {
+  readonly cipher: ReturnType<typeof sessionCiphers>['cipher'];
+  readonly backup: ReturnType<typeof sessionCiphers>['backup'];
+  /** the change stamp of every row a seed stores directly */
+  readonly stamp: { readonly updated_at: number; readonly updated_by: string };
+}
+
+/** First run on `db` at the state's clock, with `settings`. */
+export async function startRecord(db: RecordDb, state: HarnessState, settings: Settings): Promise<Started> {
   let now = nowOf(state);
   const clock = { now: () => now, set: (ms: number) => { now = ms; } };
   const core = openRecord({ db, now: clock.now });
   const made = await createVault(HARNESS_PASSPHRASE, systemRandom, now);
   const { cipher, backup } = sessionCiphers(made.keys);
-  const setup = await firstRun(core, { cipher, backup, vault: made.vault, wrappers: made.wrappers, settings: HARNESS_SETTINGS });
+  const setup = await firstRun(core, { cipher, backup, vault: made.vault, wrappers: made.wrappers, settings });
   if (setup.kind !== 'Saved') throw new Error(`first run: ${setup.kind}`);
+  return { core, clock, recoveryCode: made.recoveryCode, cipher, backup, stamp: { updated_at: now, updated_by: 'harness' } };
+}
+
+/** Rows stored around the session are read by opening it again. */
+export async function reopen(started: Started): Promise<Seeded> {
+  await started.core.lock();
+  await openSession(started.core, started.cipher, started.backup);
+  return { core: started.core, clock: started.clock, recoveryCode: started.recoveryCode };
+}
+
+/** First run on `db`, the habits, then the finished days before `state.day`; the record is left open. */
+export async function seedRecord(db: RecordDb, state: HarnessState): Promise<Seeded> {
+  const started = await startRecord(db, state, HARNESS_SETTINGS);
+  const { core, cipher, stamp } = started;
   for (const { startDay, ...h } of HABITS) {
     if (startDay > state.day) continue;
-    const made = await createHabit(core, { ...h, startedOn: dateOfDay(startDay) });
+    const made = await createHabit(core, { ...h, startedOn: dateOfDay(startDay, state.start) });
     if (made.kind !== 'Saved') throw new Error(`habit ${h.id}: ${made.kind}`);
   }
 
   const next = generator(7);
-  const stamp = { updated_at: now, updated_by: 'harness' };
   const observations: object[] = [];
   const days: object[] = [];
   const entries: object[] = [];
@@ -95,7 +116,7 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
   const marked = (d: number) => state.canary && d === state.day - 1;
   for (let d = 1; d < state.day; d++) {
     const opened = next() >= 1 / 9 || steady || marked(d);
-    const date = dateOfDay(d);
+    const date = dateOfDay(d, state.start);
     const weekday = ((d - 1) % 7) as Weekday;
     const evening = Date.parse(`${date}T21:00:00Z`);
     for (const h of HABITS) {
@@ -116,8 +137,5 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
   await db.observations.bulkPut(observations as never[]);
   await db.days.bulkPut(days as never[]);
   await db.entries.bulkPut(entries as never[]);
-  // the rows were stored around the session, so it opens again to read them
-  await core.lock();
-  await openSession(core, cipher, backup);
-  return { core, clock, recoveryCode: made.recoveryCode };
+  return reopen(started);
 }
