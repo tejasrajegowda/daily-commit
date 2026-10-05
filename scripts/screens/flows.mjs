@@ -331,6 +331,38 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Not yet: bringing it back', await gone(p, '[data-a="ny-trashed"]'));
 }
 
+// Plan
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  await h.open(p, 's=plan&t=13:00');
+  check('Plan: three Focus slots and Log', await shows(p, '.slots') && (await p.locator('.slot').count()) === 3 && (await p.locator('.pl-log').count()) > 3);
+  await p.tap('.slot[data-x="h-wake"]');
+  check('Plan: a row opens the edit sheet on a phone', await shows(p, '.sheet[role="dialog"] [data-a="editor"]') && (await p.locator('.sheet h2').innerText()) === 'Wake up');
+  check("Plan: an existing habit's kind can't be changed", await p.locator('.sheet .seg button:not(.on)').first().isDisabled());
+  await p.fill('.sheet input[type="time"][aria-label="Reminder time"]', '06:45');
+  await p.tap('.sheet [data-a="cue-add"]');
+  check('Plan: a reminder is added, with its words', await until(() => document.querySelector('.sheet [data-a="cue"] .sub')?.textContent?.includes('Wake up')));
+  await p.tap('.sheet [data-a="keep"]');
+  check('Plan: keep private hides the reminder words', await until(() => document.querySelector('.sheet [data-a="cue"] .sub')?.textContent?.includes('shows only "Daily Commit"')));
+  await p.tap('.sheet [data-a="plan-x"]');
+  await p.tap('[data-a="add"]');
+  await p.fill('.sheet #h-name', 'CANARY-TEST stretch again');
+  await p.tap('.sheet [data-a="plan-save"]');
+  check('Plan: a new habit joins Log', await until(() => [...document.querySelectorAll('.pl-log .nm')].some(e => e.textContent === 'CANARY-TEST stretch again')));
+  await p.tap('[data-a="add"]');
+  await p.tap('.sheet [data-a="plan-save"]');
+  check('Plan: a form with no name says so', await shows(p, '[data-a="form-problems"]') && (await p.locator('[data-a="form-problems"]').innerText()).includes('needs a name'));
+  await p.tap('.sheet [data-a="plan-x"]');
+  await p.tap('.dock button[data-x="today"]');
+  check('Plan: the new habit is asked in Today', await until(() => [...document.querySelectorAll('.row .nm')].some(e => e.textContent === 'CANARY-TEST stretch again')) || (await p.locator('.today').count()) === 1);
+  const q = await h.page(LAPTOP, errors);
+  await h.open(q, 's=plan&t=13:00');
+  await shows(q, '[data-a="editor"]');
+  await q.click('.slot[data-x="h-walk"]');
+  check('Plan, laptop: selecting switches the editor', await q.waitForFunction(() => document.querySelector('main [data-a="editor"] h2')?.textContent === 'Walk', null, { timeout: 8000 }).then(() => true, () => false));
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');

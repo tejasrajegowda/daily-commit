@@ -8,6 +8,7 @@ import { Diary } from '../diary/Diary.tsx';
 import { NotYet } from '../diary/NotYet.tsx';
 import { Habit } from '../look-back/Habit.tsx';
 import { Month } from '../reviews/Month.tsx';
+import { Plan } from '../plan/Plan.tsx';
 import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
@@ -50,6 +51,7 @@ function recordScreen(nav: Nav): ReactNode {
     case 'week': return <Week />;
     case 'diary': return <Diary />;
     case 'notyet': return <NotYet />;
+    case 'plan': return <Plan />;
     case 'month': return <Month />;
     default: return <Placeholder screen={nav.screen} />;
   }
