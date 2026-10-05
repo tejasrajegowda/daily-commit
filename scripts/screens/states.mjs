@@ -17,6 +17,8 @@ export const STATES = [
   ['habit', 's=habit&v=h-wake&t=12:30&age=40'],
   ['week', 's=week&t=10:30'],
   ['month', 's=month&t=12:30&age=60&v=steady'],
+  ['diary', 's=diary&t=22:20'],
+  ['notyet', 's=notyet&t=22:30'],
   ['first1', 's=first&t=13:00'],
   ['found', 's=first&v=found&t=13:00'],
   ['restore', 's=restore&t=13:00'],

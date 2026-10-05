@@ -4,6 +4,8 @@ import { LATEST } from '../record/backup/snapshot.ts';
 import { FirstRun, type FoundCopy } from '../first-run/FirstRun.tsx';
 import { Restore } from '../first-run/Restore.tsx';
 import { LockScreen } from '../lock/LockScreen.tsx';
+import { Diary } from '../diary/Diary.tsx';
+import { NotYet } from '../diary/NotYet.tsx';
 import { Habit } from '../look-back/Habit.tsx';
 import { Month } from '../reviews/Month.tsx';
 import { Week } from '../reviews/Week.tsx';
@@ -46,6 +48,8 @@ function recordScreen(nav: Nav): ReactNode {
     case 'look': return <LookBack />;
     case 'habit': return <Habit />;
     case 'week': return <Week />;
+    case 'diary': return <Diary />;
+    case 'notyet': return <NotYet />;
     case 'month': return <Month />;
     default: return <Placeholder screen={nav.screen} />;
   }

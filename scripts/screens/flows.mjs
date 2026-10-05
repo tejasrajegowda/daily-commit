@@ -291,6 +291,46 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('reviews: no numbers as scores, no exclamation', !/[!%]/.test(await p.locator('#view').innerText()));
 }
 
+// the diary and Not yet (invented words only)
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  await h.open(p, 's=diary&t=22:20');
+  await shows(p, '.page');
+  await p.tap('.page');
+  await p.keyboard.type('CANARY-TEST a page for today');
+  await p.tap('.diary .top .meta');
+  await p.tap('[data-a="earlier"]');
+  check('diary: leaving the page saves it into the index', await until(() => [...document.querySelectorAll('[data-a="earlier-list"] [data-a="page"]')].some(b => b.textContent?.includes('CANARY-TEST a page for today'))));
+  await p.evaluate(() => window.harness.leave());
+  await p.evaluate(() => window.harness.resume());
+  await shows(p, '.lk-pass');
+  await p.fill('input.pass', 'CANARY harness passphrase');
+  await p.tap('[data-a="unlock"]');
+  await shows(p, '.today', 15000);
+  await p.tap('.dock button[data-x="diary"]');
+  check('diary: the page is still there after a lock and an unlock', await until(() => document.querySelector('.page')?.textContent?.includes('CANARY-TEST a page for today')));
+  await p.tap('[data-a="trash"]');
+  const red = await p.locator('[data-a="trash-yes"]').evaluate(e => getComputedStyle(e).backgroundColor);
+  check('diary: the trash confirm is the one red', await shows(p, '[data-a="trash-ask"]') && /oklch\(0\.56 0\.17 25|rgb\(2[0-9]{2}, [0-9]{2}, [0-9]{2}\)/.test(red));
+  await p.tap('[data-a="trash-yes"]');
+  check('diary: a trashed page waits in the trash, with the day its words go', await shows(p, '[data-a="earlier-list"] [data-a="trashed"]') && (await p.locator('[data-a="earlier-list"] [data-a="trashed"]').innerText()).includes('its words go on'));
+  await p.tap('[data-a="earlier-list"] [data-a="putback"]');
+  check('diary: Put back brings it back', await gone(p, '[data-a="earlier-list"] [data-a="trashed"]') && await until(() => [...document.querySelectorAll('[data-a="earlier-list"] [data-a="page"]')].some(b => b.textContent?.includes('CANARY-TEST'))));
+  check('diary: nothing else on the screen is red', await p.evaluate(() => ![...document.querySelectorAll('#view *')].some(e => /rgb\(2[0-9]{2}, [0-6][0-9], [0-6][0-9]\)/.test(getComputedStyle(e).backgroundColor) || /rgb\(2[0-9]{2}, [0-6][0-9], [0-6][0-9]\)/.test(getComputedStyle(e).color))));
+
+  await p.tap('.diary .top [data-a="nav"][data-x="notyet"]');
+  await shows(p, '.ny');
+  await p.tap('[data-a="ny-add"]');
+  await p.fill('[data-a="ny-text"]', 'CANARY-TEST something later');
+  await p.press('[data-a="ny-text"]', 'Enter');
+  check('Not yet: writing something down keeps it', await until(() => [...document.querySelectorAll('[data-a="ny-item"]')].some(e => e.textContent?.includes('CANARY-TEST something later'))));
+  await p.locator('[data-a="ny-away"]').first().tap();
+  check('Not yet: putting it away keeps it for seven days', await shows(p, '[data-a="ny-trashed"]'));
+  await p.tap('[data-a="ny-back"]');
+  check('Not yet: bringing it back', await gone(p, '[data-a="ny-trashed"]'));
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');
