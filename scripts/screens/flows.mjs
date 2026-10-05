@@ -282,6 +282,16 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await q.locator('.evi .cells').first().locator('.c[data-a="sel"]').nth(2).click();
   check('Look back, laptop: clicking a column shows that day', (await q.locator('.side .panel .eb').first().innerText()) !== before
     && !(await q.locator('.side .panel .eb').first().innerText()).toUpperCase().startsWith('TODAY'));
+  // the harness writes a page every fourth day (column 3 is day 4); the day panel counts it and never shows it
+  let paged = false;
+  for (const i of [15, 11, 7, 3]) {
+    await q.locator(`.evi .cells >> nth=0 >> .c[data-x="${i}"]`).click();
+    if (await q.locator('.side [data-x="diary"]').count()) { paged = true; break; }
+  }
+  check('Look back, laptop: a day with a diary page says so, without its words', paged
+    && /^one entry · open$/.test(await q.locator('.side [data-x="diary"]').innerText()) && !(await q.locator('.side').innerText()).includes('CANARY'));
+  await q.locator('.side [data-x="diary"]').click();
+  check('Look back, laptop: the line opens the diary', await shows(q, '.diary'));
 }
 
 // reviews

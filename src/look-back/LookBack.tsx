@@ -66,6 +66,8 @@ export function LookBack() {
 
   const sel = picked ?? today;
   const selDate = new Date(`${sel}T00:00:00Z`);
+  // that day's diary pages are counted, never shown: the line opens the diary, where its lock applies
+  const pagesOn = [...model.entries.values()].filter(e => e.date === sel && e.trashedAt === undefined).length;
   const daySide = (
     <div className="panel">
       <p className="eb">{sel === today ? 'Today · ' : ''}{DOW[selDate.getUTCDay()]} {longDay(sel)}</p>
@@ -79,6 +81,10 @@ export function LookBack() {
             </div>
           );
         })}
+        {pagesOn > 0 && (
+          <div className="between" style={{ minHeight: 40 }}><span className="body" style={{ fontSize: 14 }}>Diary</span>
+            <button type="button" className="btn btn--text" data-a="nav" data-x="diary" style={{ paddingRight: 0, minHeight: 32 }} onClick={() => go('diary')}>{countWord(pagesOn)} {pagesOn === 1 ? 'entry' : 'entries'} · open</button></div>
+        )}
       </div>
       <p className="meta" style={{ margin: '10px 0 0' }}>Click any column to see that day. Nothing here is shown unless you ask for it.</p>
     </div>

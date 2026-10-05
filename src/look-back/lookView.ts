@@ -119,7 +119,11 @@ export function sentence(input: RulesInput, model: Model, today: LocalDate): Wor
   const n = numbersOf(input, habit, start, today);
   const what = habit.kind === 'time' && habit.target.band !== undefined ? `${habit.name} by ${hm(habit.target.band)}` : habit.name;
   const out: { text: string; bold?: boolean }[] = [{ text: `${what} on ` }, { text: `${countWord(n.did)} ${n.did === 1 ? countUnit(habit).slice(0, -1) : countUnit(habit)}`, bold: true }];
-  if (dayNumber(start, today) <= 30) out.push({ text: '.' });
+  if (dayNumber(start, today) <= 30) {
+    // in the first month, when they began after day 1, say since when: "all of them since 14 Sep"
+    const first = datesFrom(start, today).find(d => stateOf(habit, lookup(input.index, habit.id, d), d) === 'did');
+    out.push({ text: n.did > 2 && first !== undefined && first > start ? `, all of them since ${shortDate(first)}.` : '.' });
+  }
   else {
     let last30 = 0;
     for (const d of datesFrom(addDays(today, -29), today)) if (stateOf(habit, lookup(input.index, habit.id, d), d) === 'did') last30++;

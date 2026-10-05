@@ -66,6 +66,8 @@ test('the sentence counts up in words, starts the record on day 1, and never say
   assert.match(s, /in the last thirty days\./);
   const day17 = await at(17);
   assert.match(text(sentence(day17.input, day17.model, day17.today)), /on one morning\./);
+  const d25 = await at(25);
+  assert.match(text(sentence(d25.input, d25.model, d25.today)),/mornings, all of them since \d{1,2} Jan\./, 'in the first month, since the first one');
   for (const day of [1, 17, 40]) {
     const r = await at(day);
     assert.doesNotMatch(text(sentence(r.input, r.model, r.today)), /[!%]|is_backfill|edited_after_close|reopened_count/);

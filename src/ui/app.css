@@ -507,6 +507,7 @@ button.hm-app:active img{transform:scale(.94)}
 .hcard .nm{font-size:16px;font-weight:500;color:var(--ink-1)}
 .hcard .unit{font-size:13px;color:var(--ink-3);margin-top:2px}
 .hcard .foot{display:flex;justify-content:space-between;margin-top:12px;font-size:13px;color:var(--ink-3)}
+.hcard .foot .i{width:16px;height:16px}
 .said-panel p{margin:0;font-size:16px;line-height:1.6;color:var(--ink-2)}
 .said-panel b{color:var(--ink-1);font-weight:500}
 .later .li .nm{color:var(--ink-2)}
