@@ -24,9 +24,9 @@ function Note({ title, text }: { readonly title: string; readonly text: string }
   return <div className="panel note" data-a="restore-note"><p className="eb">{title}</p><p className="body" style={{ margin: '8px 0 0' }}>{text}</p></div>;
 }
 
-function Back({ label, onClick }: { readonly label: string; onClick(): void }) {
+function Back({ label, onClick, disabled = false }: { readonly label: string; onClick(): void; readonly disabled?: boolean }) {
   return (
-    <button type="button" className="btn btn--text" data-a="back" style={{ paddingLeft: 0, gap: 4, alignSelf: 'flex-start' }} onClick={onClick}>
+    <button type="button" className="btn btn--text" data-a="back" style={{ paddingLeft: 0, gap: 4, alignSelf: 'flex-start' }} disabled={disabled} onClick={onClick}>
       {I.back({ width: 18, height: 18 })}{label}
     </button>
   );
@@ -112,7 +112,8 @@ export function Restore(props: RestoreProps) {
   if (step === 'ask') {
     return (
       <div className="center-col first">
-        <Back label={backLabel} onClick={() => close('back')} />
+        {/* nothing stops a replace once it runs, so leaving is closed until it ends, like "Leave it" */}
+        <Back label={backLabel} disabled={busy} onClick={() => close('back')} />
         <h1 className="t-l" style={{ marginTop: 14 }}>Replace everything on this phone?</h1>
         <p className="body" style={{ margin: '12px 0 0' }}>This phone already holds a record. Restoring replaces all of it with the backup made on {made}. There is no merging.</p>
         {other && <div style={{ marginTop: 14 }}><Note {...RESTORE_WORDS.other} /></div>}

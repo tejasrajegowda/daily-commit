@@ -226,6 +226,7 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check("another record's file asks first, and says so", await shows(p, '[data-a="replace"]', 20000)
     && (await p.locator('[data-a="restore-note"]').innerText()).includes('different record'));
   await p.tap('[data-a="replace"]');
+  check('while it replaces, Back is closed as well as Leave it', await p.isDisabled('[data-a="back"]') && await p.isDisabled('[data-a="leave"]'));
   check('Replace everything ends Restored', await shows(p, '[data-a="open"]', 20000));
   await p.tap('[data-a="open"]');
   check('... and Open shows the lock', await shows(p, '.lk-pass'));
