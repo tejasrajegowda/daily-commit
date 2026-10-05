@@ -16,7 +16,7 @@ import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
 import { Horizon } from './Horizon.tsx';
 import { Row, type RowAction } from './Row.tsx';
-import { hm, skyWords, todayView, valueText, type TodayRow } from './todayView.ts';
+import { hm, shapeRows, skyWords, todayView, valueText, type TodayRow } from './todayView.ts';
 
 // Today: the morning (what today is going to be), the evening (what it was), and the closed day.
 // Every save goes through the store; a save that didn't go through says so and keeps what was typed.
@@ -242,12 +242,11 @@ export function Today() {
     );
   }
 
-  const stepsOf = shape.steps.map((s, i) => ({ ...s, end: shape.steps[i + 1]?.at ?? shape.lightsOut }));
   const shapeAside = (
     <>
       <p className="eb">The shape of {weekend ? 'a weekend day' : 'today'}</p>
       <div className="shape">
-        {[...stepsOf, { at: shape.lightsOut, end: 1440, label: 'Lights out' }].map(s => {
+        {shapeRows(shape).map(s => {
           const on = closedAt === undefined && t >= s.at && t < s.end;
           const ms = marks.filter(([, m]) => m >= s.at && m < s.end && m <= t);
           return (

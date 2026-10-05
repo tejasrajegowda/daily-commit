@@ -99,6 +99,15 @@ export function valueText(kind: HabitKind, value: number | TriValue | undefined)
   return String(value);
 }
 
+/** The shape list's rows, each with its end, closing on lights out; a step already at that minute
+ *  stands for it, so it is never listed twice. */
+export function shapeRows(shape: DayShape): readonly { at: number; end: number; label: string }[] {
+  const rows = shape.steps.map((s, i) => ({ at: s.at, label: s.label, end: shape.steps[i + 1]?.at ?? shape.lightsOut }));
+  const last = rows.at(-1);
+  if (last && last.at >= shape.lightsOut) return [...rows.slice(0, -1), { ...last, end: 1440 }];
+  return [...rows, { at: shape.lightsOut, end: 1440, label: 'Lights out' }];
+}
+
 /** The sky's two lines: where you are in the day, and what comes next. */
 export function skyWords(shape: DayShape, t: ClockMinute, boundary: ClockMinute): readonly [string, string] {
   const first = shape.steps[0];

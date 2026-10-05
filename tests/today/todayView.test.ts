@@ -4,7 +4,7 @@ import { DEFAULT_SHAPES } from '../../src/app/dayShapes.ts';
 import { rulesInput } from '../../src/record/read.ts';
 import { closeDay } from '../../src/record/ops/days.ts';
 import { logObservation } from '../../src/record/ops/observations.ts';
-import { todayView, skyWords, valueText } from '../../src/today/todayView.ts';
+import { todayView, shapeRows, skyWords, valueText } from '../../src/today/todayView.ts';
 import { freshDb } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
@@ -89,4 +89,18 @@ test('the sky says where you are and what is next, from the day shape', () => {
   assert.deepEqual(skyWords(shape, 1390, 240), ['Lights out', 'Tomorrow starts at 06:00']);
   assert.deepEqual(skyWords(shape, 30, 240), ['Lights out', 'Tomorrow starts at 06:00']);
   for (const t of [0, 300, 700, 1100, 1300, 1439]) assert.doesNotMatch(skyWords(shape, t, 240).join(' '), /[!%]/);
+});
+
+test('the shape list ends at lights out once, whether or not the shape has a step there', () => {
+  const plain = DEFAULT_SHAPES.weekend;
+  const rows = shapeRows(plain);
+  assert.deepEqual(rows.map(r => r.label), [...plain.steps.map(s => s.label), 'Lights out']);
+  assert.deepEqual(rows.at(-1), { at: plain.lightsOut, end: 1440, label: 'Lights out' });
+  assert.equal(rows[0]!.end, plain.steps[1]!.at);
+
+  const own = { ...plain, steps: [...plain.steps, { at: plain.lightsOut, label: 'Bed' }] };
+  const ownRows = shapeRows(own);
+  assert.deepEqual(ownRows.map(r => r.label), own.steps.map(s => s.label));
+  assert.deepEqual(ownRows.at(-1), { at: plain.lightsOut, end: 1440, label: 'Bed' });
+  assert.equal(new Set(ownRows.map(r => r.at)).size, ownRows.length);
 });
