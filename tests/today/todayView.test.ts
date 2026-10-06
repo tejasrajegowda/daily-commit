@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { DEFAULT_SHAPES } from '../../src/app/dayShapes.ts';
 import { rulesInput } from '../../src/record/read.ts';
 import { closeDay } from '../../src/record/ops/days.ts';
+import { sheetNow } from '../../src/record/ops/common.ts';
 import { logObservation, planDay } from '../../src/record/ops/observations.ts';
-import { asksForTime, fromHm, todayView, shapeRows, skyWords, valueText, type TodayRow } from '../../src/today/todayView.ts';
+import { toDayMinute } from '../../src/rules/clock.ts';
+import { asksForTime, fromHm, todayView, shapeRows, skyWords, valueText, wakesAhead, type TodayRow } from '../../src/today/todayView.ts';
 import { freshDb } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
@@ -91,6 +93,63 @@ test('in the evening a morning time row, or a planned one, asks for its time; an
   assert.equal(asksForTime({ ...night, planned: 'chose' }, 'evening'), true);
   const walk = view().openFocus.find(r => r.habit.id === 'h-walk')!;
   assert.equal(asksForTime({ ...walk, asked: 'morning' }, 'evening'), false);
+});
+
+/** Day 16 at 21:30, then the clock moved on to 03:50: still day 16, and the next morning's wake-up has just happened. */
+async function at0350(closed = false) {
+  const seeded = await viewAt('#age=16&t=21:30');
+  const { core, clock, model, today } = seeded;
+  if (closed) assert.equal((await closeDay(core, { date: today, lightsOut: 1378 })).kind, 'Saved');
+  const evening = sheetNow(core);
+  clock.set(clock.now() + 380 * 60_000);
+  const ahead = dateOfDay(17);
+  const view = () => todayView(rulesInput(model), model, today, 230);
+  return { core, model, today, ahead, evening, view };
+}
+
+test('B-5: before the boundary Today offers the day ahead its wake-up; not before midnight', async () => {
+  const { view } = await viewAt('#age=16&t=21:30');
+  assert.deepEqual(view().ahead, []);
+  const late = await at0350();
+  const v = late.view();
+  assert.equal(v.part, 'evening');
+  assert.deepEqual(names(v.ahead), ['Wake up']);
+  assert.equal(v.ahead[0]?.value, undefined);
+  assert.equal(v.ahead[0]?.key, 1);
+  assert.equal(asksForTime(v.ahead[0]!, 'morning'), false);
+});
+
+test('B-5: a wake-up at 03:50 is filed to the day ahead as 230, where it is "did"; the day before keeps its own row empty', async () => {
+  const { core, model, today, ahead, view } = await at0350();
+  const value = toDayMinute(230, 'morning');
+  assert.equal(value, 230);
+  assert.equal((await logObservation(core, { habitId: 'h-wake', date: ahead, value })).kind, 'Saved');
+  const v = view();
+  assert.equal(v.ahead[0]?.value, 230);
+  assert.equal(v.ahead[0]?.state, 'did');
+  assert.equal(model.observations.get(`h-wake|${today}`), undefined);
+  assert.equal(v.openFocus.find(r => r.habit.id === 'h-wake')?.value, undefined);
+});
+
+test('B-5: the closed day offers it too', async () => {
+  const { core, ahead, view } = await at0350(true);
+  assert.equal(view().part, 'closed');
+  assert.deepEqual(names(view().ahead), ['Wake up']);
+  assert.equal((await logObservation(core, { habitId: 'h-wake', date: ahead, value: 230 })).kind, 'Saved');
+  assert.equal(view().ahead[0]?.state, 'did');
+});
+
+test('B-5: the sheet opened in the evening would refuse it, which is why Today sends the day ahead none', async () => {
+  const { core, ahead, evening } = await at0350();
+  assert.equal((await logObservation(core, { habitId: 'h-wake', date: ahead, value: 230, sheet: evening })).kind, 'Sealed');
+});
+
+test("B-5: a time typed into tonight's empty wake-up goes ahead only when it has just happened, before the boundary", () => {
+  assert.equal(wakesAhead(230, 230, 240), true);
+  assert.equal(wakesAhead(15, 230, 240), true);
+  assert.equal(wakesAhead(235, 230, 240), false);    // later than now: the morning a day ago
+  assert.equal(wakesAhead(430, 230, 240), false);    // 07:10: the day's own wake-up
+  assert.equal(wakesAhead(230, 1290, 240), false);   // 21:30, before midnight: nothing is ahead yet
 });
 
 test('a typed clock time reads as its minute', () => {

@@ -487,7 +487,40 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('R2-1: Try again saves them to their day, and they leave the screen',
     kept && await gone(p, '[data-a="unsaved-words"]') && await until(() => window.harness.dayWords(17).intent === 'CANARY-TEST kept words'));
 
-  const q = await h.page(LAPTOP, errors);
+  // R2-3: a wake-up before 04:00 goes to the day ahead (B-5), from the closed card and from the
+  // evening, and tonight's empty wake-up never takes it for the day before
+  const ahead = '[data-a="ahead"] .row[data-x="h-wake"]';
+  await h.open(p, 's=today&age=16&t=22:58&v=closed');
+  await shows(p, '.closed-card');
+  check('R2-3: before 03:50 nothing on the closed card asks about the day ahead', (await p.locator('[data-a="ahead"]').count()) === 0);
+  await p.evaluate(() => window.harness.moveClock(292));   // 03:50, still day 16
+  check('R2-3: at 03:50 the closed card offers the wake-up for the day ahead', await shows(p, '.closed-card') && await shows(p, ahead)
+    && (await p.locator('[data-a="ahead"] > .eb').textContent()).includes('Up already?'));
+  await tapIf(ahead);
+  check('R2-3: tapped at 03:50 it is filed to the day ahead as 03:50, and counts as done', await until(() =>
+    window.harness.dayValue(17, 'h-wake') === 230 && window.harness.dayValue(16, 'h-wake') === undefined)
+    && await until(sel => document.querySelector(sel)?.getAttribute('data-s') === 'did'
+      && document.querySelector(sel)?.querySelector('.val')?.textContent?.includes('03:50'), ahead)
+    && (await p.locator('[data-a="save-note"]').count()) === 0);
+  await p.evaluate(() => window.harness.moveClock(15));   // 04:05, day 17
+  check('R2-3: after 04:00 the new morning shows the wake-up already in', await until(() => {
+    const row = document.querySelector('.row[data-x="h-wake"]');
+    return row?.getAttribute('data-s') === 'did' && row.querySelector('.val')?.textContent?.includes('03:50');
+  }) && (await p.locator('[data-a="ahead"]').count()) === 0);
+
+  const tonight = '.group:not([data-a="ahead"]) .row[data-x="h-wake"]';
+  await h.open(p, 's=today&age=16&t=21:30');
+  await shows(p, tonight);
+  await p.evaluate(() => window.harness.moveClock(380));   // 03:50, still day 16, never closed
+  check("R2-3: at 03:50 the evening offers the day ahead's wake-up above tonight's rows", await shows(p, ahead));
+  await tapIf(tonight);
+  await fillIf(`${tonight} [data-a="time-at"]`, '03:50');
+  await tapIf(`${tonight} [data-a="time-save"]`);
+  check("R2-3: 03:50 typed into tonight's empty wake-up goes to the day ahead, never the day before", await until(() =>
+    window.harness.dayValue(17, 'h-wake') === 230 && window.harness.dayValue(16, 'h-wake') === undefined)
+    && await until(sel => document.querySelector(sel)?.querySelector('.val')?.textContent?.includes('03:50'), ahead));
+
+    const q = await h.page(LAPTOP, errors);
   await h.open(q, 's=today&t=06:05');
   await shows(q, '.today .row');
   await q.keyboard.press('1');

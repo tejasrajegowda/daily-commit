@@ -17,7 +17,7 @@ import { useWide } from '../ui/useWide.ts';
 import { draft } from './draft.ts';
 import { Horizon } from './Horizon.tsx';
 import { Row, type RowAction } from './Row.tsx';
-import { asksForTime, hm, shapeRows, skyWords, todayView, valueText, type TodayRow } from './todayView.ts';
+import { asksForTime, hm, shapeRows, skyWords, todayView, valueText, wakesAhead, type TodayRow } from './todayView.ts';
 
 // Today: the morning (what today is going to be), the evening (what it was), and the closed day.
 // Every save goes through the store; a save that didn't go through says so and keeps what was typed.
@@ -119,18 +119,26 @@ export function Today() {
   };
 
   const nowFor = (row: TodayRow) => toDayMinute(t, row.asked, boundary);
-  // in the evening a morning time row (or a planned one) asks for its time rather than taking now
-  const asks = (row: TodayRow) => asksForTime(row, view.part);
-  const act = (row: TodayRow, action: RowAction) => {
+  // in the evening a morning time row (or a planned one) asks for its time rather than taking now;
+  // a day-ahead row is a wake-up happening now, so it takes now
+  const asks = (row: TodayRow, ahead = false) => !ahead && asksForTime(row, view.part);
+  // before the boundary a wake-up goes to the day ahead (B-5). It is judged when it is tapped: the
+  // sheet opened earlier in the evening would judge it by then, when the day ahead took no values.
+  const aheadDay = addDays(today, 1);
+  const rowId = (id: string, ahead: boolean) => (ahead ? `ahead:${id}` : id);
+  const logTo = (id: string, date: string, value: number | 'did' | 'partly' | 'not') =>
+    run(c => logObservation(c, { habitId: id, date, value, sheet: date === today ? sheet : undefined }), rowId(id, date !== today));
+  const act = (row: TodayRow, action: RowAction, ahead = false) => {
     const id = row.habit.id;
-    const log = (value: number | 'did' | 'partly' | 'not') => run(c => logObservation(c, { habitId: id, date: today, value, sheet }), id);
-    const clear = () => run(c => clearObservation(c, { habitId: id, date: today, sheet }), id);
+    const date = ahead ? aheadDay : today;
+    const log = (value: number | 'did' | 'partly' | 'not') => logTo(id, date, value);
+    const clear = () => run(c => clearObservation(c, { habitId: id, date, sheet: ahead ? undefined : sheet }), rowId(id, ahead));
     switch (action.kind) {
       case 'tap':
-        if (row.habit.kind === 'time' && row.value === undefined && !asks(row)) {
+        if (row.habit.kind === 'time' && row.value === undefined && !asks(row, ahead)) {
           setOpen(undefined);
           void log(nowFor(row));
-        } else setOpen(open === id ? undefined : id);
+        } else setOpen(open === rowId(id, ahead) ? undefined : rowId(id, ahead));
         return;
       case 'set': setOpen(undefined); void log(action.value); return;
       case 'add': {
@@ -140,24 +148,37 @@ export function Today() {
       }
       case 'nudge': void log((typeof row.value === 'number' ? row.value : nowFor(row)) + action.minutes); return;
       case 'now': setOpen(undefined); void log(nowFor(row)); return;
-      case 'at': setOpen(undefined); void log(toDayMinute(action.clock, row.asked, boundary)); return;
+      case 'at':
+        setOpen(undefined);
+        // tonight's empty wake-up given a time that has just happened, before the boundary: the day ahead's
+        if (!ahead && row.value === undefined && view.ahead.some(r => r.habit.id === id) && wakesAhead(action.clock, t, boundary)) void logTo(id, aheadDay, action.clock);
+        else void log(toDayMinute(action.clock, row.asked, boundary));
+        return;
       case 'clear': setOpen(undefined); void clear(); return;
     }
   };
 
-  const keyRows = [...view.morningRows, ...view.eveningRows, ...view.openFocus, ...view.earlier].filter(r => r.key !== undefined);
+  const keyRows = [...view.ahead, ...view.morningRows, ...view.eveningRows, ...view.openFocus, ...view.earlier].filter(r => r.key !== undefined);
   keyed.current = key => {
     const row = keyRows.find(r => r.key === Number(key));
     if (!row) return;
+    const ahead = view.ahead.includes(row);
     const k = row.habit.kind;
     if (k === 'tri') act(row, row.value === 'did' ? { kind: 'clear' } : { kind: 'set', value: 'did' });
-    else if (k === 'time') act(row, row.value !== undefined ? { kind: 'clear' } : asks(row) ? { kind: 'tap' } : { kind: 'now' });
+    else if (k === 'time') act(row, row.value !== undefined ? { kind: 'clear' } : asks(row, ahead) ? { kind: 'tap' } : { kind: 'now' }, ahead);
     else if (k === 'min') act(row, { kind: 'add', by: 30 });
     else if (k === 'count') act(row, { kind: 'add', by: 1 });
   };
-  const rowOf = (r: TodayRow, showKey = true) => (
-    <Row key={r.habit.id} row={r} open={open === r.habit.id} fresh={fresh === r.habit.id} showKey={showKey} ask={asks(r)}
-      onAction={a => act(r, a)} />
+  const rowOf = (r: TodayRow, showKey = true, ahead = false) => (
+    <Row key={rowId(r.habit.id, ahead)} row={r} open={open === rowId(r.habit.id, ahead)} fresh={fresh === rowId(r.habit.id, ahead)} showKey={showKey}
+      ask={asks(r, ahead)} onAction={a => act(r, a, ahead)} />
+  );
+  // between midnight and the boundary, on the closed card and in the evening: a wake-up for the day ahead
+  const aheadGroup = view.ahead.length > 0 && (
+    <div className="group" data-a="ahead">
+      <div className="eb"><span>Up already?</span><span className="dim" style={{ letterSpacing: '.06em' }}>it goes with {DOW[new Date(toUtcMs(aheadDay)).getUTCDay()]}</span></div>
+      <div className="rows">{view.ahead.map(r => rowOf(r, true, true))}</div>
+    </div>
   );
 
   const marks: (readonly [string, number])[] = [];
@@ -196,12 +217,15 @@ export function Today() {
     const tomorrowShape = shapeFor(tomorrow, shapes.weekday, shapes.weekend);
     const first = tomorrowShape.steps[0];
     main = (
-      <div className="closed-card">
-        <p className="body" style={{ margin: 0 }}>Nothing else is asked of today. You can still change it until tomorrow night; after that it seals, so there's never a question of going back to fix something.</p>
-        <div className="tomorrow">{I.today()}<span>{weekdayOf(tomorrow) >= 5 ? 'Tomorrow is a weekend day.' : `Tomorrow starts at ${first ? hm(first.at) : '06:00'}, with the morning check-in.`}</span></div>
-        <div style={{ marginTop: 14 }}><button type="button" className="btn btn--text" data-a="reopen" disabled={busy} style={{ paddingLeft: 0 }}
-          onClick={guarded(async () => { await run(c => reopenDay(c, { date: today, sheet })); })}>Open today again</button></div>
-      </div>
+      <>
+        {aheadGroup}
+        <div className="closed-card">
+          <p className="body" style={{ margin: 0 }}>Nothing else is asked of today. You can still change it until tomorrow night; after that it seals, so there's never a question of going back to fix something.</p>
+          <div className="tomorrow">{I.today()}<span>{weekdayOf(tomorrow) >= 5 ? 'Tomorrow is a weekend day.' : `Tomorrow starts at ${first ? hm(first.at) : '06:00'}, with the morning check-in.`}</span></div>
+          <div style={{ marginTop: 14 }}><button type="button" className="btn btn--text" data-a="reopen" disabled={busy} style={{ paddingLeft: 0 }}
+            onClick={guarded(async () => { await run(c => reopenDay(c, { date: today, sheet })); })}>Open today again</button></div>
+        </div>
+      </>
     );
     side = (
       <div className="panel wide-only"><p className="eb">Still open</p><p className="body" style={{ margin: '10px 0 14px' }}>The diary never closes. Nothing is required to end a day — writing included.</p>
@@ -257,6 +281,7 @@ export function Today() {
     const isRest = model.days.get(today)?.restDay === true;
     main = (
       <>
+        {aheadGroup}
         <div className="group"><div className="eb"><span>Tonight</span></div><div className="rows">{view.eveningRows.map(r => rowOf(r))}</div></div>
         <div className="group">
           <div className="eb"><span>Earlier today</span></div>

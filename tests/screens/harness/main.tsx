@@ -50,6 +50,8 @@ export interface HarnessControls {
   moveClock(minutes: number): void;
   /** the words the invented record holds for a day number: the morning intent and the evening remark */
   dayWords(day: number): { readonly intent?: string; readonly remark?: string };
+  /** the value the invented record holds for a habit on a day number, if any */
+  dayValue(day: number, habitId: string): number | string | undefined;
   /** this phone moves to a code of its own with the fingerprint beside it, as Settings would set them up */
   ownCode(): Promise<void>;
   /** the invented record's recovery code, as the first day would have shown it (none for an empty record) */
@@ -244,6 +246,7 @@ async function start(): Promise<void> {
       const d = core.session?.model.days.get(dateOfDay(day, state.start));
       return { intent: d?.intent, remark: d?.remark };
     },
+    dayValue: (day, habitId) => core.session?.model.observations.get(`${habitId}|${dateOfDay(day, state.start)}`)?.value,
     ownCode: () => enrolFor({ ...state, variant: 'own' }, core, phone),
     recoveryCode,
   };

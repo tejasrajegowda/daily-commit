@@ -1,6 +1,7 @@
 import type { HabitRecord, Model } from '../record/model.ts';
 import type { RulesInput } from '../record/read.ts';
 import { clockOfDay } from '../rules/clock.ts';
+import { addDays } from '../rules/dates.ts';
 import { blockAt, stepsAround, type DayShape } from '../rules/dayLine.ts';
 import { dayNumber } from '../rules/journey.ts';
 import { restDaysLeft, restOffered } from '../rules/rest.ts';
@@ -9,7 +10,8 @@ import type { ClockMinute, DayState, HabitKind, LocalDate, PlannedReason, TriVal
 
 // What Today shows, worked out from the record: which part of the day it is, which rows, in which
 // order, and whether a rest day is offered. Only today: the morning screen holds nothing from any
-// day before it (invariant 4).
+// day before it (invariant 4). The one look forward: between midnight and the boundary, the day
+// ahead's morning time rows (a wake-up), which belong to that day (B-5).
 
 /** Today switches from the morning screen to the evening one at 14:00. */
 export const EVENING_FROM = 840;
@@ -38,6 +40,8 @@ export interface TodayView {
   readonly openFocus: readonly TodayRow[];
   /** evening: Focus answered or planned, drawn as chips; a tap opens the row again */
   readonly earlier: readonly TodayRow[];
+  /** between midnight and the boundary: the day ahead's time rows asked in the morning, for a wake-up */
+  readonly ahead: readonly TodayRow[];
   readonly restOffer: boolean;
   readonly closedAt?: number;
   readonly intent?: string;
@@ -63,9 +67,21 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
   const boundary = model.settings.boundary;
   const part = day?.closedAt !== undefined ? 'closed' : clockMinute >= boundary && clockMinute < EVENING_FROM ? 'morning' : 'evening';
   const strip = (r: TodayRow): TodayRow => ({ habit: r.habit, focus: r.focus, asked: r.asked, state: r.state, value: r.value, planned: r.planned });
+  const next = addDays(today, 1);
+  const wakes = clockMinute < boundary
+    ? [...input.habits]
+      .filter(h => h.kind === 'time' && isAsked(h, next) && askedOn(h, next) === 'morning')
+      .sort((a, b) => a.order - b.order)
+      .map((habit): TodayRow => {
+        const obs = lookup(input.index, habit.id, next);
+        return { habit, focus: tierOn(habit, next) === 'focus', asked: 'morning', state: stateOf(habit, obs, next), value: obs?.value, planned: obs?.planned };
+      })
+    : [];
 
   let key = 0;
   const keyed = (list: readonly TodayRow[]) => list.map(r => ({ ...strip(r), key: ++key <= 9 ? key : undefined }));
+  // drawn first, so keyed first
+  const ahead = keyed(wakes);
   const morningRows = part === 'morning' ? keyed([...focus, ...log.filter(r => r.asked === 'morning')]) : [];
   const eveningRows = keyed(log.filter(r => r.asked === 'evening'));
   const openFocus = part === 'evening' ? keyed(focus.filter(r => !answered(r))) : [];
@@ -74,7 +90,7 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
   const left = restDaysLeft(restDays, today, model.settings.journeyStart);
   return {
     part, dayNumber: dayNumber(model.settings.journeyStart, today),
-    morningRows, eveningRows, openFocus, earlier,
+    morningRows, eveningRows, openFocus, earlier, ahead,
     restOffer: !day?.restDay && restOffered({ evening: part === 'evening', openFocus: openFocus.length, left }),
     closedAt: day?.closedAt, intent: day?.intent, remark: day?.remark,
   };
@@ -86,6 +102,15 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
  */
 export function asksForTime(row: TodayRow, part: TodayView['part']): boolean {
   return row.habit.kind === 'time' && part === 'evening' && (row.asked === 'morning' || row.planned !== undefined);
+}
+
+/**
+ * Whether a time typed into tonight's empty morning row is really a wake-up that has just happened:
+ * between midnight and the boundary, a time before the boundary and not later than now. It goes to
+ * the day ahead (B-5), never to the day before.
+ */
+export function wakesAhead(clock: ClockMinute, t: ClockMinute, boundary: ClockMinute): boolean {
+  return t < boundary && clock < boundary && clock <= t;
 }
 
 /** "07:05" as a clock minute; undefined for anything else. */
