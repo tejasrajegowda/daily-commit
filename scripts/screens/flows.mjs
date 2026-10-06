@@ -503,6 +503,30 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.tap('[data-a="done"]');
   check('Privacy: back in Settings the separate code is chosen, with the fingerprint switch', await shows(p, '[data-a="unlockmode"][data-x="own"].on') && await shows(p, '[data-a="biotoggle"]'));
 
+  // a key store that refuses: the screen says so and is usable again, rather than waiting for good
+  const notSet = () => until(() => document.querySelector('[data-a="secret-note"]')?.textContent?.startsWith('Not set'));
+  await h.open(p, 's=secret&v=owncode&t=13:00');
+  await shows(p, '[data-a="auth"]');
+  await p.evaluate(() => window.harness.refuseEnrol());
+  await p.fill('input.pass', PASSPHRASE);
+  await p.tap('[data-a="auth"]');
+  await shows(p, '.pad', 15000);
+  await typeCode(p, CODE);
+  await p.tap('[data-a="pinok"]');
+  await until(() => document.querySelector('h1')?.textContent === 'Type it again');
+  await typeCode(p, CODE);
+  await p.tap('[data-a="pinok"]');
+  check('Privacy: own code refused by the key store says Not set, and the pad works again', await notSet() && await until(() => document.querySelector('h1')?.textContent === 'Choose a code') && !(await p.locator('.pad').innerText()).includes('Opening'));
+  await h.open(p, 's=secret&v=phone&t=13:00');
+  await shows(p, '[data-a="auth"]');
+  await p.evaluate(() => window.harness.refuseEnrol());
+  await p.fill('input.pass', PASSPHRASE);
+  await p.tap('[data-a="auth"]');
+  check("Privacy: the phone's lock refused by the key store says Not set, and Continue works again", await notSet() && await until(() => {
+    const b = document.querySelector('[data-a="auth"]');
+    return b?.textContent === 'Continue' && !b.disabled;
+  }));
+
   await h.open(p, 's=secret&v=pass&t=13:00');
   await shows(p, '[data-a="pass-change"]');
   await p.fill('input[aria-label="Current passphrase"]', PASSPHRASE);

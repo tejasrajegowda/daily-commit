@@ -35,6 +35,8 @@ export interface HarnessControls {
   unlock(how: UnlockHow): Promise<string>;
   /** a backup file for the restore flows, as base64url: another record's, this one's, a newer one or a damaged one */
   backup(kind: 'source' | 'mine' | 'newer' | 'damaged'): Promise<string>;
+  /** from now on the phone's key store refuses to save a key, as one with no secure screen lock does */
+  refuseEnrol(): void;
   /** the invented record's recovery code, as the first day would have shown it (none for an empty record) */
   readonly recoveryCode: string | undefined;
 }
@@ -147,7 +149,9 @@ async function start(): Promise<void> {
     const rows = await vaultRows(core);
     if (rows) await enrolMode(rows, PASS, phone.plugin, 'phone-lock');   // the first day's default on a phone
   }
-  const { device, leave, resume } = harnessDevice(phone.plugin);
+  let refusing = false;
+  const plugin: DevicePort['plugin'] = { ...phone.plugin, enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)) };
+  const { device, leave, resume } = harnessDevice(plugin);
   const deps = assemble(core, device);
   await prelude(state, deps, phone);
   let source: Promise<Uint8Array> | undefined;
@@ -161,6 +165,7 @@ async function start(): Promise<void> {
       const file = kind === 'mine' ? await backupOf(core) : await sourceFile();
       return toBase64url(kind === 'newer' ? newerOf(file) : kind === 'damaged' ? damagedOf(file) : file);
     },
+    refuseEnrol: () => { refusing = true; },
     recoveryCode,
   };
   const initial: Nav | undefined = (SCREENS as readonly string[]).includes(state.screen) ? { screen: state.screen as ScreenId, variant: state.variant } : undefined;

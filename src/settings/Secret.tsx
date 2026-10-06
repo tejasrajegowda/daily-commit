@@ -42,31 +42,44 @@ function Done({ title, text }: { readonly title: string; readonly text: string }
 
 const field = { autoComplete: 'off', autoCapitalize: 'off', autoCorrect: 'off', spellCheck: false } as const;
 
-/** Asks for the passphrase and checks it opens the record before anything else happens. */
-function AskPassphrase({ why, onRight }: { readonly why: string; onRight(auth: Typed): void }) {
+type Words = { readonly title: string; readonly text: string };
+
+const NOT_CHECKED: Words = { title: 'Not checked', text: "That couldn't be checked just now. Nothing was changed." };
+const NOT_SET: Words = { title: 'Not set', text: "That couldn't be set up. The way Daily Commit opened before still works." };
+
+/** Asks for the passphrase and checks it opens the record before anything else happens. What
+ * follows a right one runs while the button still says so; if it fails outright, `failed` is said. */
+function AskPassphrase({ why, onRight, failed = NOT_CHECKED }: { readonly why: string; onRight(auth: Typed): void | Promise<void>; readonly failed?: Words }) {
   const deps = useApp();
   const input = useRef<HTMLInputElement>(null);
   const [wrong, setWrong] = useState(false);
+  const [trouble, setTrouble] = useState<Words | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const go = async () => {
     const el = input.current;
     if (!el || busy) return;
     const auth: Typed = { method: 'passphrase', text: el.value };
     el.value = '';
+    setTrouble(undefined);
     setBusy(true);
-    const right = await secretOpens(deps, auth);
-    setBusy(false);
-    if (right) onRight(auth);
-    else setWrong(true);
+    try {
+      if (!(await secretOpens(deps, auth))) setWrong(true);
+      else await onRight(auth);
+    } catch {
+      setTrouble(failed);
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <Page>
       <h1 className="t-l" style={{ marginTop: 14 }}>Your passphrase first</h1>
       <p className="body" style={{ margin: '12px 0 0' }}>{why}</p>
       <form onSubmit={e => { e.preventDefault(); void go(); }}>
-        <input ref={input} className="pass" type="password" aria-label="Passphrase" placeholder="Passphrase" disabled={busy} {...field} onInput={() => setWrong(false)} />
+        <input ref={input} className="pass" type="password" aria-label="Passphrase" placeholder="Passphrase" disabled={busy} {...field} onInput={() => { setWrong(false); setTrouble(undefined); }} />
       </form>
       {wrong && <Note title="That didn't open it" text="Check the passphrase and try again. Nothing was changed." />}
+      {trouble && <Note {...trouble} />}
       <button type="button" className="btn btn--primary wide" data-a="auth" disabled={busy} style={{ marginTop: 18 }} onClick={() => void go()}>{busy ? 'Checking…' : 'Continue'}</button>
     </Page>
   );
@@ -102,11 +115,10 @@ function ChangePassphrase() {
     b.value = '';
     setStrength(meter(''));
     setBusy(true);
-    const outcome = await newPassphrase(deps, was, now);
-    setBusy(false);
-    if (outcome.kind === 'Saved') setDone(true);
-    else if (outcome.kind === 'TooShort') setNote({ title: 'A little longer', text: 'A new passphrase needs at least 15 characters. Five ordinary words is plenty.' });
-    else if (outcome.kind === 'WrongSecret') setNote(code
+    const outcome = await newPassphrase(deps, was, now).catch(() => undefined).finally(() => setBusy(false));
+    if (outcome?.kind === 'Saved') setDone(true);
+    else if (outcome?.kind === 'TooShort') setNote({ title: 'A little longer', text: 'A new passphrase needs at least 15 characters. Five ordinary words is plenty.' });
+    else if (outcome?.kind === 'WrongSecret') setNote(code
       ? { title: "That code didn't open it", text: 'Check the recovery code against the paper. Nothing was changed.' }
       : { title: "That isn't the current one", text: 'Check the current passphrase. Nothing was changed.' });
     else setNote({ title: 'Not changed', text: "That couldn't be saved. Your passphrase is as it was." });
@@ -133,23 +145,33 @@ function CheckCode() {
   const deps = useApp();
   const [typed, setTyped] = useState('');
   const [result, setResult] = useState<boolean | undefined>(undefined);
+  const [trouble, setTrouble] = useState(false);
   const [busy, setBusy] = useState(false);
   if (result) return <Done title="It matches" text="The code on your paper opens this record. Nothing was changed." />;
   const check = async () => {
     setBusy(true);
-    setResult(await checkCode(deps, typed));
-    setBusy(false);
+    setTrouble(false);
+    try {
+      setResult(await checkCode(deps, typed));
+    } catch {
+      setTrouble(true);
+    } finally {
+      setBusy(false);
+    }
   };
   return (
     <Page>
       <h1 className="t-l" style={{ marginTop: 14 }}>Check your recovery code</h1>
       <p className="body" style={{ margin: '12px 0 0' }}>Type it from the paper. Nothing changes; this only tells you the paper still works.</p>
-      <TypeBack typed={typed} label="Recovery code, from the paper" onChange={t => { setTyped(t); setResult(undefined); }} />
+      <TypeBack typed={typed} label="Recovery code, from the paper" onChange={t => { setTyped(t); setResult(undefined); setTrouble(false); }} />
+      {trouble && <Note {...NOT_CHECKED} />}
       {result === false && <Note title="That doesn't match" text="Check each group against the paper. If the paper is lost or someone has seen it, make a new code; your passphrase is enough to do that." />}
       <button type="button" className="btn btn--primary wide" data-a="check" disabled={busy} style={{ marginTop: 18 }} onClick={() => void check()}>{busy ? 'Checking…' : 'Check'}</button>
     </Page>
   );
 }
+
+const NOT_CHANGED_CODE: Words = { title: 'Not changed', text: "That couldn't be saved. The old code still works." };
 
 function NewCode() {
   const deps = useApp();
@@ -161,8 +183,12 @@ function NewCode() {
   const [done, setDone] = useState(false);
   if (done) return <Done title="The new code is in use" text="The old code no longer opens this record. Copies saved before today still open with the old code, until new copies replace them over the next few days." />;
   if (!pending) {
-    return <AskPassphrase why="It makes the new code. Until you've typed the new one back, nothing changes and the old code still works."
-      onRight={auth => void startNewCode(deps, auth).then(r => { if (r.kind === 'Pending') setPending(r.pending); })} />;
+    return <AskPassphrase why="It makes the new code. Until you've typed the new one back, nothing changes and the old code still works." failed={NOT_CHANGED_CODE}
+      onRight={async auth => {
+        const r = await startNewCode(deps, auth);
+        if (r.kind !== 'Pending') throw new Error('no new code');
+        setPending(r.pending);
+      }} />;
   }
   if (!typing) {
     return (
@@ -178,11 +204,10 @@ function NewCode() {
   }
   const finish = async () => {
     setBusy(true);
-    const r = await finishNewCode(deps, pending, typed);
-    setBusy(false);
-    if (r.kind === 'Saved') setDone(true);
-    else if (r.kind === 'CodeMismatch') setNote({ title: "That doesn't match", text: 'Check each group against the paper, then try again. The old code still works.' });
-    else setNote({ title: 'Not changed', text: "That couldn't be saved. The old code still works." });
+    const r = await finishNewCode(deps, pending, typed).catch(() => undefined).finally(() => setBusy(false));
+    if (r?.kind === 'Saved') setDone(true);
+    else if (r?.kind === 'CodeMismatch') setNote({ title: "That doesn't match", text: 'Check each group against the paper, then try again. The old code still works.' });
+    else setNote(NOT_CHANGED_CODE);
   };
   return (
     <Page>
@@ -232,12 +257,11 @@ function OwnCode() {
     const a = auth.current;
     if (!a) return;
     setBusy(true);
-    const r = await setMode(deps, a, 'own-code', typed);
-    setBusy(false);
-    if (r.kind !== 'Enrolled') setStep('choose');      // a failed try starts again from the first entry, which is gone
-    if (r.kind === 'Enrolled') { auth.current = undefined; setDone(true); }
-    else if (r.kind === 'NotVerified') go('settings', 'notverified');
-    else setNote({ title: 'Not set', text: "That couldn't be set up. The way Daily Commit opened before still works." });
+    const r = await setMode(deps, a, 'own-code', typed).catch(() => undefined).finally(() => setBusy(false));
+    if (r?.kind !== 'Enrolled') setStep('choose');      // a failed try starts again from the first entry, which is gone
+    if (r?.kind === 'Enrolled') { auth.current = undefined; setDone(true); }
+    else if (r?.kind === 'NotVerified') go('settings', 'notverified');
+    else setNote(NOT_SET);
   };
   return (
     <Page>
@@ -258,17 +282,14 @@ function OwnCode() {
 function SwitchMode({ mode }: { readonly mode: DeviceMode }) {
   const deps = useApp();
   const { go } = useNav();
-  const [failed, setFailed] = useState(false);
   const why = mode === 'phone-lock' ? "Switching to your phone's lock needs it once." : 'Letting the fingerprint open it needs it once.';
   return (
-    <>
-      <AskPassphrase why={why} onRight={auth => void setMode(deps, auth, mode).then(r => {
-        if (r.kind === 'Enrolled') go('settings', 'privacy');
-        else if (r.kind === 'NotVerified') go('settings', 'notverified');
-        else setFailed(true);
-      })} />
-      {failed && <div className="center-col"><Note title="Not set" text="That couldn't be set up. The way Daily Commit opened before still works." /></div>}
-    </>
+    <AskPassphrase why={why} failed={NOT_SET} onRight={async auth => {
+      const r = await setMode(deps, auth, mode);
+      if (r.kind === 'Enrolled') go('settings', 'privacy');
+      else if (r.kind === 'NotVerified') go('settings', 'notverified');
+      else throw new Error('not set');
+    }} />
   );
 }
 
