@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { releaseProblems } from '../../scripts/release-check.ts';
+import { readFileSync } from 'node:fs';
+import { policyProblems, releaseProblems } from '../../scripts/release-check.ts';
 
 const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'">`;
 const clean = () => new Map([
@@ -27,5 +28,27 @@ test('an inline script, a style element, a style attribute or a missing content 
     const files = clean();
     files.set('index.html', html);
     assert.notDeepEqual(releaseProblems(files), [], html);
+  }
+});
+
+test("the app's own content policy passes", () => {
+  assert.deepEqual(policyProblems(readFileSync('index.html', 'utf8').match(/Content-Security-Policy"\s+content="([^"]*)"/)?.[1] ?? 'missing'), []);
+});
+
+test('a policy that allows inline or eval code, or lets script or the network reach past the app, is refused', () => {
+  for (const content of [
+    "default-src 'self'; script-src 'self' 'unsafe-inline'",
+    "default-src 'self'; script-src 'self' 'unsafe-eval'",
+    "default-src 'self'; style-src 'self' 'unsafe-inline'",
+    "default-src 'self'; connect-src *",
+    "default-src 'self'; connect-src 'self' https:",
+    "default-src 'self'; connect-src 'self' https://example.com",
+    "default-src 'self'; script-src 'self' data:",
+    "default-src *",
+    "script-src 'self'",
+  ]) {
+    const files = clean();
+    files.set('index.html', `<html><head><meta http-equiv="Content-Security-Policy" content="${content}"></head></html>`);
+    assert.notDeepEqual(releaseProblems(files), [], content);
   }
 });
