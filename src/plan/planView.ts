@@ -1,8 +1,9 @@
 import type { HabitRecord, Model } from '../record/model.ts';
 import { MAX_FOCUS, type HabitChange, type NewHabit } from '../record/ops/habits.ts';
 import { clockOfDay, DEFAULT_BOUNDARY, toDayMinute } from '../rules/clock.ts';
+import { addDays } from '../rules/dates.ts';
 import { askedOn, inPlan, isRetired, scheduleOn, tierOn } from '../rules/state.ts';
-import type { Asked, ClockMinute, HabitKind, LocalDate, Target, Tier, Weekday } from '../rules/types.ts';
+import type { Asked, ClockMinute, HabitKind, LocalDate, ScheduleEntry, Target, Tier, Weekday } from '../rules/types.ts';
 
 // Plan, the back of house: Focus as three slots you can see, Log beside it, and the editor's form.
 // The form is checked here, before any save, so the screen can say what's missing in words.
@@ -21,8 +22,19 @@ export function daysText(days: readonly Weekday[]): string {
   return [...days].sort().map(d => LETTERS[d]).join(' ');
 }
 
+/**
+ * The schedule a weekday/asked change is pending for: the entry that starts tomorrow, when today
+ * already has a value and B-3 holds the change back a day (`ops/habits.ts`, `editHabit`).
+ */
+function pendingSchedule(h: HabitRecord, today: LocalDate): ScheduleEntry | undefined {
+  const tomorrow = scheduleOn(h, addDays(today, 1));
+  return tomorrow !== undefined && tomorrow !== scheduleOn(h, today) ? tomorrow : undefined;
+}
+
 /** The line under a habit's name in Plan. */
 export function habitLine(h: HabitRecord, today: LocalDate): string {
+  const pending = pendingSchedule(h, today);
+  if (pending) return `${kindText(h.kind)} · ${daysText(pending.days)} · ${pending.asked} · from tomorrow`;
   const days = scheduleOn(h, today)?.days ?? h.schedule.at(-1)?.days ?? [];
   const asked = askedOn(h, today) ?? h.schedule.at(-1)?.asked ?? 'evening';
   return `${kindText(h.kind)} · ${daysText(days)} · ${asked}`;
@@ -66,6 +78,8 @@ export interface HabitForm {
   readonly part?: number;
   readonly bar?: number;
   readonly aim?: number;
+  /** true when `days`/`asked` are a pending change that starts tomorrow, not what is in force today */
+  readonly fromTomorrow?: boolean;
 }
 
 export const EMPTY_FORM: HabitForm = { name: '', sub: '', kind: 'tri', days: [0, 1, 2, 3, 4, 5, 6], asked: 'evening', tier: 'log' };
@@ -79,10 +93,12 @@ function dayMinutesOf(f: HabitForm, boundary: ClockMinute) {
 }
 
 export function formOf(h: HabitRecord, today: LocalDate): HabitForm {
-  const s = scheduleOn(h, today) ?? h.schedule.at(-1);
+  const pending = pendingSchedule(h, today);
+  const s = pending ?? scheduleOn(h, today) ?? h.schedule.at(-1);
   return {
     name: h.name, sub: h.sub ?? '', kind: h.kind, days: s?.days ?? [], asked: s?.asked ?? 'evening',
     tier: tierOn(h, today) ?? 'log', band: clockOf(h.target.band), part: clockOf(h.target.part), bar: h.target.bar, aim: h.target.aim,
+    ...(pending && { fromTomorrow: true }),
   };
 }
 
@@ -129,4 +145,5 @@ export const PLAN_WORDS = {
   nudge: 'A reminder only nudges: it asks nothing, is never repeated, and stays quiet between lights out and waking.',
   retire: 'Every day it was logged stays in Look back.',
   backInLog: 'Focus is full, so it came back into Log. It can move to Focus once a slot is free.',
+  fromTomorrow: 'Today already has a value, so this starts tomorrow. Today keeps the days it was logged under.',
 } as const;

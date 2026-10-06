@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHabit, editHabit } from '../../src/record/ops/habits.ts';
+import { logObservation } from '../../src/record/ops/observations.ts';
 import { cueForRules } from '../../src/record/mapping.ts';
-import { changeOf, daysText, EMPTY_FORM, formOf, formProblems, newHabitOf, PLAN_WORDS, planLists, slotNote } from '../../src/plan/planView.ts';
+import { changeOf, daysText, EMPTY_FORM, formOf, formProblems, habitLine, newHabitOf, PLAN_WORDS, planLists, slotNote } from '../../src/plan/planView.ts';
 import { stateOf } from '../../src/rules/state.ts';
-import { freshDb } from '../record/helpers.ts';
+import { freshDb, openedRecord } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
 
@@ -92,6 +93,32 @@ test('a new habit from the form is saved once; a fourth in Focus is refused', as
   const r = await createHabit(core, newHabitOf(form, 'h-new'));
   assert.equal(r.kind, 'Invalid');
   assert.equal((await createHabit(core, newHabitOf({ ...form, tier: 'log' }, 'h-new'))).kind, 'Saved');
+});
+
+test('R2-10: once today is logged, a weekday change is pending for tomorrow; the line and a reopened editor show the new days, marked, not the old ones', async () => {
+  const { core } = await openedRecord();
+  const today = '2026-01-05';
+  await createHabit(core, { id: 'h-walk', name: 'CANARY-TEST walk', kind: 'tri', days: [0, 1, 2, 3, 4, 5, 6], asked: 'evening', target: {}, tier: 'focus' });
+  await logObservation(core, { habitId: 'h-walk', date: today, value: 'did' });
+  assert.equal((await editHabit(core, { id: 'h-walk', days: [0, 1, 2, 3, 4] })).kind, 'Saved');
+  const walk = core.session!.model.habits.get('h-walk')!;
+  // B-3 in the record: today's own entry is untouched, the new one starts tomorrow
+  assert.deepEqual(walk.schedule.map(s => [s.from, s.days]), [[today, [0, 1, 2, 3, 4, 5, 6]], ['2026-01-06', [0, 1, 2, 3, 4]]]);
+  assert.equal(habitLine(walk, today), 'did · partly · not · Mon–Fri · evening · from tomorrow');
+  const form = formOf(walk, today);
+  assert.deepEqual(form.days, [0, 1, 2, 3, 4]);
+  assert.equal(form.fromTomorrow, true);
+  // saving the reopened editor unchanged keeps the same pending entry, not a second one
+  assert.equal((await editHabit(core, changeOf(form, walk))).kind, 'Saved');
+  assert.equal(core.session!.model.habits.get('h-walk')!.schedule.length, 2);
+});
+
+test('a habit with nothing pending shows today\'s own days, with no mark', async () => {
+  const { core } = await seedRecord(freshDb(), readState('#age=17&t=13:00'));
+  const today = dateOfDay(17);
+  const walk = core.session!.model.habits.get('h-walk')!;
+  assert.doesNotMatch(habitLine(walk, today), /from tomorrow/);
+  assert.equal(formOf(walk, today).fromTomorrow, undefined);
 });
 
 test("an edit keeps the habit's kind, and a weekday change never reaches back before today", async () => {

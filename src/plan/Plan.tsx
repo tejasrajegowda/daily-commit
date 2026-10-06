@@ -204,7 +204,8 @@ function Editor(p: {
         })}</div></div>
       <div className="fgrp"><label className="eb field-l">Asked</label>
         <div className="seg"><button type="button" className={form.asked === 'morning' ? 'on' : ''} onClick={() => set({ asked: 'morning' })}>In the morning</button>
-          <button type="button" className={form.asked === 'evening' ? 'on' : ''} onClick={() => set({ asked: 'evening' })}>At night</button></div></div>
+          <button type="button" className={form.asked === 'evening' ? 'on' : ''} onClick={() => set({ asked: 'evening' })}>At night</button></div>
+        {form.fromTomorrow && <p className="meta" data-a="from-tomorrow" style={{ margin: '2px 4px 0' }}>{PLAN_WORDS.fromTomorrow}</p>}</div>
       {habit && (
         <div className="fgrp"><label className="eb field-l">Reminders</label>
           <div className="list">

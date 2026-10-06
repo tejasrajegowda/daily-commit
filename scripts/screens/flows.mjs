@@ -675,6 +675,34 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   if (await p.locator('.sheet #h-part').count()) await p.fill('.sheet #h-part', '');
   await p.tap('.sheet [data-a="plan-save"]');
   check('R2-5: emptying partly lets it save', await gone(p, '.sheet [data-a="editor"]'));
+
+  // R2-10: a weekday change saved after today is already logged starts tomorrow (B-3); the line and
+  // a reopened editor now show the new days and say so, instead of the old days with nothing said
+  await h.open(p, 's=today&t=21:30');
+  await shows(p, '.row[data-x="h-walk"]');
+  await p.tap('.row[data-x="h-walk"]');
+  await p.tap('.row[data-x="h-walk"] .opt >> text=Did it');
+  // a Focus habit answered in the evening leaves its row for a chip (R2-2); its value is still saved
+  check('R2-10: Walk is logged for today', await until(() =>
+    [...document.querySelectorAll('.earlier .chip')].some(c => c.textContent?.includes('walk') && !c.classList.contains('idle'))));
+  await p.tap('.dock button[data-x="plan"]');
+  await shows(p, '.slots');
+  await p.tap('.slot[data-x="h-walk"]');
+  await shows(p, '.sheet [data-a="editor"]');
+  check('R2-10: before any change, nothing says "from tomorrow"', (await p.locator('[data-a="from-tomorrow"]').count()) === 0);
+  await p.tap('.sheet .days button >> nth=5');   // turn off Saturday
+  await p.tap('.sheet .days button >> nth=6');   // turn off Sunday
+  await p.tap('.sheet [data-a="plan-save"]');
+  check('R2-10: the line under Walk shows the new days and says from tomorrow, not the old "every day"', await until(() => {
+    const sub = document.querySelector('.slot[data-x="h-walk"] .sub')?.textContent ?? '';
+    return sub.includes('Mon–Fri') && sub.includes('from tomorrow');
+  }));
+  await p.tap('.slot[data-x="h-walk"]');
+  await shows(p, '.sheet [data-a="editor"]');
+  check('R2-10: the reopened editor shows the new days, not the old seven', (await p.locator('.sheet .days button.on').count()) === 5);
+  check('R2-10: the editor says the change starts tomorrow', await shows(p, '.sheet [data-a="from-tomorrow"]')
+    && (await p.locator('.sheet [data-a="from-tomorrow"]').innerText()).includes('starts tomorrow'));
+  await p.tap('.sheet [data-a="plan-x"]');
 }
 
 // Settings
