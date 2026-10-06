@@ -396,6 +396,33 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('R2-13: the same for a doubled tap on "Open today again"',
     await shows(p, '[data-a="close"]') && (await p.locator('[data-a="save-note"]').count()) === 0);
 
+  // R2-1: words still in a field when the 14:00 switch or the new day takes it away are saved to the
+  // day they were typed for, and if that save fails they stay on Today
+  await h.open(p, 's=today&t=13:58');
+  await shows(p, '#intent');
+  await p.fill('#intent', 'CANARY-TEST a calm morning');
+  await p.evaluate(() => window.harness.moveClock(3));
+  check('R2-1: words in "What would make today good" at the 14:00 switch are saved to that day',
+    await shows(p, '#remark') && await until(() => window.harness.dayWords(17).intent === 'CANARY-TEST a calm morning'));
+  await h.open(p, 's=today&t=23:58');
+  await shows(p, '#remark');
+  await p.fill('#remark', 'CANARY-TEST a long day');
+  await p.evaluate(() => window.harness.moveClock(4 * 60 + 3));
+  check('R2-1: words in "A word about today" at 04:00 are saved to the day they were typed for, not the new one',
+    await shows(p, '#intent') && await until(() => window.harness.dayWords(17).remark === 'CANARY-TEST a long day' && window.harness.dayWords(18).remark === undefined)
+    && !(await p.locator('#intent').inputValue()));
+  await h.open(p, 's=today&t=13:58');
+  await shows(p, '#intent');
+  await p.fill('#intent', 'CANARY-TEST kept words');
+  await p.evaluate(() => { window.harness.failWrite(); window.harness.moveClock(3); });
+  const kept = await shows(p, '[data-a="unsaved-words"]');
+  check('R2-1: when that save fails, the words stay on Today with the not-saved words',
+    kept && (await p.locator('[data-a="unsaved-words"]').innerText()).includes('CANARY-TEST kept words')
+    && (await p.locator('[data-a="save-note"]').innerText()).toLowerCase().includes('not saved'));
+  if (kept) await p.tap('[data-a="unsaved"][data-x="save"]');
+  check('R2-1: Try again saves them to their day, and they leave the screen',
+    kept && await gone(p, '[data-a="unsaved-words"]') && await until(() => window.harness.dayWords(17).intent === 'CANARY-TEST kept words'));
+
   const q = await h.page(LAPTOP, errors);
   await h.open(q, 's=today&t=06:05');
   await shows(q, '.today .row');

@@ -3,6 +3,7 @@
 import { setSetting } from '../../../src/record/ops/settings.ts';
 import { createRoot } from 'react-dom/client';
 import { App } from '../../../src/app/App.tsx';
+import { minuteClock } from '../../../src/app/clock.ts';
 import { assemble } from '../../../src/app/compose.ts';
 import type { AppDeps, DevicePort, Nav, ScreenId, UnlockHow } from '../../../src/app/context.ts';
 import { memoryFiles } from '../../../src/device/browser.ts';
@@ -45,6 +46,10 @@ export interface HarnessControls {
   failCheck(): void;
   /** the next write to the record throws, as a storage fault other than a full phone would, so the screen must say so itself */
   failWrite(): void;
+  /** the clock moves on by this many minutes, and the screens draw again as they do at each new minute */
+  moveClock(minutes: number): void;
+  /** the words the invented record holds for a day number: the morning intent and the evening remark */
+  dayWords(day: number): { readonly intent?: string; readonly remark?: string };
   /** this phone moves to a code of its own with the fingerprint beside it, as Settings would set them up */
   ownCode(): Promise<void>;
   /** the invented record's recovery code, as the first day would have shown it (none for an empty record) */
@@ -181,12 +186,15 @@ async function start(): Promise<void> {
   const phone = fakePlugin();
   let core: RecordCore;
   let recoveryCode: string | undefined;
+  let setNow: ((ms: number) => void) | undefined;
   const empty = state.screen === 'first' || (state.screen === 'restore' && state.variant !== 'replace');
   if (empty) {
     const now = nowOf(state);
     core = openRecord({ db, now: () => now });
   } else {
-    ({ core, recoveryCode } = fixture ? await seedFixture(db, state, fixture) : await seedRecord(db, state));
+    let clock: { set(ms: number): void };
+    ({ core, recoveryCode, clock } = fixture ? await seedFixture(db, state, fixture) : await seedRecord(db, state));
+    setNow = clock.set;
   }
   // a record whose lock is damaged: its own backup and the phone's last copy were made while it still opened
   const damaged = state.screen === 'lock' && state.variant === 'damaged';
@@ -204,7 +212,11 @@ async function start(): Promise<void> {
   const plugin: DevicePort['plugin'] = { ...phone.plugin, enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)) };
   const { device, leave, resume, failCopy } = harnessDevice(plugin);
   const { core: writable, failNext: failWrite } = failableCore(core);
-  const deps = assemble(writable, device);
+  // the harness's time stands still, so its minute clock ticks only when a flow moves the clock on
+  let tick = () => {};
+  const assembled = assemble(writable, device);
+  assembled.clock.stop();
+  const deps = { ...assembled, clock: minuteClock(writable.now, run => { tick = run; return undefined; }, () => {}) };
   await prelude(state, deps, phone);
   let source: Promise<Uint8Array> | undefined;
   const sourceFile = () => (source ??= sourceBackup(state));
@@ -223,6 +235,15 @@ async function start(): Promise<void> {
     cancelPrompt: () => phone.cancelNext(),
     failCheck: () => phone.lieNext('not-a-key'),
     failWrite,
+    moveClock: minutes => {
+      if (!setNow) throw new Error('harness: this state has no clock to move');
+      setNow(core.now() + minutes * 60_000);
+      tick();
+    },
+    dayWords: day => {
+      const d = core.session?.model.days.get(dateOfDay(day, state.start));
+      return { intent: d?.intent, remark: d?.remark };
+    },
     ownCode: () => enrolFor({ ...state, variant: 'own' }, core, phone),
     recoveryCode,
   };

@@ -14,6 +14,7 @@ import { restDaysLeft } from '../rules/rest.ts';
 import type { PlannedReason } from '../rules/types.ts';
 import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
+import { draft } from './draft.ts';
 import { Horizon } from './Horizon.tsx';
 import { Row, type RowAction } from './Row.tsx';
 import { hm, shapeRows, skyWords, todayView, valueText, type TodayRow } from './todayView.ts';
@@ -35,6 +36,16 @@ const REASONS: readonly (readonly [PlannedReason, string])[] = [['meeting', 'mee
 // words as a refusal, so a screen never goes silent on it.
 const NOT_SAVED = { title: 'Not saved', text: "That couldn't be saved. What you wrote is still here." };
 
+type WordsField = 'intent' | 'remark';
+const LABEL: Readonly<Record<WordsField, string>> = { intent: 'What would make today good', remark: 'A word about today' };
+
+/** Words whose field went away before they could be saved, kept on screen until they are. */
+interface Unsaved {
+  readonly field: WordsField;
+  readonly date: string;
+  readonly text: string;
+}
+
 function Note({ title, text }: { readonly title: string; readonly text: string }) {
   return <div className="panel note" data-a="save-note"><p className="eb">{title}</p><p className="body" style={{ margin: '8px 0 0' }}>{text}</p></div>;
 }
@@ -52,6 +63,7 @@ export function Today() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [restLeft, setRestLeft] = useState(false);
   const [justClosed, setJustClosed] = useState(false);
+  const [unsaved, setUnsaved] = useState<Unsaved | undefined>(undefined);
   // guards That's the day / Open today again against a second tap landing before the first finishes
   const closing = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -146,10 +158,19 @@ export function Today() {
     marks.push([o.habitId, o.kind === 'time' && typeof o.value === 'number' ? clockOfDay(o.value) : clockMinuteOf(o.loggedAt, tz)]);
   }
 
-  const saveWords = (field: 'intent' | 'remark', value: string) => {
-    if (((field === 'intent' ? view.intent : view.remark) ?? '') === value) return;
-    void run(c => saveDayWords(c, { date: today, [field]: value, sheet }));
+  // words go to the day they were typed for, even when the field goes away after the day has moved on
+  const saveWords = async (field: WordsField, date: string, text: string) => {
+    const ok = await run(c => saveDayWords(c, { date, [field]: text, sheet }));
+    if (ok) setUnsaved(u => (u && u.field === field && u.date === date ? undefined : u));
+    return ok;
   };
+  const wordsField = (field: WordsField, placeholder: string, saved: string | undefined) => (
+    <WordsInput key={`${field}-${today}`} id={field} placeholder={placeholder} saved={saved ?? ''}
+      typed={unsaved?.field === field && unsaved.date === today ? unsaved.text : undefined}
+      save={text => saveWords(field, today, text)} lost={text => setUnsaved({ field, date: today, text })} />
+  );
+  const drawnField: WordsField | undefined = view.part === 'morning' ? 'intent' : view.part === 'evening' ? 'remark' : undefined;
+  const held = unsaved && !(unsaved.field === drawnField && unsaved.date === today) ? unsaved : undefined;
 
   const top = (
     <div className="topline"><span className="eb">{longDate(today)}</span><span className="eb">Day <b>{view.dayNumber}</b></span></div>
@@ -199,8 +220,7 @@ export function Today() {
       <>
         <div className="group">
           <label className="eb field-l" htmlFor="intent">What would make today good</label>
-          <textarea key={`intent-${today}`} id="intent" className="field" rows={2} placeholder="Today would be good if…" defaultValue={view.intent ?? ''}
-            onBlur={e => saveWords('intent', e.currentTarget.value)} />
+          {wordsField('intent', 'Today would be good if…', view.intent)}
         </div>
         <div className="panel wide-only" style={{ marginTop: 20 }}>
           <div className="panel-h"><span className="eb">Planned rest</span></div>
@@ -235,8 +255,7 @@ export function Today() {
         {view.intent && <div className="panel wide-only" style={{ marginBottom: 22 }}><p className="eb">This morning you wrote</p><p className="said" style={{ marginTop: 10 }}>{view.intent}</p></div>}
         <div className="group" style={{ marginTop: 0 }}>
           <label className="eb field-l" htmlFor="remark">A word about today</label>
-          <textarea key={`remark-${today}`} id="remark" className="field" rows={2} placeholder="Today was…" defaultValue={view.remark ?? ''}
-            onBlur={e => saveWords('remark', e.currentTarget.value)} />
+          {wordsField('remark', 'Today was…', view.remark)}
         </div>
         {view.restOffer && !restLeft && (
           <div className="panel rest">
@@ -295,6 +314,17 @@ export function Today() {
             <div className="wide-only"><Horizon shape={shape} t={t} marks={marks} fresh={fresh} wideLabels setting={justClosed} boundary={boundary} /></div>
           </div>
           {main}
+          {held && (
+            <div className="panel" data-a="unsaved-words" style={{ marginTop: 16 }}>
+              <p className="eb">{LABEL[held.field]}</p>
+              <p className="said" style={{ marginTop: 10 }}>{held.text}</p>
+              <p className="meta" style={{ margin: '10px 0 14px' }}>Not saved yet. It goes with {longDate(held.date)}.</p>
+              <div className="two">
+                <button type="button" className="btn btn--secondary" data-a="unsaved" data-x="save" onClick={() => void saveWords(held.field, held.date, held.text)}>Try again</button>
+                <button type="button" className="btn btn--secondary" data-a="unsaved" data-x="leave" onClick={() => setUnsaved(undefined)}>Let it go</button>
+              </div>
+            </div>
+          )}
           {note && !sheetOpen && <div style={{ marginTop: 16 }}><Note {...note} /></div>}
         </main>
         <aside className="col side">{side}</aside>
@@ -309,6 +339,29 @@ export function Today() {
           if (ok) setSheetOpen(false);
         }} /></Layer>}
     </>
+  );
+}
+
+/**
+ * One of Today's two fields. It belongs to one day (its key carries the date) and keeps what was
+ * typed in a draft, so words still in it when it goes away are saved to that day.
+ */
+function WordsInput(p: {
+  readonly id: WordsField;
+  readonly placeholder: string;
+  readonly saved: string;
+  readonly typed?: string;
+  save(text: string): Promise<boolean>;
+  lost(text: string): void;
+}) {
+  const [words] = useState(() => draft(p.saved, p.save, p.lost, p.typed));
+  useEffect(() => {
+    words.open();
+    return () => words.close();
+  }, [words]);
+  return (
+    <textarea id={p.id} className="field" rows={2} placeholder={p.placeholder} defaultValue={p.typed ?? p.saved}
+      onChange={e => words.type(e.currentTarget.value)} onBlur={() => words.flush()} />
   );
 }
 
