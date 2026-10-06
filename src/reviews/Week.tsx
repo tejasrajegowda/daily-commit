@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useRef, useState, type CSSProperties } from 'react';
 import { resultWords, useApp, useHeld, useModel, useNav, useToday } from '../app/context.ts';
 import { saveReview } from '../record/ops/reviews.ts';
 import { rulesInput } from '../record/read.ts';
@@ -9,7 +9,7 @@ import { weekView, type WeekRow } from './reviewView.ts';
 
 // The Sunday review: the week in words. Its two questions are optional; the week counts whether or
 // not anything is written. An answer whose save didn't go through is held for the visit and comes
-// back in its field, and goes with "That's the week".
+// back in its field, and goes with "That's the week", as do the words in the fields when it is tapped.
 
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -29,6 +29,7 @@ export function Week() {
   const today = useToday();
   const [step, setStep] = useState(0);
   const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
+  const typed = useRef(new Map<string, string>());   // what is in each field now, by its held key
   const revision = store.revision();
   const input = useMemo(() => (model ? rulesInput(model) : undefined), [model, revision]);
   if (!model || !today || !input) return null;
@@ -37,7 +38,7 @@ export function Week() {
   const days = datesFrom(v.monday, v.sunday);
 
   const save = async (answers: Record<string, string>, close = false) => {
-    const result = await store.run(c => saveReview(c, { period: 'week', start: v.monday, answers: { ...saved?.answers, ...answers }, close }));
+    const result = await store.run(c => saveReview(c, { period: 'week', start: v.monday, answers, close }));
     setNote(resultWords(result));
     return result.kind === 'Saved';
   };
@@ -45,11 +46,13 @@ export function Week() {
   // an answer goes in on leaving its field; one that isn't the record's any more is held, not lost
   const answer = (q: (typeof QUESTIONS)[number], text: string) => {
     if (text === (saved?.answers[q] ?? '')) { held.drop(heldKey(q)); return; }
-    void held.keep(heldKey(q), text, () => store.run(c => saveReview(c, { period: 'week', start: v.monday, answers: { ...saved?.answers, [q]: text }, close: false })));
+    void held.keep(heldKey(q), text, () => store.run(c => saveReview(c, { period: 'week', start: v.monday, answers: { [q]: text }, close: false })));
   };
+  // the close takes the answers themselves: a field's blur may not have saved yet, or at all
   const done = async () => {
     const kept = QUESTIONS.flatMap(q => { const h = held.get(heldKey(q)); return h ? [[q, h.text] as const] : []; });
-    if (!await save(Object.fromEntries(kept), true)) return;
+    const now = QUESTIONS.flatMap(q => { const t = typed.current.get(heldKey(q)); return t === undefined ? [] : [[q, t] as const]; });
+    if (!await save(Object.fromEntries([...kept, ...now]), true)) return;
     for (const [q] of kept) held.drop(heldKey(q));
     go('look');
   };
@@ -84,10 +87,10 @@ export function Week() {
     <>
       <div className="group" style={{ marginTop: 0 }}><label className="eb field-l" htmlFor="wk-changed">What changed that isn't in the data?</label>
         <Answer id="wk-changed" key={`c${v.monday}`} rows={3} placeholder="This week…" saved={saved?.answers.changed ?? ''} held={held.get(heldKey('changed'))?.text}
-          onLeave={text => answer('changed', text)} />{heldNote('changed')}</div>
+          onLeave={text => answer('changed', text)} onType={text => typed.current.set(heldKey('changed'), text)} />{heldNote('changed')}</div>
       <div className="group"><label className="eb field-l" htmlFor="wk-line">One line for the week, in your own words</label>
         <Answer id="wk-line" key={`l${v.monday}`} rows={2} placeholder="The week was…" saved={saved?.answers.line ?? ''} held={held.get(heldKey('line'))?.text}
-          onLeave={text => answer('line', text)} />{heldNote('line')}</div>
+          onLeave={text => answer('line', text)} onType={text => typed.current.set(heldKey('line'), text)} />{heldNote('line')}</div>
     </>
   );
   const how = (

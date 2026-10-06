@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { resultWords, useApp, useHeld, useModel, useNav, useToday } from '../app/context.ts';
 import { settleHabit } from '../record/ops/habits.ts';
 import { saveReview } from '../record/ops/reviews.ts';
@@ -11,7 +11,8 @@ import { monthView } from './reviewView.ts';
 // The monthly review, from day 60: the month in words, what seemed to go well together (only good
 // pairings, only with eight days on each side, never as a cause), and the offer to stop asking
 // about a habit that has been steady for eight weeks. A line whose save didn't go through is held for
-// the visit and comes back in its field, and goes with "That's the month".
+// the visit and comes back in its field, and goes with "That's the month", as do the words in the
+// field when it is tapped.
 
 const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const short = (date: string) => { const d = new Date(`${date}T00:00:00Z`); return `${d.getUTCDate()} ${MON3[d.getUTCMonth()]}`; };
@@ -25,6 +26,7 @@ export function Month() {
   const today = useToday();
   const [settled, setSettled] = useState<'yes' | 'no' | undefined>(undefined);
   const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
+  const typed = useRef(new Map<string, string>());   // what is in each field now, by its held key
   const revision = store.revision();
   const input = useMemo(() => (model ? rulesInput(model) : undefined), [model, revision]);
   if (!model || !today || !input) return null;
@@ -44,7 +46,7 @@ export function Month() {
 
   const saved = model.reviews.get(`m:${v.first.slice(0, 7)}`);
   const save = async (answers: Record<string, string>, close = false) => {
-    const result = await store.run(c => saveReview(c, { period: 'month', start: v.first, answers: { ...saved?.answers, ...answers }, close }));
+    const result = await store.run(c => saveReview(c, { period: 'month', start: v.first, answers, close }));
     setNote(resultWords(result));
     return result.kind === 'Saved';
   };
@@ -53,7 +55,7 @@ export function Month() {
   // the line goes in on leaving its field; one that isn't the record's any more is held, not lost
   const answer = (text: string) => {
     if (text === (saved?.answers.line ?? '')) { held.drop(heldKey); return; }
-    void held.keep(heldKey, text, () => store.run(c => saveReview(c, { period: 'month', start: v.first, answers: { ...saved?.answers, line: text }, close: false })));
+    void held.keep(heldKey, text, () => store.run(c => saveReview(c, { period: 'month', start: v.first, answers: { line: text }, close: false })));
   };
   const days = datesFrom(v.from, v.to);
   const settle = v.settle;
@@ -76,12 +78,15 @@ export function Month() {
       ) : null;
   const line = (
     <div className="group" style={{ marginTop: 0 }}><label className="eb field-l" htmlFor="mo-line">One line for {v.name}, in your own words</label>
-      <Answer id="mo-line" key={v.first} rows={3} placeholder={`${v.name} was…`} saved={saved?.answers.line ?? ''} held={kept?.text} onLeave={answer} />
+      <Answer id="mo-line" key={v.first} rows={3} placeholder={`${v.name} was…`} saved={saved?.answers.line ?? ''} held={kept?.text} onLeave={answer}
+        onType={text => typed.current.set(heldKey, text)} />
       {kept && <div className="panel note" data-a="held-note" style={{ marginTop: 10 }}><p className="eb">{kept.note.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{kept.note.text}</p></div>}</div>
   );
   const notePanel = note && <div className="panel note"><p className="eb">{note.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{note.text}</p></div>;
+  // the close takes the line itself: its field's blur may not have saved yet, or at all
   const finish = <button type="button" className="btn btn--primary wide" data-a="month-done" onClick={async () => {
-    if (!await save(kept ? { line: kept.text } : {}, true)) return;
+    const text = typed.current.get(heldKey) ?? kept?.text;
+    if (!await save(text === undefined ? {} : { line: text }, true)) return;
     held.drop(heldKey);
     go('look');
   }}>That's the month</button>;

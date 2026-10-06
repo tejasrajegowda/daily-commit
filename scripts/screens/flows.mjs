@@ -640,6 +640,27 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.locator('.phone-only [data-a="settle"][data-x="yes"]').tap();
   check('month: settling says so', await p.waitForFunction(() => [...document.querySelectorAll('.panel .eb')].some(e => e.textContent === 'Settled'), null, { timeout: 8000 }).then(() => true, () => false));
   check('reviews: no numbers as scores, no exclamation', !/[!%]/.test(await p.locator('#view').innerText()));
+
+  // R3-2: the close tapped straight from the line, so the line's blur and the close come in the same tap
+  const until = (page, fn, arg) => page.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  await h.open(p, 's=month&t=12:30&age=60&v=steady');
+  await shows(p, '.phone-only #mo-line');
+  await p.tap('.phone-only #mo-line');
+  await p.keyboard.type('CANARY-TEST a slow month');
+  await p.tap('.phone-only [data-a="month-done"]');
+  check("R3-2: That's the month, tapped from its line, keeps the line and closes the month", await shows(p, '.hcard')
+    && await until(p, () => window.harness.reviews().some(r => r.key.startsWith('m:') && r.closed && r.answers.line === 'CANARY-TEST a slow month')));
+  const w = await h.page(LAPTOP, errors);
+  await h.open(w, 's=week&t=10:30');
+  await shows(w, '.side #wk-changed');
+  await w.click('.side #wk-changed');
+  await w.keyboard.type('CANARY-TEST a new route');
+  await w.click('.side #wk-line');
+  await w.keyboard.type('CANARY-TEST an even week');
+  await w.click('.side [data-a="week-done"]');
+  check("R3-2: That's the week, clicked from its line on a laptop, keeps both answers and closes the week", await shows(w, '.hcard')
+    && await until(w, () => window.harness.reviews().some(r => r.key.startsWith('w:') && r.closed
+      && r.answers.changed === 'CANARY-TEST a new route' && r.answers.line === 'CANARY-TEST an even week')));
 }
 
 // the diary and Not yet (invented words only)

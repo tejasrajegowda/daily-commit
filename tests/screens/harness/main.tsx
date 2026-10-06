@@ -51,6 +51,8 @@ export interface HarnessControls {
   fullPhone(on: boolean, after?: number): void;
   /** the invented record's diary pages: their day, their words, and whether they are in the trash */
   pages(): readonly { readonly date: string; readonly body: string; readonly trashed: boolean }[];
+  /** the invented record's reviews: their key, their answers, and whether they are closed */
+  reviews(): readonly { readonly key: string; readonly answers: Readonly<Record<string, string>>; readonly closed: boolean }[];
   /** the clock moves on by this many minutes, and the screens draw again as they do at each new minute */
   moveClock(minutes: number): void;
   /** the words the invented record holds for a day number: the morning intent and the evening remark */
@@ -249,6 +251,7 @@ async function start(): Promise<void> {
     failWrite,
     fullPhone,
     pages: () => [...(core.session?.model.entries.values() ?? [])].map(e => ({ date: e.date, body: e.body, trashed: e.trashedAt !== undefined })),
+    reviews: () => [...(core.session?.model.reviews.values() ?? [])].map(r => ({ key: r.key, answers: { ...r.answers }, closed: r.closedAt !== undefined })),
     moveClock: minutes => {
       if (!setNow) throw new Error('harness: this state has no clock to move');
       setNow(core.now() + minutes * 60_000);

@@ -7,12 +7,15 @@ import { invalid, type Result } from '../results.ts';
 import { storedRow } from './common.ts';
 
 // The Sunday review covers Monday to Sunday; the monthly review covers its month. Each is keyed by
-// its first day, never by a week number.
+// its first day, never by a week number. A save's answers go over what is stored when it is
+// written, never over a screen's copy, so two saves from the same tap (a field's blur, then the
+// close) never undo each other.
 
 export interface ReviewSave {
   readonly period: 'week' | 'month';
   /** a Monday for a week, the 1st for a month */
   readonly start: LocalDate;
+  /** only the answers this save changes; the others stay as stored */
   readonly answers: Readonly<Record<string, string>>;
   readonly close?: boolean;
 }
@@ -36,7 +39,7 @@ export function saveReview(core: RecordCore, input: ReviewSave): Promise<Result<
       if (!Object.values(input.answers).every(v => typeof v === 'string')) return invalid('answers are text');
       const existing = s.model.reviews.get(period.key);
       const review: ReviewRecord = defined({
-        key: period.key, periodStart: input.start, periodEnd: period.end, answers: input.answers,
+        key: period.key, periodStart: input.start, periodEnd: period.end, answers: { ...existing?.answers, ...input.answers },
         closedAt: input.close ? (existing?.closedAt ?? stamp.updated_at) : existing?.closedAt,
       });
       return {
