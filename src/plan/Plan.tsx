@@ -142,10 +142,11 @@ function Editor(p: {
     }
   };
   const save = async () => {
-    const wrong = formProblems(form);
+    const { boundary } = model.settings;
+    const wrong = formProblems(form, boundary);
     setProblems(wrong);
     if (wrong.length) return;
-    const ok = habit ? await run(c => editHabit(c, changeOf(form, habit))) : await run(c => createHabit(c, newHabitOf(form, p.newId)));
+    const ok = habit ? await run(c => editHabit(c, changeOf(form, habit, boundary))) : await run(c => createHabit(c, newHabitOf(form, p.newId, boundary)));
     if (ok) p.onSaved();
   };
   const bringBack = async () => {
@@ -177,6 +178,11 @@ function Editor(p: {
       {form.kind === 'time' && (
         <div className="fgrp"><label className="eb field-l" htmlFor="h-band">Counts as done by</label>
           <input id="h-band" className="inp" type="time" value={form.band !== undefined ? hm(form.band) : ''} onChange={e => set({ band: fromHm(e.currentTarget.value) })} /></div>
+      )}
+      {form.kind === 'time' && (
+        <div className="fgrp"><label className="eb field-l" htmlFor="h-part">Counts as partly by</label>
+          <input id="h-part" className="inp" type="time" value={form.part !== undefined ? hm(form.part) : ''} onChange={e => set({ part: fromHm(e.currentTarget.value) })} />
+          <p className="meta" style={{ margin: '2px 4px 0' }}>It can be left empty.</p></div>
       )}
       {form.kind === 'min' && (
         <>

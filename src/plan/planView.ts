@@ -1,7 +1,8 @@
 import type { HabitRecord, Model } from '../record/model.ts';
 import { MAX_FOCUS, type HabitChange, type NewHabit } from '../record/ops/habits.ts';
+import { clockOfDay, DEFAULT_BOUNDARY, toDayMinute } from '../rules/clock.ts';
 import { askedOn, inPlan, isRetired, scheduleOn, tierOn } from '../rules/state.ts';
-import type { Asked, HabitKind, LocalDate, Target, Tier, Weekday } from '../rules/types.ts';
+import type { Asked, ClockMinute, HabitKind, LocalDate, Target, Tier, Weekday } from '../rules/types.ts';
 
 // Plan, the back of house: Focus as three slots you can see, Log beside it, and the editor's form.
 // The form is checked here, before any save, so the screen can say what's missing in words.
@@ -57,7 +58,10 @@ export interface HabitForm {
   readonly days: readonly Weekday[];
   readonly asked: Asked;
   readonly tier: Tier;
-  /** time: "did" at or before this clock time; minutes: the bar and the aim */
+  /**
+   * time: "did" at or before this clock time, "partly" at or before the second. Typed and shown as
+   * clock times; stored as DayMinutes, so for a habit asked at night 00:30 is kept as 1470.
+   */
   readonly band?: number;
   readonly part?: number;
   readonly bar?: number;
@@ -66,41 +70,53 @@ export interface HabitForm {
 
 export const EMPTY_FORM: HabitForm = { name: '', sub: '', kind: 'tri', days: [0, 1, 2, 3, 4, 5, 6], asked: 'evening', tier: 'log' };
 
+const clockOf = (m: number | undefined) => (m === undefined ? undefined : clockOfDay(m));
+
+/** The form's band and partly as the record keeps them: on the day they are asked for, as Today stores a time. */
+function dayMinutesOf(f: HabitForm, boundary: ClockMinute) {
+  const at = (m: number | undefined) => (m === undefined ? undefined : toDayMinute(m, f.asked, boundary));
+  return { band: at(f.band), part: at(f.part) };
+}
+
 export function formOf(h: HabitRecord, today: LocalDate): HabitForm {
   const s = scheduleOn(h, today) ?? h.schedule.at(-1);
   return {
     name: h.name, sub: h.sub ?? '', kind: h.kind, days: s?.days ?? [], asked: s?.asked ?? 'evening',
-    tier: tierOn(h, today) ?? 'log', band: h.target.band, part: h.target.part, bar: h.target.bar, aim: h.target.aim,
+    tier: tierOn(h, today) ?? 'log', band: clockOf(h.target.band), part: clockOf(h.target.part), bar: h.target.bar, aim: h.target.aim,
   };
 }
 
 /** What's wrong with the form, in words; empty when it can be saved. */
-export function formProblems(f: HabitForm): string[] {
+export function formProblems(f: HabitForm, boundary: ClockMinute = DEFAULT_BOUNDARY): string[] {
   const out: string[] = [];
+  const t = dayMinutesOf(f, boundary);
   if (!f.name.trim()) out.push('It needs a name.');
   if (f.name.trim().length > 60) out.push('The name is longer than 60 characters.');
   if (f.days.length === 0) out.push('Pick at least one day.');
-  if (f.kind === 'time' && f.band !== undefined && f.part !== undefined && f.part < f.band) out.push('"Partly" has to be the same time as "did", or later.');
+  if (f.kind === 'time' && t.band !== undefined && t.part !== undefined && t.part < t.band) out.push('The time for partly has to be the same as the time for done, or later.');
   if (f.kind === 'min' && f.bar !== undefined && f.bar < 1) out.push('Done needs at least one minute.');
   if (f.kind === 'min' && f.bar !== undefined && f.aim !== undefined && f.aim < f.bar) out.push('The aim is at least the minutes that count as done.');
   if (f.kind === 'count' && f.bar !== undefined && f.bar < 1) out.push('Done needs at least one.');
   return out;
 }
 
-function targetOf(f: HabitForm): Target {
-  if (f.kind === 'time') return { ...(f.band !== undefined && { band: f.band }), ...(f.part !== undefined && { part: f.part }) };
+function targetOf(f: HabitForm, boundary: ClockMinute): Target {
+  if (f.kind === 'time') {
+    const { band, part } = dayMinutesOf(f, boundary);
+    return { ...(band !== undefined && { band }), ...(part !== undefined && { part }) };
+  }
   if (f.kind === 'min' || f.kind === 'count') return { ...(f.bar !== undefined && { bar: f.bar }), ...(f.aim !== undefined && { aim: f.aim }) };
   return {};
 }
 
 /** A new habit from the form; the id is made when the editor opened, so saving twice makes one habit. */
-export function newHabitOf(f: HabitForm, id: string): NewHabit {
-  return { id, name: f.name.trim(), ...(f.sub.trim() && { sub: f.sub.trim() }), kind: f.kind, days: [...f.days], asked: f.asked, target: targetOf(f), tier: f.tier };
+export function newHabitOf(f: HabitForm, id: string, boundary: ClockMinute = DEFAULT_BOUNDARY): NewHabit {
+  return { id, name: f.name.trim(), ...(f.sub.trim() && { sub: f.sub.trim() }), kind: f.kind, days: [...f.days], asked: f.asked, target: targetOf(f, boundary), tier: f.tier };
 }
 
 /** The change to an existing habit: its kind never changes (B-4); a weekday change starts tomorrow (B-3). */
-export function changeOf(f: HabitForm, h: HabitRecord): HabitChange {
-  return { id: h.id, name: f.name.trim(), sub: f.sub.trim(), target: targetOf({ ...f, kind: h.kind }), days: [...f.days], asked: f.asked };
+export function changeOf(f: HabitForm, h: HabitRecord, boundary: ClockMinute = DEFAULT_BOUNDARY): HabitChange {
+  return { id: h.id, name: f.name.trim(), sub: f.sub.trim(), target: targetOf({ ...f, kind: h.kind }, boundary), days: [...f.days], asked: f.asked };
 }
 
 export const PLAN_WORDS = {

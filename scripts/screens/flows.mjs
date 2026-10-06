@@ -637,6 +637,44 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.tap(`${countRow} [data-a="addcount"][data-x$=":1"]`);
   await p.tap(`${countRow} [data-a="addcount"][data-x$=":-1"]`);
   check('R2-4: -1 brings it back down, one at a time', await countValIs('1'));
+
+  // R2-5: a time asked at night, done by 00:30, is met by 22:30 and by 00:15; a stored partly has its field
+  const BED_NAME = 'CANARY-TEST in bed';
+  const bedRow = `.row:has-text("${BED_NAME}")`;
+  const bedIs = (state, time) => until(a => {
+    const row = [...document.querySelectorAll('.row')].find(r => r.querySelector('.nm')?.textContent === a.name);
+    return row?.getAttribute('data-s') === a.state && (row.querySelector('.val')?.textContent ?? '').includes(a.time);
+  }, { name: BED_NAME, state, time });
+  await h.open(p, 's=plan&t=13:00');
+  await p.tap('[data-a="add"]');
+  await p.fill('.sheet #h-name', BED_NAME);
+  await p.tap('.sheet [data-a="kind"][data-x="time"]');
+  await p.tap('.sheet .seg button:has-text("At night")');
+  await p.fill('.sheet #h-band', '00:30');
+  await p.tap('.sheet [data-a="plan-save"]');
+  check('R2-5: a night habit done by 00:30 is saved into Log', await until(n => [...document.querySelectorAll('.pl-log .nm')].some(e => e.textContent === n), BED_NAME));
+  await p.locator('.pl-log', { hasText: BED_NAME }).tap();
+  check('R2-5: the editor shows the band back as 00:30', await shows(p, '.sheet [data-a="editor"]') && (await p.inputValue('.sheet #h-band')) === '00:30');
+  await p.tap('.sheet [data-a="plan-x"]');
+  await p.tap('.dock button[data-x="today"]');
+  await p.evaluate(() => window.harness.moveClock(570));   // 22:30
+  await shows(p, bedRow);
+  await p.tap(bedRow);
+  check('R2-5: logged at 22:30, it counts as done by 00:30', await bedIs('did', '22:30'));
+  await p.evaluate(() => window.harness.moveClock(105));   // 00:15, still the same night
+  await p.tap(bedRow);
+  await p.tap(`${bedRow} [data-a="setnow"]`);
+  check('R2-5: logged at 00:15, it counts as done by 00:30', await bedIs('did', '00:15'));
+  await h.open(p, 's=plan&t=13:00');
+  await p.tap('.slot[data-x="h-wake"]');
+  check("R2-5: a stored partly shows in the editor's own field", await shows(p, '.sheet #h-part') && (await p.inputValue('.sheet #h-part')) === '07:30');
+  await p.fill('.sheet #h-band', '07:45');
+  await p.tap('.sheet [data-a="plan-save"]');
+  check('R2-5: a done later than partly is refused in words about the partly field the screen shows',
+    await shows(p, '[data-a="form-problems"]') && (await p.locator('[data-a="form-problems"]').innerText()).includes('time for partly'));
+  if (await p.locator('.sheet #h-part').count()) await p.fill('.sheet #h-part', '');
+  await p.tap('.sheet [data-a="plan-save"]');
+  check('R2-5: emptying partly lets it save', await gone(p, '.sheet [data-a="editor"]'));
 }
 
 // Settings
