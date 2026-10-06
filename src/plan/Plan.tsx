@@ -20,6 +20,10 @@ const KINDS = [['time', 'A time'], ['tri', 'Did / partly'], ['min', 'Minutes'], 
 const hm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const fromHm = (s: string) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s); return m ? Number(m[1]) * 60 + Number(m[2]) : undefined; };
 
+// A write that fails outright (not a refusal the record itself returned) gets the same shape of
+// words as a refusal, so the editor never goes silent on it.
+const NOT_SAVED = { title: 'Not saved', text: "That couldn't be saved. What you wrote is still here." };
+
 function Layer({ children }: { readonly children: ReactNode }) {
   const layer = document.getElementById('layer');
   return layer ? createPortal(children, layer) : <>{children}</>;
@@ -128,9 +132,14 @@ function Editor(p: {
   const [cueAt, setCueAt] = useState('');
   const set = (patch: Partial<HabitForm>) => setForm({ ...form, ...patch });
   const run = async (write: (c: RecordCore) => Promise<Result<void>>) => {
-    const result = await store.run(write);
-    setNote(resultWords(result));
-    return result.kind === 'Saved';
+    try {
+      const result = await store.run(write);
+      setNote(resultWords(result));
+      return result.kind === 'Saved';
+    } catch {
+      setNote(NOT_SAVED);
+      return false;
+    }
   };
   const save = async () => {
     const wrong = formProblems(form);
@@ -141,10 +150,14 @@ function Editor(p: {
   };
   const bringBack = async () => {
     if (!habit) return;
-    const result = await store.run(c => returnHabit(c, { id: habit.id }));
-    if (result.kind !== 'Saved') { setNote(resultWords(result)); return; }
-    set({ tier: result.value.into });
-    setNote(result.value.focusFull ? { title: 'Back in Log', text: PLAN_WORDS.backInLog } : undefined);
+    try {
+      const result = await store.run(c => returnHabit(c, { id: habit.id }));
+      if (result.kind !== 'Saved') { setNote(resultWords(result)); return; }
+      set({ tier: result.value.into });
+      setNote(result.value.focusFull ? { title: 'Back in Log', text: PLAN_WORDS.backInLog } : undefined);
+    } catch {
+      setNote(NOT_SAVED);
+    }
   };
   const cues = habit ? [...model.cues.values()].filter(c => c.habitId === habit.id) : [];
   const retired = habit !== undefined && habit.periods.at(-1)?.until !== undefined;

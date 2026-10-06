@@ -363,6 +363,39 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await h.open(p, 's=today&t=22:58&v=closed');
   check('Today: a closed day shows its card', await shows(p, '.closed-card'));
 
+  // R2-7: a failed "Plan it" shows its words inside the sheet, not hidden under it
+  await h.open(p, 's=today&t=06:05');
+  await shows(p, '.today .row');
+  await p.tap('[data-a="sheet"]');
+  await shows(p, '.sheet[role="dialog"]');
+  await p.tap('[data-a="nt"][data-x="h-walk"]');
+  await p.evaluate(() => window.harness.failWrite());
+  await p.tap('[data-a="sheet-ok"]');
+  check('R2-7: a failed "Plan it" shows its words inside the sheet',
+    await shows(p, '.sheet [data-a="save-note"]') && (await p.locator('[data-a="save-note"]').count()) === 1);
+  await p.tap('.sheet [data-a="sheet-x"]');
+  check('R2-7: leaving the sheet drops the note; it never reappears under the page', await gone(p, '.sheet')
+    && (await p.locator('[data-a="save-note"]').count()) === 0);
+
+  // R2-8: a write that throws something other than a full phone still says the save didn't go through
+  await h.open(p, 's=today&t=21:30');
+  await shows(p, '.today .row');
+  await p.evaluate(() => window.harness.failWrite());
+  await p.tap('.row[data-x="h-wake"]');
+  check('R2-8: a thrown write (not a full phone) still gets the not-saved words',
+    await shows(p, '[data-a="save-note"]') && (await p.locator('[data-a="save-note"]').innerText()).toLowerCase().includes('not saved'));
+
+  // R2-13: a second tap on "That's the day" or "Open today again" landing before the first write
+  // resolves is ignored outright, instead of racing it into a false "Not saved"
+  await h.open(p, 's=today&t=21:30');
+  await shows(p, '[data-a="close"]');
+  await p.evaluate(() => { const b = document.querySelector('[data-a="close"]'); b?.click(); b?.click(); });
+  check('R2-13: a doubled tap on "That\'s the day" closes once, with no false "Not saved"',
+    await shows(p, '.closed-card') && (await p.locator('[data-a="save-note"]').count()) === 0);
+  await p.evaluate(() => { const b = document.querySelector('[data-a="reopen"]'); b?.click(); b?.click(); });
+  check('R2-13: the same for a doubled tap on "Open today again"',
+    await shows(p, '[data-a="close"]') && (await p.locator('[data-a="save-note"]').count()) === 0);
+
   const q = await h.page(LAPTOP, errors);
   await h.open(q, 's=today&t=06:05');
   await shows(q, '.today .row');
@@ -539,6 +572,15 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
     await until(() => document.querySelector('.sheet .panel.note .eb')?.textContent === 'Back in Log')
     && (await p.locator('.sheet .panel.note .body').innerText()).includes('Focus is full'));
   check('R2-12: it really did go to Log — the segment shows it', (await p.locator('.sheet [data-a="tier"][data-x="log"].on').count()) === 1);
+
+  // R2-8: a write that throws something other than a full phone still says Save didn't go through
+  await h.open(p, 's=plan&t=13:00');
+  await p.tap('.slot[data-x="h-wake"]');
+  await shows(p, '.sheet [data-a="editor"]');
+  await p.evaluate(() => window.harness.failWrite());
+  await p.tap('.sheet [data-a="plan-save"]');
+  check('R2-8 (Plan): a thrown write still gets the not-saved words', await until(() =>
+    document.querySelector('.sheet .panel.note .eb')?.textContent?.toLowerCase().includes('not saved')));
 }
 
 // Settings

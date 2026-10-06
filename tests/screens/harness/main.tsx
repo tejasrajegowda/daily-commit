@@ -6,7 +6,7 @@ import { App } from '../../../src/app/App.tsx';
 import { assemble } from '../../../src/app/compose.ts';
 import type { AppDeps, DevicePort, Nav, ScreenId, UnlockHow } from '../../../src/app/context.ts';
 import { memoryFiles } from '../../../src/device/browser.ts';
-import { openRecord, type RecordCore } from '../../../src/record/core.ts';
+import { openRecord, type RecordCore, type WriteSpec } from '../../../src/record/core.ts';
 import { openDb } from '../../../src/record/db.ts';
 import { exportBackup } from '../../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../../src/record/backup/format.ts';
@@ -43,6 +43,8 @@ export interface HarnessControls {
   cancelPrompt(): void;
   /** the next copy the phone opens gives back something else, so a new copy can't be confirmed */
   failCheck(): void;
+  /** the next write to the record throws, as a storage fault other than a full phone would, so the screen must say so itself */
+  failWrite(): void;
   /** this phone moves to a code of its own with the fingerprint beside it, as Settings would set them up */
   ownCode(): Promise<void>;
   /** the invented record's recovery code, as the first day would have shown it (none for an empty record) */
@@ -88,6 +90,30 @@ async function deleteDb(name: string): Promise<void> {
     req.onerror = () => failed(req.error);
     req.onblocked = () => done();
   });
+}
+
+/** Wraps a record core so a flow can make its next write throw something other than quota-full,
+ * the way an aborted transaction or a closed connection would. */
+function failableCore(core: RecordCore): { readonly core: RecordCore; failNext(): void } {
+  let failing = false;
+  return {
+    core: {
+      db: core.db,
+      now: core.now,
+      get session() { return core.session; },
+      newId: core.newId,
+      hasVault: core.hasVault,
+      unlock: core.unlock,
+      lock: core.lock,
+      write<T>(spec: WriteSpec<T>) {
+        if (failing) { failing = false; return Promise.reject(new Error('CANARY-TEST injected write failure')); }
+        return core.write(spec);
+      },
+      serial: core.serial,
+      commit: core.commit,
+    },
+    failNext: () => { failing = true; },
+  };
 }
 
 /** A device port around the stand-in plugin; leaving and coming back are driven by the flows. */
@@ -177,7 +203,8 @@ async function start(): Promise<void> {
   let refusing = false;
   const plugin: DevicePort['plugin'] = { ...phone.plugin, enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)) };
   const { device, leave, resume, failCopy } = harnessDevice(plugin);
-  const deps = assemble(core, device);
+  const { core: writable, failNext: failWrite } = failableCore(core);
+  const deps = assemble(writable, device);
   await prelude(state, deps, phone);
   let source: Promise<Uint8Array> | undefined;
   const sourceFile = () => (source ??= sourceBackup(state));
@@ -195,6 +222,7 @@ async function start(): Promise<void> {
     failCopy,
     cancelPrompt: () => phone.cancelNext(),
     failCheck: () => phone.lieNext('not-a-key'),
+    failWrite,
     ownCode: () => enrolFor({ ...state, variant: 'own' }, core, phone),
     recoveryCode,
   };

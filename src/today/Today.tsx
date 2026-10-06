@@ -31,6 +31,10 @@ export function longDate(date: string): string {
 
 const REASONS: readonly (readonly [PlannedReason, string])[] = [['meeting', 'meeting'], ['travelling', 'travelling'], ['unwell', 'unwell'], ['chose', 'chose to']];
 
+// A write that fails outright (not a refusal the record itself returned) gets the same shape of
+// words as a refusal, so a screen never goes silent on it.
+const NOT_SAVED = { title: 'Not saved', text: "That couldn't be saved. What you wrote is still here." };
+
 function Note({ title, text }: { readonly title: string; readonly text: string }) {
   return <div className="panel note" data-a="save-note"><p className="eb">{title}</p><p className="body" style={{ margin: '8px 0 0' }}>{text}</p></div>;
 }
@@ -48,6 +52,9 @@ export function Today() {
   const [sheetOpen, setSheetOpen] = useState(false);
   const [restLeft, setRestLeft] = useState(false);
   const [justClosed, setJustClosed] = useState(false);
+  // guards That's the day / Open today again against a second tap landing before the first finishes
+  const closing = useRef(false);
+  const [busy, setBusy] = useState(false);
   // saves from this screen are judged by the day it opened on, for ten minutes past the boundary
   const sheet = useMemo(() => (core.session ? sheetNow(core) : undefined), [core, today]);
   const freshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -75,14 +82,28 @@ export function Today() {
   const tz = model.settings.tz;
 
   const run = async (write: (c: RecordCore) => Promise<Result<void>>, rowId?: string): Promise<boolean> => {
-    const result = await store.run(write);
-    setNote(resultWords(result));
-    if (result.kind === 'Saved' && rowId) {
-      setFresh(rowId);
-      clearTimeout(freshTimer.current);
-      freshTimer.current = setTimeout(() => setFresh(undefined), 900);
+    try {
+      const result = await store.run(write);
+      setNote(resultWords(result));
+      if (result.kind === 'Saved' && rowId) {
+        setFresh(rowId);
+        clearTimeout(freshTimer.current);
+        freshTimer.current = setTimeout(() => setFresh(undefined), 900);
+      }
+      return result.kind === 'Saved';
+    } catch {
+      setNote(NOT_SAVED);
+      return false;
     }
-    return result.kind === 'Saved';
+  };
+
+  /** Keeps a second tap on a slow phone from landing before the first finishes, so it never sees a
+   * refusal that only exists because the first tap already went through. */
+  const guarded = (job: () => Promise<void>) => () => {
+    if (closing.current) return;
+    closing.current = true;
+    setBusy(true);
+    void job().finally(() => { closing.current = false; setBusy(false); });
   };
 
   const nowFor = (row: TodayRow) => toDayMinute(t, row.asked, boundary);
@@ -149,7 +170,8 @@ export function Today() {
       <div className="closed-card">
         <p className="body" style={{ margin: 0 }}>Nothing else is asked of today. You can still change it until tomorrow night; after that it seals, so there's never a question of going back to fix something.</p>
         <div className="tomorrow">{I.today()}<span>{weekdayOf(tomorrow) >= 5 ? 'Tomorrow is a weekend day.' : `Tomorrow starts at ${first ? hm(first.at) : '06:00'}, with the morning check-in.`}</span></div>
-        <div style={{ marginTop: 14 }}><button type="button" className="btn btn--text" data-a="reopen" style={{ paddingLeft: 0 }} onClick={() => void run(c => reopenDay(c, { date: today, sheet }))}>Open today again</button></div>
+        <div style={{ marginTop: 14 }}><button type="button" className="btn btn--text" data-a="reopen" disabled={busy} style={{ paddingLeft: 0 }}
+          onClick={guarded(async () => { await run(c => reopenDay(c, { date: today, sheet })); })}>Open today again</button></div>
       </div>
     );
     side = (
@@ -165,7 +187,7 @@ export function Today() {
           <div className="eb"><span>This morning</span></div>
           <div className="rows">{focus.map(r => rowOf(r))}</div>
           {log.length > 0 && <div className="rows" style={{ marginTop: 8 }}>{log.map(r => rowOf(r))}</div>}
-          <button type="button" className="more" data-a="sheet" onClick={() => setSheetOpen(true)}>Something won't fit today? {I.chev()}</button>
+          <button type="button" className="more" data-a="sheet" onClick={() => { setNote(undefined); setSheetOpen(true); }}>Something won't fit today? {I.chev()}</button>
         </div>
         <div className="group wide-only">
           <div className="eb"><span>Tonight</span><span className="dim" style={{ letterSpacing: '.06em' }}>asked in the evening</span></div>
@@ -185,7 +207,7 @@ export function Today() {
           {planned.length
             ? planned.map(r => <div key={r.habit.id} className="between" style={{ minHeight: 36 }}><span className="body">{r.habit.name}</span><span className="meta">{REASONS.find(([k]) => k === r.planned)?.[1] ?? 'rest day'}</span></div>)
             : <p className="meta" style={{ margin: '0 0 12px' }}>Nothing planned off today. If something lands on a habit's time, say so here and tonight it's kept as planned — not as a gap.</p>}
-          <button type="button" className="btn btn--ghost" data-a="sheet" style={{ marginTop: 6 }} onClick={() => setSheetOpen(true)}>Plan one</button>
+          <button type="button" className="btn btn--ghost" data-a="sheet" style={{ marginTop: 6 }} onClick={() => { setNote(undefined); setSheetOpen(true); }}>Plan one</button>
         </div>
         {keyRows.length > 0 && <p className="meta wide-only" style={{ margin: '18px 4px 0' }}><span className="kbd">1</span>–<span className="kbd">{keyRows.length}</span> mark a row</p>}
       </>
@@ -228,14 +250,13 @@ export function Today() {
         )}
         {isRest && <div className="panel rest"><p className="eb">A rest day</p><p className="body" style={{ marginBottom: 0 }}>Today is kept as planned rest.</p></div>}
         <div style={{ marginTop: 20 }}>
-          <button type="button" className="btn btn--primary wide" data-a="close" onClick={() => {
-            void run(c => closeDay(c, { date: today, lightsOut: toDayMinute(t, 'evening', boundary), sheet })).then(ok => {
-              if (!ok) return;
-              setJustClosed(true);
-              setTimeout(() => setJustClosed(false), 1600);
-              window.scrollTo(0, 0);
-            });
-          }}>That's the day <span className="sub">· lights out {hm(t)}</span></button>
+          <button type="button" className="btn btn--primary wide" data-a="close" disabled={busy} onClick={guarded(async () => {
+            const ok = await run(c => closeDay(c, { date: today, lightsOut: toDayMinute(t, 'evening', boundary), sheet }));
+            if (!ok) return;
+            setJustClosed(true);
+            setTimeout(() => setJustClosed(false), 1600);
+            window.scrollTo(0, 0);
+          })}>That's the day <span className="sub">· lights out {hm(t)}</span></button>
           <p className="meta" style={{ textAlign: 'center', margin: '10px 0 0' }}>You can still change today until tomorrow night.</p>
         </div>
       </>
@@ -274,12 +295,13 @@ export function Today() {
             <div className="wide-only"><Horizon shape={shape} t={t} marks={marks} fresh={fresh} wideLabels setting={justClosed} boundary={boundary} /></div>
           </div>
           {main}
-          {note && <div style={{ marginTop: 16 }}><Note {...note} /></div>}
+          {note && !sheetOpen && <div style={{ marginTop: 16 }}><Note {...note} /></div>}
         </main>
         <aside className="col side">{side}</aside>
       </div>
       {sheetOpen && <Layer><NotTodaySheet rows={[...view.morningRows, ...view.openFocus].filter(r => r.focus && (r.value === undefined))}
-        onClose={() => setSheetOpen(false)}
+        note={note}
+        onClose={() => { setSheetOpen(false); setNote(undefined); }}
         onPlan={async (plans, unplan) => {
           let ok = true;
           if (plans.length) ok = await run(c => planDay(c, { date: today, plans, sheet }));
@@ -298,6 +320,7 @@ function Layer({ children }: { readonly children: ReactNode }) {
 
 function NotTodaySheet(p: {
   readonly rows: readonly TodayRow[];
+  readonly note?: { readonly title: string; readonly text: string };
   onClose(): void;
   onPlan(plans: readonly { readonly habitId: string; readonly reason: PlannedReason }[], unplan: readonly string[]): Promise<void>;
 }) {
@@ -331,6 +354,7 @@ function NotTodaySheet(p: {
             <button key={k} type="button" className={`opt${reason === k ? ' on' : ''}`} data-a="reason" data-x={k} onClick={() => setReason(reason === k ? undefined : k)}>{label}</button>
           ))}
         </div>
+        {p.note && <div style={{ marginTop: 16 }}><Note {...p.note} /></div>}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 22 }}>
           <button type="button" className="btn btn--secondary" data-a="sheet-x" onClick={p.onClose}>Leave it</button>
           <button type="button" className="btn btn--primary" data-a="sheet-ok" onClick={() => {
