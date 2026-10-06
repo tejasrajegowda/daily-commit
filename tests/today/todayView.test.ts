@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { DEFAULT_SHAPES } from '../../src/app/dayShapes.ts';
 import { rulesInput } from '../../src/record/read.ts';
 import { closeDay } from '../../src/record/ops/days.ts';
-import { logObservation } from '../../src/record/ops/observations.ts';
-import { todayView, shapeRows, skyWords, valueText } from '../../src/today/todayView.ts';
+import { logObservation, planDay } from '../../src/record/ops/observations.ts';
+import { asksForTime, fromHm, todayView, shapeRows, skyWords, valueText, type TodayRow } from '../../src/today/todayView.ts';
 import { freshDb } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
@@ -47,6 +47,57 @@ test('the evening lists tonight\'s Log, then Focus still open; answered Focus mo
   v = view();
   assert.deepEqual(names(v.earlier), ['Walk']);
   assert.deepEqual(names(v.openFocus), ['Wake up', 'Practice']);
+});
+
+test('evening chips carry the laptop keys after the open Focus, in drawn order', async () => {
+  const { core, today, view } = await viewAt('#age=17&t=21:30');
+  assert.equal((await logObservation(core, { habitId: 'h-walk', date: today, value: 'partly' })).kind, 'Saved');
+  const v = view();
+  assert.deepEqual([...v.eveningRows, ...v.openFocus, ...v.earlier].map(r => [r.habit.name, r.key]),
+    [['Read', 1], ['Tidy up', 2], ['Water', 3], ['Mood', 4], ['Wake up', 5], ['Practice', 6], ['Walk', 7]]);
+});
+
+test('B-2: a habit planned "not today" in the morning and done in the evening is "did", and stays a chip', async () => {
+  const { core, today, view } = await viewAt('#age=17&t=21:30');
+  assert.equal((await planDay(core, { date: today, plans: [{ habitId: 'h-walk', reason: 'meeting' }] })).kind, 'Saved');
+  let walk = view().earlier.find(r => r.habit.id === 'h-walk');
+  assert.equal(walk?.planned, 'meeting');
+  assert.equal(walk?.state, 'planned');
+  assert.equal((await logObservation(core, { habitId: 'h-walk', date: today, value: 'did' })).kind, 'Saved');
+  walk = view().earlier.find(r => r.habit.id === 'h-walk');
+  assert.equal(walk?.planned, undefined);
+  assert.equal(walk?.value, 'did');
+  assert.equal(walk?.state, 'did');
+});
+
+test('the rest day used, a Focus habit done anyway keeps its value', async () => {
+  const { core, today, view } = await viewAt('#age=17&t=21:30');
+  assert.equal((await planDay(core, { date: today, restDay: true })).kind, 'Saved');
+  assert.deepEqual(names(view().openFocus), []);
+  assert.equal(view().earlier.find(r => r.habit.id === 'h-practice')?.planned, 'rest');
+  assert.equal((await logObservation(core, { habitId: 'h-practice', date: today, value: 30 })).kind, 'Saved');
+  const practice = view().earlier.find(r => r.habit.id === 'h-practice');
+  assert.equal(practice?.value, 30);
+  assert.equal(practice?.planned, undefined);
+});
+
+test('in the evening a morning time row, or a planned one, asks for its time; an evening one tapped at night takes now', async () => {
+  const { view } = await viewAt('#age=17&t=21:30');
+  const wake = view().openFocus.find(r => r.habit.id === 'h-wake')!;
+  assert.equal(asksForTime(wake, 'evening'), true);
+  assert.equal(asksForTime(wake, 'morning'), false);
+  const night: TodayRow = { ...wake, asked: 'evening' };
+  assert.equal(asksForTime(night, 'evening'), false);
+  assert.equal(asksForTime({ ...night, planned: 'chose' }, 'evening'), true);
+  const walk = view().openFocus.find(r => r.habit.id === 'h-walk')!;
+  assert.equal(asksForTime({ ...walk, asked: 'morning' }, 'evening'), false);
+});
+
+test('a typed clock time reads as its minute', () => {
+  assert.equal(fromHm('07:05'), 425);
+  assert.equal(fromHm('00:30'), 30);
+  assert.equal(fromHm(''), undefined);
+  assert.equal(fromHm('7'), undefined);
 });
 
 test('after the day is closed it is closed, whatever the time', async () => {

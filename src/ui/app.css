@@ -282,6 +282,7 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .opts.four{grid-template-columns:repeat(4,1fr)}
 .opt{min-height:44px;border-radius:11px;background:rgb(var(--lift)/.045);box-shadow:var(--ring);font-size:14px;font-weight:500;color:var(--ink-2);transition:background var(--t-state) linear}
 .opt:hover{color:var(--ink-1)}
+.opt[disabled]{cursor:default;color:var(--ink-4)}
 .opt.on{background:var(--a-wash);box-shadow:inset 0 0 0 1px var(--a07);color:var(--a11)}
 .mood{display:flex;gap:6px}
 .mood button{width:44px;height:44px;border-radius:50%;box-shadow:var(--ring);font-size:15px;font-weight:500;color:var(--ink-2);transition:background var(--t-state) linear}
@@ -302,6 +303,10 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .chip::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--a10);box-shadow:0 0 6px color-mix(in oklab,var(--a09) 60%,transparent)}
 .chip.idle::before{background:none;box-shadow:inset 0 0 0 1.5px rgb(var(--lift)/.36)}
 .chip b{font-weight:500;color:var(--ink-1)}
+/* an evening chip opens its row again; its reach is a thumb's height, its look stays the lab's */
+button.chip{position:relative}
+button.chip::after{content:"";position:absolute;inset:-6px 0}
+.chip .kbd{display:none}
 
 /* serif fields — your words are always set in the book face */
 .field{display:block;width:100%;border:0;resize:none;background:var(--well);box-shadow:inset 0 0 0 1px var(--line-1);border-radius:16px;padding:14px 16px;
@@ -634,7 +639,7 @@ input.inp{border:0}
   .scr-2l{grid-template-columns:300px minmax(0,1fr)}
   .scr > .col{min-width:0}
   .scr > .col.side{position:sticky;top:30px}
-  .row .val .kbd{display:inline-grid}
+  .row .val .kbd,.chip .kbd{display:inline-grid}
   .scr > .col > :first-child{margin-top:0 !important}
   .today .side > .group:first-child,.today .side > .panel:first-child{margin-top:0}
   .today .rows{gap:6px}

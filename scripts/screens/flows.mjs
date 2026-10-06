@@ -322,6 +322,9 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   const p = await h.page(PHONE, errors);
   const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
   const valOf = id => p.locator(`.row[data-x="${id}"] .val`).innerText();
+  // a step a screen can't offer is skipped, so the checks after it fail instead of stopping the run
+  const tapIf = async sel => { if (!(await shows(p, sel, 3000))) return false; await p.tap(sel); return true; };
+  const fillIf = async (sel, value) => { if (!(await shows(p, sel, 3000))) return false; await p.fill(sel, value); return true; };
   await h.open(p, 's=today&t=06:05');
   await shows(p, '.today .row');
   await p.tap('.row[data-x="h-wake"]');
@@ -347,11 +350,23 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.tap('.mood button[data-x="4"]');
   check('Today: a mood tap sets 4', await until(() => document.querySelector('.mood button.on')?.textContent === '4'));
   await p.tap('.row[data-x="h-wake"]');
-  await until(() => document.querySelector('.earlier')?.textContent?.includes('wake up'));
+  // R2-2: in the evening an empty morning time row asks for the time; the evening clock is not stored
+  check('R2-2: an empty wake-up tapped in the evening asks for the time and stores nothing yet',
+    await shows(p, '.row[data-x="h-wake"] [data-a="time-at"]') && (await valOf('h-wake')).includes('—')
+    && (await p.locator('.row[data-x="h-wake"] .sub').innerText()) === 'What time was it?');
+  await fillIf('.row[data-x="h-wake"] [data-a="time-at"]', '07:10');
+  await tapIf('.row[data-x="h-wake"] [data-a="time-save"]');
+  check('R2-2: the time typed in is the one kept', await until(() => document.querySelector('.earlier .chip[data-x="h-wake"]')?.textContent?.includes('07:10')));
   check('Today: a hard evening offers the rest day', (await p.locator('[data-a="rest"]').count()) === 2);
   await p.tap('[data-a="rest"][data-x="use"]');
   check('Today: the rest day marks only the Focus still unanswered', await until(() => (document.querySelector('.earlier')?.textContent?.split('planned rest').length ?? 0) - 1 === 2)
     && !(await p.locator('.earlier').innerText()).includes('wake upplanned'));
+  await tapIf('.chip[data-x="h-walk"]');
+  await tapIf('.row[data-x="h-walk"] .opt >> text=Did it');
+  check('R2-2: the rest day used, a Focus habit done anyway is recorded as done', await until(() => {
+    const c = document.querySelector('.chip[data-x="h-walk"]');
+    return c !== null && !c.classList.contains('idle') && !c.textContent?.includes('planned');
+  }));
   await p.tap('[data-a="close"]');
   check("Today: That's the day closes it", await until(() => document.querySelector('h1.t-xl')?.textContent?.includes("That's the day")));
   await p.tap('[data-a="reopen"]');
@@ -380,8 +395,9 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   // R2-8: a write that throws something other than a full phone still says the save didn't go through
   await h.open(p, 's=today&t=21:30');
   await shows(p, '.today .row');
+  await p.tap('.row[data-x="h-walk"]');
   await p.evaluate(() => window.harness.failWrite());
-  await p.tap('.row[data-x="h-wake"]');
+  await p.tap('.row[data-x="h-walk"] .opt >> text=Did it');
   check('R2-8: a thrown write (not a full phone) still gets the not-saved words',
     await shows(p, '[data-a="save-note"]') && (await p.locator('[data-a="save-note"]').innerText()).toLowerCase().includes('not saved'));
 
@@ -395,6 +411,54 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.evaluate(() => { const b = document.querySelector('[data-a="reopen"]'); b?.click(); b?.click(); });
   check('R2-13: the same for a doubled tap on "Open today again"',
     await shows(p, '[data-a="close"]') && (await p.locator('[data-a="save-note"]').count()) === 0);
+
+  // R2-2: from 14:00 an answered or planned Focus habit is a chip, and the chip opens its row again
+  await h.open(p, 's=today&t=06:05');
+  await shows(p, '.today .row');
+  await p.tap('[data-a="sheet"]');
+  await shows(p, '.sheet[role="dialog"]');
+  await p.tap('[data-a="nt"][data-x="h-walk"]');
+  await tapIf('[data-a="reason"][data-x="meeting"]');
+  await p.tap('[data-a="sheet-ok"]');
+  await until(() => document.querySelector('.row[data-x="h-walk"]')?.getAttribute('data-s') === 'planned');
+  await p.evaluate(() => window.harness.moveClock(925));   // 21:30
+  check('R2-2: Walk planned "not today" in the morning is a planned-rest chip in the evening',
+    await until(() => document.querySelector('.earlier .chip[data-x="h-walk"]')?.textContent?.includes('planned rest')));
+  await tapIf('.chip[data-x="h-walk"]');
+  check('R2-2: the chip opens its row again, with its three choices', await shows(p, '.row[data-x="h-walk"].is-open')
+    && (await p.locator('.row[data-x="h-walk"] .opt').count()) === 3);
+  await tapIf('.row[data-x="h-walk"] .opt >> text=Did it');
+  check("R2-2: done after all, \"did\" wins over the morning's plan (B-2)", await until(() => {
+    const c = document.querySelector('.chip[data-x="h-walk"]');
+    return c !== null && !c.classList.contains('idle') && !c.textContent?.includes('planned');
+  }) && (await p.locator('[data-a="save-note"]').count()) === 0);
+
+  // R2-2: a mis-tap put right in the evening: "Partly" for "Did it", and a wrong wake-up time
+  await h.open(p, 's=today&t=21:30');
+  await shows(p, '.row[data-x="h-walk"]');
+  await p.tap('.row[data-x="h-walk"]');
+  await p.tap('.row[data-x="h-walk"] .opt >> text=Partly');
+  await until(() => document.querySelector('.chip[data-x="h-walk"]')?.textContent?.includes('partly'));
+  await tapIf('.chip[data-x="h-walk"]');
+  await tapIf('.row[data-x="h-walk"] .opt >> text=Did it');
+  check('R2-2: a "Partly" mis-tap is changed to "Did it" from its chip', await until(() => {
+    const c = document.querySelector('.chip[data-x="h-walk"]');
+    return c !== null && !c.classList.contains('idle') && !c.textContent?.includes('partly');
+  }));
+  await p.tap('.row[data-x="h-wake"]');
+  await fillIf('.row[data-x="h-wake"] [data-a="time-at"]', '09:15');
+  await tapIf('.row[data-x="h-wake"] [data-a="time-save"]');
+  await until(() => document.querySelector('.chip[data-x="h-wake"]')?.textContent?.includes('09:15'));
+  await tapIf('.chip[data-x="h-wake"]');
+  check('R2-2: the wake-up chip opens with its time in the field', await shows(p, '.row[data-x="h-wake"] [data-a="time-at"]')
+    && (await p.inputValue('.row[data-x="h-wake"] [data-a="time-at"]')) === '09:15');
+  await fillIf('.row[data-x="h-wake"] [data-a="time-at"]', '06:50');
+  await tapIf('.row[data-x="h-wake"] [data-a="time-save"]');
+  check('R2-2: a wrong wake-up time is changed from its chip', await until(() => document.querySelector('.chip[data-x="h-wake"]')?.textContent?.includes('06:50')));
+  await tapIf('.chip[data-x="h-wake"]');
+  await tapIf('.row[data-x="h-wake"] [data-a="clear"]');
+  check('R2-2: ... or cleared, and it is an open row again', await until(() =>
+    document.querySelector('.chip[data-x="h-wake"]') === null && document.querySelector('.row[data-x="h-wake"]')?.getAttribute('data-s') === ''));
 
   // R2-1: words still in a field when the 14:00 switch or the new day takes it away are saved to the
   // day they were typed for, and if that save fails they stay on Today
@@ -429,6 +493,23 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await q.keyboard.press('1');
   check('Today, laptop: key 1 marks the first row', await q.waitForFunction(() => document.querySelector('.row[data-x="h-wake"] .val')?.textContent?.includes('06:05'), null, { timeout: 8000 }).then(() => true, () => false));
   check('Today, laptop: the shape of today is there', await q.locator('.shape .sh').count() > 3);
+
+  // R2-2: laptop keys reach the evening chips too: the rest day used, Walk's key records it done
+  await h.open(q, 's=today&t=21:30');
+  await shows(q, '[data-a="rest"][data-x="use"]');
+  await q.click('[data-a="rest"][data-x="use"]');
+  await q.waitForFunction(() => document.querySelectorAll('.earlier .chip').length === 3, null, { timeout: 8000 }).catch(() => {});
+  const walkKey = await q.locator('.chip[data-x="h-walk"] .kbd').innerText({ timeout: 2000 }).catch(() => '');
+  check('R2-2, laptop: an evening chip shows its key', /^[1-9]$/.test(walkKey));
+  if (walkKey) await q.keyboard.press(walkKey);
+  check('R2-2, laptop: the key marks a planned chip done', await q.waitForFunction(() => {
+    const c = document.querySelector('.chip[data-x="h-walk"]');
+    return c !== null && !c.classList.contains('idle') && !c.textContent?.includes('planned');
+  }, null, { timeout: 8000 }).then(() => true, () => false));
+  const wakeKey = await q.locator('.chip[data-x="h-wake"] .kbd').innerText({ timeout: 2000 }).catch(() => '');
+  if (wakeKey) await q.keyboard.press(wakeKey);
+  check('R2-2, laptop: the key on a planned wake-up asks for the time, ready to type', await shows(q, '.row[data-x="h-wake"] [data-a="time-at"]')
+    && await q.evaluate(() => document.activeElement?.getAttribute('data-a') === 'time-at'));
 }
 
 // Look back

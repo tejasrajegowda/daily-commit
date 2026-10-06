@@ -17,7 +17,7 @@ import { useWide } from '../ui/useWide.ts';
 import { draft } from './draft.ts';
 import { Horizon } from './Horizon.tsx';
 import { Row, type RowAction } from './Row.tsx';
-import { hm, shapeRows, skyWords, todayView, valueText, type TodayRow } from './todayView.ts';
+import { asksForTime, hm, shapeRows, skyWords, todayView, valueText, type TodayRow } from './todayView.ts';
 
 // Today: the morning (what today is going to be), the evening (what it was), and the closed day.
 // Every save goes through the store; a save that didn't go through says so and keeps what was typed.
@@ -119,13 +119,15 @@ export function Today() {
   };
 
   const nowFor = (row: TodayRow) => toDayMinute(t, row.asked, boundary);
+  // in the evening a morning time row (or a planned one) asks for its time rather than taking now
+  const asks = (row: TodayRow) => asksForTime(row, view.part);
   const act = (row: TodayRow, action: RowAction) => {
     const id = row.habit.id;
     const log = (value: number | 'did' | 'partly' | 'not') => run(c => logObservation(c, { habitId: id, date: today, value, sheet }), id);
     const clear = () => run(c => clearObservation(c, { habitId: id, date: today, sheet }), id);
     switch (action.kind) {
       case 'tap':
-        if (row.habit.kind === 'time' && row.value === undefined) {
+        if (row.habit.kind === 'time' && row.value === undefined && !asks(row)) {
           setOpen(undefined);
           void log(nowFor(row));
         } else setOpen(open === id ? undefined : id);
@@ -138,22 +140,23 @@ export function Today() {
       }
       case 'nudge': void log((typeof row.value === 'number' ? row.value : nowFor(row)) + action.minutes); return;
       case 'now': setOpen(undefined); void log(nowFor(row)); return;
+      case 'at': setOpen(undefined); void log(toDayMinute(action.clock, row.asked, boundary)); return;
       case 'clear': setOpen(undefined); void clear(); return;
     }
   };
 
-  const keyRows = [...view.morningRows, ...view.eveningRows, ...view.openFocus].filter(r => r.key !== undefined);
+  const keyRows = [...view.morningRows, ...view.eveningRows, ...view.openFocus, ...view.earlier].filter(r => r.key !== undefined);
   keyed.current = key => {
     const row = keyRows.find(r => r.key === Number(key));
     if (!row) return;
     const k = row.habit.kind;
     if (k === 'tri') act(row, row.value === 'did' ? { kind: 'clear' } : { kind: 'set', value: 'did' });
-    else if (k === 'time') act(row, row.value === undefined ? { kind: 'now' } : { kind: 'clear' });
+    else if (k === 'time') act(row, row.value !== undefined ? { kind: 'clear' } : asks(row) ? { kind: 'tap' } : { kind: 'now' });
     else if (k === 'min') act(row, { kind: 'add', by: 30 });
     else if (k === 'count') act(row, { kind: 'add', by: 1 });
   };
   const rowOf = (r: TodayRow, showKey = true) => (
-    <Row key={r.habit.id} row={r} open={open === r.habit.id} fresh={fresh === r.habit.id} showKey={showKey}
+    <Row key={r.habit.id} row={r} open={open === r.habit.id} fresh={fresh === r.habit.id} showKey={showKey} ask={asks(r)}
       onAction={a => act(r, a)} />
   );
 
@@ -241,8 +244,15 @@ export function Today() {
     const chip = (r: TodayRow) => {
       const value = r.planned !== undefined && r.value === undefined ? 'planned rest' : r.habit.kind !== 'tri' ? valueText(r.habit.kind, r.value) : r.value === 'partly' ? 'partly' : '';
       const lit = r.state === 'did' || r.state === 'partly';
-      return <span key={r.habit.id} className={`chip${lit ? '' : ' idle'}`}><span>{r.habit.name.toLowerCase()}</span>{value && <b>{value}</b>}</span>;
+      return (
+        <button key={r.habit.id} type="button" className={`chip${lit ? '' : ' idle'}`} data-a="chip" data-x={r.habit.id} onClick={() => act(r, { kind: 'tap' })}>
+          <span>{r.habit.name.toLowerCase()}</span>{value && <b>{value}</b>}{r.key !== undefined && <span className="kbd">{r.key}</span>}
+        </button>
+      );
     };
+    // a chip tapped open is drawn as its row again, in its place among the Focus rows, until it is answered or closed
+    const focusRows = [...view.openFocus, ...view.earlier.filter(r => r.habit.id === open)].sort((a, b) => a.habit.order - b.habit.order);
+    const chips = view.earlier.filter(r => r.habit.id !== open);
     const left = restDaysLeft([...model.days.values()].filter(d => d.restDay).map(d => d.date), today, model.settings.journeyStart);
     const isRest = model.days.get(today)?.restDay === true;
     main = (
@@ -250,8 +260,8 @@ export function Today() {
         <div className="group"><div className="eb"><span>Tonight</span></div><div className="rows">{view.eveningRows.map(r => rowOf(r))}</div></div>
         <div className="group">
           <div className="eb"><span>Earlier today</span></div>
-          {view.openFocus.length > 0 && <div className="rows" style={{ marginBottom: 10 }}>{view.openFocus.map(r => rowOf(r))}</div>}
-          {view.earlier.length > 0 && <div className="earlier">{view.earlier.map(chip)}</div>}
+          {focusRows.length > 0 && <div className="rows" style={{ marginBottom: 10 }}>{focusRows.map(r => rowOf(r))}</div>}
+          {chips.length > 0 && <div className="earlier">{chips.map(chip)}</div>}
         </div>
       </>
     );

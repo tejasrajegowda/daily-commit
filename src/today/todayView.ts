@@ -36,7 +36,7 @@ export interface TodayView {
   readonly eveningRows: readonly TodayRow[];
   /** evening: Focus not answered yet */
   readonly openFocus: readonly TodayRow[];
-  /** evening: Focus answered, drawn as chips */
+  /** evening: Focus answered or planned, drawn as chips; a tap opens the row again */
   readonly earlier: readonly TodayRow[];
   readonly restOffer: boolean;
   readonly closedAt?: number;
@@ -69,7 +69,7 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
   const morningRows = part === 'morning' ? keyed([...focus, ...log.filter(r => r.asked === 'morning')]) : [];
   const eveningRows = keyed(log.filter(r => r.asked === 'evening'));
   const openFocus = part === 'evening' ? keyed(focus.filter(r => !answered(r))) : [];
-  const earlier = part === 'evening' ? focus.filter(answered).map(strip) : [];
+  const earlier = part === 'evening' ? keyed(focus.filter(answered)) : [];
   const restDays = [...model.days.values()].filter(d => d.restDay).map(d => d.date);
   const left = restDaysLeft(restDays, today, model.settings.journeyStart);
   return {
@@ -79,6 +79,17 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
     closedAt: day?.closedAt, intent: day?.intent, remark: day?.remark,
   };
 }
+
+/**
+ * Whether a time row asks for its time instead of taking the clock's. In the evening the clock is
+ * almost never a morning time, and a planned row answered after all wasn't done just now.
+ */
+export function asksForTime(row: TodayRow, part: TodayView['part']): boolean {
+  return row.habit.kind === 'time' && part === 'evening' && (row.asked === 'morning' || row.planned !== undefined);
+}
+
+/** "07:05" as a clock minute; undefined for anything else. */
+export const fromHm = (s: string) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s); return m ? Number(m[1]) * 60 + Number(m[2]) : undefined; };
 
 export const hm = (minute: number) => {
   const m = Math.round(minute);
