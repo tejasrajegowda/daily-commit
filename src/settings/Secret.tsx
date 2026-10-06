@@ -201,26 +201,30 @@ function OwnCode() {
   const deps = useApp();
   const { go } = useNav();
   const auth = useRef<Typed | undefined>(undefined);
+  // the code is kept in refs and the screen holds only how many digits there are (C9)
+  const first = useRef('');
+  const digits = useRef('');
+  const [count, setCount] = useState(0);
   const [step, setStep] = useState<'auth' | 'choose' | 'again'>('auth');
-  const [first, setFirst] = useState('');
-  const [digits, setDigits] = useState('');
   const [note, setNote] = useState<{ title: string; text: string } | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
-  useEffect(() => () => { auth.current = undefined; }, []);
+  useEffect(() => () => { auth.current = undefined; first.current = ''; digits.current = ''; }, []);
   if (done) return <Done title="Your code is set" text="Daily Commit now opens with your code. Fingerprint can open it too, if you switch that on in Settings, Privacy." />;
   if (step === 'auth') return <AskPassphrase why="Setting up a code of your own needs it once." onRight={a => { auth.current = a; setStep('choose'); }} />;
+  const set = (d: string) => { digits.current = d; setCount(d.length); };
   const ok = async () => {
+    const typed = digits.current;
+    set('');
     if (step === 'choose') {
-      setFirst(digits);
-      setDigits('');
+      first.current = typed;
       setNote(undefined);
       setStep('again');
       return;
     }
-    if (digits !== first) {
-      setDigits('');
-      setFirst('');
+    const chosen = first.current;
+    first.current = '';
+    if (typed !== chosen) {
       setStep('choose');
       setNote({ title: "Those weren't the same", text: 'Choose the code again, then type it once more.' });
       return;
@@ -228,10 +232,10 @@ function OwnCode() {
     const a = auth.current;
     if (!a) return;
     setBusy(true);
-    const r = await setMode(deps, a, 'own-code', digits);
+    const r = await setMode(deps, a, 'own-code', typed);
     setBusy(false);
-    setDigits('');
-    if (r.kind === 'Enrolled') setDone(true);
+    if (r.kind !== 'Enrolled') setStep('choose');      // a failed try starts again from the first entry, which is gone
+    if (r.kind === 'Enrolled') { auth.current = undefined; setDone(true); }
     else if (r.kind === 'NotVerified') go('settings', 'notverified');
     else setNote({ title: 'Not set', text: "That couldn't be set up. The way Daily Commit opened before still works." });
   };
@@ -242,8 +246,8 @@ function OwnCode() {
       {step === 'choose' && <p className="body" style={{ margin: '12px 0 0' }}>{OWN_WARNING}</p>}
       {note && <Note title={note.title} text={note.text} />}
       <div className="lock lock--inline">
-        <CodePad count={digits.length} bio={false} busy={busy} label={step === 'choose' ? 'Next' : 'Set the code'}
-          onDigit={d => setDigits(s => (s.length < MAX_DIGITS ? s + d : s))} onDelete={() => setDigits(s => s.slice(0, -1))} onOk={() => void ok()} />
+        <CodePad count={count} bio={false} busy={busy} label={step === 'choose' ? 'Next' : 'Set the code'}
+          onDigit={d => { if (digits.current.length < MAX_DIGITS) set(digits.current + d); }} onDelete={() => set(digits.current.slice(0, -1))} onOk={() => void ok()} />
       </div>
       <p className="meta" style={{ textAlign: 'center', margin: '12px 0 0' }}>Six digits or more. Eight is a good length.</p>
     </Page>

@@ -471,10 +471,27 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.fill('input.pass', PASSPHRASE);
   await p.tap('[data-a="auth"]');
   await shows(p, '.pad', 15000);
+  // C9: the code lives in a ref; no component's state holds a string of digits
+  const digitsInState = () => p.evaluate(() => {
+    const root = document.getElementById('root');
+    const key = root && Object.keys(root).find(k => k.startsWith('__reactContainer$'));
+    const stack = key ? [root[key]] : [];
+    while (stack.length) {
+      const f = stack.pop();
+      for (let h = f.memoizedState; h && typeof h === 'object' && 'next' in h; h = h.next) {
+        if (typeof h.memoizedState === 'string' && /^[0-9]{2,}$/.test(h.memoizedState)) return true;
+      }
+      if (f.child) stack.push(f.child);
+      if (f.sibling) stack.push(f.sibling);
+    }
+    return false;
+  });
   await typeCode(p, CODE);
+  check('Privacy: own code, the chosen digits are in no component state', !(await digitsInState()));
   await p.tap('[data-a="pinok"]');
   check('Privacy: own code, step 2 asks for it again', await until(() => document.querySelector('h1')?.textContent === 'Type it again'));
   await typeCode(p, '13572468');
+  check('Privacy: own code, neither entry is in component state', !(await digitsInState()));
   await p.tap('[data-a="pinok"]');
   check('Privacy: two different codes start again', await until(() => document.querySelector('h1')?.textContent === 'Choose a code') && await shows(p, '[data-a="secret-note"]'));
   await typeCode(p, CODE);
