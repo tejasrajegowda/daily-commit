@@ -1,7 +1,10 @@
 import type { RestoreMessage } from '../app/context.ts';
 
-// What restore says. Five things can go wrong, and each says what happened and that nothing on
-// this phone was changed. None is coloured.
+// What restore says. Each says what happened and that nothing on this phone was changed. None is
+// coloured. `other` is shown beside the "Replace everything?" question; `other-record` is the
+// message when a wrong secret turns out to belong to a different record than this phone's own.
+
+const OTHER_RECORD = { title: 'A different record', text: "This backup was made from a different record. It opens only with the passphrase that was in use when it was made, which may not be today's." };
 
 export const RESTORE_WORDS: Readonly<Record<RestoreMessage | 'other', { readonly title: string; readonly text: string }>> = {
   wrong: { title: "That didn't open it", text: "Check the passphrase. If you're sure it's right, this file's copy of it may be damaged, and the recovery code opens the file instead." },
@@ -9,7 +12,8 @@ export const RESTORE_WORDS: Readonly<Record<RestoreMessage | 'other', { readonly
   damaged: { title: 'This file is damaged', text: "It can't be restored. Nothing on this phone was changed. An older backup may still open." },
   'not-backup': { title: "This isn't a Daily Commit backup", text: 'Choose a backup file that Daily Commit made. Nothing on this phone was changed.' },
   full: { title: 'The phone is full', text: 'Nothing was restored, and nothing on this phone was changed. Free some space and try again.' },
-  other: { title: 'A different record', text: "This backup was made from a different record. It opens only with the passphrase that was in use when it was made, which may not be today's." },
+  other: OTHER_RECORD,
+  'other-record': OTHER_RECORD,
 };
 
 const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];

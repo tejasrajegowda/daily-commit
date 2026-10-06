@@ -232,6 +232,14 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await h.open(p, 's=restore&v=replace');
   await shows(p, '[data-a="choose"]');
   await setFile('source');
+  await p.fill('input.pass', 'CANARY not the source passphrase either');
+  await p.tap('[data-a="restore-go"]');
+  check("another record's file with a wrong passphrase says 'a different record', not 'wrong'",
+    await shows(p, '[data-a="restore-note"]', 20000) && (await p.locator('[data-a="restore-note"]').innerText()).includes('different record'));
+
+  await h.open(p, 's=restore&v=replace');
+  await shows(p, '[data-a="choose"]');
+  await setFile('source');
   await p.fill('input.pass', PASSPHRASE);
   await p.tap('[data-a="restore-go"]');
   check("another record's file asks first, and says so", await shows(p, '[data-a="replace"]', 20000)

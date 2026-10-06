@@ -26,7 +26,7 @@ export function readBackupFile(bytes: Uint8Array): FileRead {
   }
 }
 
-export type RestoreMessage = 'wrong' | 'newer' | 'damaged' | 'full' | 'not-backup';
+export type RestoreMessage = 'wrong' | 'newer' | 'damaged' | 'full' | 'not-backup' | 'other-record';
 
 export type RestoreStep =
   | { readonly kind: 'Restored' }
@@ -48,7 +48,15 @@ export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secr
     // the record locked meanwhile, before its safety copy: nothing changed, and the question stands
     case 'Locked': return { kind: 'Ask', otherRecord: false };
     case 'Refused':
-      if (result.reason === 'wrong-secret') return { kind: 'Message', message: 'wrong' };
+      if (result.reason === 'wrong-secret') return { kind: 'Message', message: (await isOtherRecord(deps, bytes)) ? 'other-record' : 'wrong' };
       return { kind: 'Message', message: result.reason === 'newer-app' ? 'newer' : 'damaged' };
   }
+}
+
+/** Whether the file's plain vault_id differs from the record already on this phone, if any. Needs no secret. */
+async function isOtherRecord(deps: AppDeps, bytes: Uint8Array): Promise<boolean> {
+  const read = readBackupFile(bytes);
+  if (read.kind !== 'File') return false;
+  const existing = await deps.core.db.vault.get('main');
+  return existing !== undefined && existing.vault_id !== readFrame(read.bytes).header.vault_id;
 }

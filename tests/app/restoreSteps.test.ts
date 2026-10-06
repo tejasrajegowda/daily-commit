@@ -71,6 +71,24 @@ test("into a record with data: its own backup asks without 'different record', a
   assert.ok(mine.core.session, 'asking left the record open');
 });
 
+test("a different record's backup with a wrong passphrase says 'a different record', not 'wrong'; nothing is written", async () => {
+  const mine = await filledBackup();
+  const theirs = await filledBackup('CANARY another passphrase');
+  const { deps } = testDeps(mine.core);
+  const before = await mine.db.habits.toArray();
+  assert.deepEqual(await restoreWith(deps, theirs.file, { method: 'passphrase', text: 'CANARY not their passphrase either' }, false), { kind: 'Message', message: 'other-record' });
+  assert.deepEqual(await mine.db.habits.toArray(), before);
+  assert.ok(mine.core.session, 'the failed attempt left the record open');
+});
+
+test("this record's own backup with a wrong passphrase still says 'wrong'; nothing is written", async () => {
+  const mine = await filledBackup();
+  const { deps } = testDeps(mine.core);
+  const before = await mine.db.habits.toArray();
+  assert.deepEqual(await restoreWith(deps, mine.file, { method: 'passphrase', text: 'CANARY not it at all' }, false), { kind: 'Message', message: 'wrong' });
+  assert.deepEqual(await mine.db.habits.toArray(), before);
+});
+
 test('after asking, replace restores the other record and keeps a safety copy of what was here', async () => {
   const mine = await filledBackup();
   const theirs = await filledBackup('CANARY another passphrase');
