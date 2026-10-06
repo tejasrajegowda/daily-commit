@@ -91,8 +91,9 @@ test('3 · every lifetime number is non-decreasing as days are added', () => {
 });
 
 test('5 · no percentage is ever produced', () => {
-  fc.assert(fc.property(fc.nat(400), fc.nat(400), (a, b) => {
-    const said = [bandWords(band(a, b), 'week'), bandWords(band(a, b), 'month'), momentum(a, b), countWord(a)];
+  fc.assert(fc.property(fc.nat(400), fc.nat(400), fc.nat(400), fc.nat(400), (a, askedA, b, askedB) => {
+    const before = { done: Math.min(a, askedA), asked: askedA }, now = { done: Math.min(b, askedB), asked: askedB };
+    const said = [bandWords(band(a, b), 'week'), bandWords(band(a, b), 'month'), momentum(before, now), countWord(a)];
     for (const s of said) assert.ok(!s.includes('%') && !/per ?cent/i.test(s), s);
   }), RUNS);
 });

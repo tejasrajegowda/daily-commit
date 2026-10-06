@@ -722,6 +722,22 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.locator('.phone-only [data-a="week-done"]').tap();
   check("R3-4: That's the week files the answer under this week's own Monday, not last week's",
     await shows(p, '.hcard') && await until(p, () => window.harness.reviews().some(r => r.key === 'w:2026-01-12' && r.answers.line === 'CANARY-TEST a Sunday line')));
+
+  // R3-7: Walk done every day it was asked, both weeks; the second week has two planned rest days
+  // (so it was asked fewer days). The word compares rates, so this is never "dipped".
+  await h.open(p, 's=week&t=10:30&age=17&v=rest');
+  await shows(p, '.wk-row');
+  const walkRow = await p.locator('.wk-row', { hasText: 'Walk' }).first().innerText();
+  check('R3-7: a week of planned rest, done every day it was asked, is never "dipped"',
+    walkRow.includes('most days') && !walkRow.includes('dipped'));
+
+  // R3-9: the wake-up average rounds to a whole minute once, before it is split into hours and
+  // minutes, so 06:59.6 reads as 07:00, never 06:00
+  await h.open(p, 's=month&t=12:30&age=60&v=pairs');
+  await shows(p, '.helps');
+  const together = await p.locator('.helps').innerText();
+  check('R3-9: a wake-up average that rounds up to the next hour carries the hour',
+    together.includes('07:00') && together.includes('07:10') && !together.includes('06:00'));
 }
 
 // the diary and Not yet (invented words only)

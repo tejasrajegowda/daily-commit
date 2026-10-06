@@ -23,11 +23,16 @@ export function bandWords(b: Band | null, period: keyof typeof BAND_WORDS): stri
 /**
  * Building: two or more days more than the period before. Dipped: two or more fewer.
  * Strong: five or more days, holding. Steady: anything in between.
+ *
+ * Compares rates, not raw counts: each period's done-over-asked is read as a days-per-week figure,
+ * so a planned rest day (left out of both done and asked) never reads as a dip.
  */
-export function momentum(before: number, now: number): Momentum {
-  if (now >= before + 2) return 'building';
-  if (now <= before - 2) return 'dipped';
-  if (now >= 5) return 'strong';
+export function momentum(before: { done: number; asked: number }, now: { done: number; asked: number }): Momentum {
+  const perWeek = (p: { done: number; asked: number }) => (p.asked > 0 ? (p.done / p.asked) * 7 : 0);
+  const b = perWeek(before), n = perWeek(now);
+  if (n >= b + 2) return 'building';
+  if (n <= b - 2) return 'dipped';
+  if (n >= 5) return 'strong';
   return 'steady';
 }
 

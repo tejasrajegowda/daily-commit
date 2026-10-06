@@ -9,8 +9,8 @@ import { freshDb } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
 
-async function at(day: number) {
-  const { core } = await seedRecord(freshDb(), readState(`#age=${day}&t=10:30`));
+async function at(day: number, variant = '') {
+  const { core } = await seedRecord(freshDb(), readState(`#age=${day}&t=10:30&v=${variant}`));
   const model = core.session!.model;
   return { core, model, input: rulesInput(model), today: dateOfDay(day) };
 }
@@ -71,12 +71,30 @@ test('the review is due in the first week of a month from day 60, until it is cl
 
 test('what went well together reads as a sentence whatever the habits are called', () => {
   const h = (id: string, name: string, kind: HabitRecord['kind']) => [id, { id, name, kind } as HabitRecord] as const;
-  const byId = new Map([h('a', 'Ate well', 'tri'), h('b', 'Walk', 'tri'), h('c', 'Read', 'min'), h('d', 'Up', 'time'), h('e', 'Mood', 'mood')]);
+  const byId = new Map([h('a', 'Ate well', 'tri'), h('b', 'Walk', 'tri'), h('c', 'Read', 'min'), h('d', 'Up', 'time'), h('e', 'Mood', 'mood'), h('f', 'Water', 'count')]);
   const said = (then: string, withValue = 1, withoutValue = 0) =>
     togetherWords({ when: 'a', then, withDays: 10, withoutDays: 10, withValue, withoutValue }, byId);
   assert.equal(said('b'), 'On the days ate well was done, walk was done more often than on the other days.');
   assert.equal(said('c', 40, 20), 'On the days ate well was done, read ran longer — about 40m, against 20m on the other days.');
   assert.equal(said('d', 400, 430), 'On the days ate well was done, up came earlier — about 06:40, against 07:10 on the other days.');
-  assert.equal(said('e', 4, 3), 'On the days ate well was done, mood was higher on more of the evenings.');
+  assert.equal(said('e', 4, 3), 'On the days ate well was done, mood was higher on average than on the other days.');
+  assert.equal(said('f', 2.5, 1), 'On the days ate well was done, water averaged more — about 2.5 a day, against 1 on the other days.');
   assert.equal(said('missing'), '');
+});
+
+test('a time average that rounds up to the next hour carries the hour, not just the minute (R3-9)', () => {
+  const h = (id: string, name: string, kind: HabitRecord['kind']) => [id, { id, name, kind } as HabitRecord] as const;
+  const byId = new Map([h('a', 'Ate well', 'tri'), h('d', 'Up', 'time')]);
+  const said = togetherWords({ when: 'a', then: 'd', withDays: 10, withoutDays: 10, withValue: 419.6, withoutValue: 430 }, byId);
+  assert.equal(said, 'On the days ate well was done, up came earlier — about 07:00, against 07:10 on the other days.');
+});
+
+test('the week\'s momentum reads a planned rest week as steady, not dipped (R3-7)', async () => {
+  // Walk done every asked day both weeks; the second week has two fewer asked days (planned rest).
+  const { core, model, input, today } = await at(17, 'rest');
+  const v = weekView(input, model, today);
+  const walk = v.focus.find(r => r.habit.id === 'h-walk');
+  assert.equal(walk?.words, 'most days');
+  assert.notEqual(walk?.momentum, 'dipped');
+  void core;
 });

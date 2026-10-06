@@ -14,8 +14,13 @@ import { band, bandWords, momentum, type Momentum } from '../rules/words.ts';
 // day 60, covers the last finished calendar month.
 
 const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const hm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
+// Rounded once, to a whole minute, before it is split into hours and minutes — so a minute that
+// rounds up to the next hour (06:59.6 → 07:00) carries, instead of the hour and the minute being
+// rounded apart from each other (which read it back as 06:00).
+const hm = (m: number) => { const t = Math.round(m); return `${String(Math.floor(t / 60) % 24).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`; };
 const dur = (m: number) => { const r5 = Math.round(m / 5) * 5, h = Math.floor(r5 / 60), r = r5 % 60; return h ? (r ? `${h}h ${r}m` : `${h}h`) : `${r}m`; };
+/** An average, to one decimal place, dropping it when the average lands on a whole number. */
+const num = (n: number) => { const r = Math.round(n * 10) / 10; return Number.isInteger(r) ? String(r) : r.toFixed(1); };
 
 export interface WeekRow {
   readonly habit: HabitRecord;
@@ -53,7 +58,7 @@ export function weekView(input: RulesInput, model: Model, today: LocalDate): Wee
     const now = doneAndAsked(habit, input.index, monday, sunday);
     const before = doneAndAsked(habit, input.index, addDays(monday, -7), addDays(sunday, -7));
     const b = band(now.done, now.asked);
-    return { habit, words: b ? bandWords(b, 'week') : undefined, momentum: scored && addDays(monday, -7) >= start ? momentum(before.done, now.done) : undefined };
+    return { habit, words: b ? bandWords(b, 'week') : undefined, momentum: scored && addDays(monday, -7) >= start ? momentum(before, now) : undefined };
   };
   const habits = [...input.habits].filter(h => h.kind !== 'mood').sort((a, b) => a.order - b.order) as HabitRecord[];
   return {
@@ -112,7 +117,8 @@ export function togetherWords(t: Together, byId: ReadonlyMap<string, HabitRecord
   switch (then.kind) {
     case 'time': return `${on}, ${then.name.toLowerCase()} came earlier — about ${hm(t.withValue)}, against ${hm(t.withoutValue)} on the other days.`;
     case 'min': return `${on}, ${then.name.toLowerCase()} ran longer — about ${dur(t.withValue)}, against ${dur(t.withoutValue)} on the other days.`;
-    case 'mood': return `${on}, mood was higher on more of the evenings.`;
+    case 'count': return `${on}, ${then.name.toLowerCase()} averaged more — about ${num(t.withValue)} a day, against ${num(t.withoutValue)} on the other days.`;
+    case 'mood': return `${on}, mood was higher on average than on the other days.`;
     default: return `${on}, ${then.name.toLowerCase()} was done more often than on the other days.`;
   }
 }

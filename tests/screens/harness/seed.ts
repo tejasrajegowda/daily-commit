@@ -102,9 +102,13 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
   const { core, cipher, stamp } = started;
   // v=notime: no habit of kind 'time' at all, for the scenario where a time-only view has nothing to show
   const activeHabits = state.variant === 'notime' ? HABITS.filter(h => h.kind !== 'time') : HABITS;
+  // v=pairs: Wake up's own band is widened so every value it is given here still reads as "did" —
+  // it never gets a "not" day of its own, so it is never a source of a pairing itself, only a target
+  // (R3-9's exact scenario rides on Walk's own done days, below, nothing else).
   for (const { startDay, ...h } of activeHabits) {
     if (startDay > state.day) continue;
-    const made = await createHabit(core, { ...h, startedOn: dateOfDay(startDay, state.start) });
+    const target = state.variant === 'pairs' && h.id === 'h-wake' ? { band: 1000 } : h.target;
+    const made = await createHabit(core, { ...h, target, startedOn: dateOfDay(startDay, state.start) });
     if (made.kind !== 'Saved') throw new Error(`habit ${h.id}: ${made.kind}`);
   }
 
@@ -132,19 +136,46 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
   const entries: object[] = [];
   // the "steady" variant keeps Walk done every day, for the offer to stop asking (eight steady weeks)
   const steady = state.variant === 'steady';
+  // v=rest: days 1-7 (the week before last) keep Walk done every day; days 8-14 (last week, with
+  // `age` 17) plan Walk as rest on two days, so the week's rate stays the same (R3-7's scenario).
+  const rest = state.variant === 'rest';
+  const restDay = (d: number) => rest && d >= 8 && d <= 14 && (d === 8 || d === 11);
+  // v=pairs: Walk's own done days (and nothing about any other habit) carry R3-9's rounding case;
+  // the window it reads is day 28-55 (February, with `age` 60), kept apart from the random history.
+  const pairs = state.variant === 'pairs';
+  const withWake = [419, 419, 419, 419, 420, 420, 420, 420, 420, 420];        // mean 419.6
+  const withDay = (d: number) => pairs && d >= 28 && d <= 37;                  // 10 days, Walk done
+  const withoutDay = (d: number) => pairs && d >= 38 && d <= 55;               // 18 days, Walk not
   // canary=1 marks yesterday: a wake-up at 06:55, an hour and 25 minutes of practice, and a marked intent
   const marked = (d: number) => state.canary && d === state.day - 1;
   for (let d = 1; d < state.day; d++) {
-    const opened = next() >= 1 / 9 || steady || marked(d);
+    const opened = next() >= 1 / 9 || steady || rest || withDay(d) || withoutDay(d) || marked(d);
     const date = dateOfDay(d, state.start);
     const weekday = ((d - 1) % 7) as Weekday;
     const evening = Date.parse(`${date}T21:00:00Z`);
     for (const h of activeHabits) {
+      if ((rest || withDay(d) || withoutDay(d)) && (h.id === 'h-walk' || h.id === 'h-wake')) continue; // seeded separately below
       const drawn = valueFor(h, next);                   // drawn for every habit, so a skipped day keeps the rest the same
       const value = steady && h.id === 'h-walk' ? 'did' : marked(d) && h.id === 'h-wake' ? 415 : marked(d) && h.id === 'h-practice' ? 85 : drawn;
       if (!opened || value === undefined || d < h.startDay || !h.days.includes(weekday)) continue;
       const o: ObservationRecord = { habitId: h.id, date, kind: h.kind, value, loggedAt: evening, isBackfill: false, editedAfterClose: false };
       observations.push(await storedRow(cipher, 'observations', observationToParts(o), stamp));
+    }
+    if (rest && d <= 14) {
+      const wake = valueFor(HABITS[0]!, next);            // kept random; only Walk's own days matter here
+      if (restDay(d)) observations.push(await storedRow(cipher, 'observations', observationToParts(
+        { habitId: 'h-walk', date, kind: 'tri', planned: 'rest', loggedAt: evening, isBackfill: false, editedAfterClose: false }), stamp));
+      else observations.push(await storedRow(cipher, 'observations', observationToParts(
+        { habitId: 'h-walk', date, kind: 'tri', value: 'did', loggedAt: evening, isBackfill: false, editedAfterClose: false }), stamp));
+      if (typeof wake === 'number') observations.push(await storedRow(cipher, 'observations', observationToParts(
+        { habitId: 'h-wake', date, kind: 'time', value: wake, loggedAt: evening, isBackfill: false, editedAfterClose: false }), stamp));
+    }
+    if (withDay(d) || withoutDay(d)) {
+      const wake = withDay(d) ? withWake[d - 28]! : 430;
+      observations.push(await storedRow(cipher, 'observations', observationToParts(
+        { habitId: 'h-walk', date, kind: 'tri', value: withDay(d) ? 'did' : 'not', loggedAt: evening, isBackfill: false, editedAfterClose: false }), stamp));
+      observations.push(await storedRow(cipher, 'observations', observationToParts(
+        { habitId: 'h-wake', date, kind: 'time', value: wake, loggedAt: evening, isBackfill: false, editedAfterClose: false }), stamp));
     }
     const lightsOut = 1360 + Math.round(next() * 14) * 5;
     const drawnIntent = INTENTS[Math.floor(next() * INTENTS.length)];
