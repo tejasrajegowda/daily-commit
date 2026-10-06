@@ -1,5 +1,6 @@
 import type { HabitRecord, Model } from '../record/model.ts';
 import type { RulesInput } from '../record/read.ts';
+import { isOpen } from '../record/seal.ts';
 import { clockOfDay } from '../rules/clock.ts';
 import { addDays } from '../rules/dates.ts';
 import { blockAt, stepsAround, type DayShape } from '../rules/dayLine.ts';
@@ -11,7 +12,8 @@ import type { ClockMinute, DayState, HabitKind, LocalDate, PlannedReason, TriVal
 // What Today shows, worked out from the record: which part of the day it is, which rows, in which
 // order, and whether a rest day is offered. Only today: the morning screen holds nothing from any
 // day before it (invariant 4). The one look forward: between midnight and the boundary, the day
-// ahead's morning time rows (a wake-up), which belong to that day (B-5).
+// ahead's morning time rows (a wake-up), which belong to that day (B-5). The one look back: yesterday,
+// opened on purpose while the record still takes changes to it (§8 #21), drawn as its evening or closed.
 
 /** Today switches from the morning screen to the evening one at 14:00. */
 export const EVENING_FROM = 840;
@@ -31,6 +33,8 @@ export interface TodayRow {
 
 export interface TodayView {
   readonly part: 'morning' | 'evening' | 'closed';
+  /** yesterday, opened from Today: never its morning, nothing ahead, no rest day offered after the fact (§8 #14) */
+  readonly past: boolean;
   readonly dayNumber: number;
   /** morning: Focus, then Log asked in the morning */
   readonly morningRows: readonly TodayRow[];
@@ -50,7 +54,7 @@ export interface TodayView {
 
 const answered = (r: TodayRow) => r.value !== undefined || r.planned !== undefined;
 
-export function todayView(input: RulesInput, model: Model, today: LocalDate, clockMinute: ClockMinute): TodayView {
+export function todayView(input: RulesInput, model: Model, today: LocalDate, clockMinute: ClockMinute, past = false): TodayView {
   const day = model.days.get(today);
   const rows = [...input.habits]
     .filter(h => isAsked(h, today))
@@ -65,10 +69,10 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
   const focus = rows.filter(r => r.focus);
   const log = rows.filter(r => !r.focus);
   const boundary = model.settings.boundary;
-  const part = day?.closedAt !== undefined ? 'closed' : clockMinute >= boundary && clockMinute < EVENING_FROM ? 'morning' : 'evening';
+  const part = day?.closedAt !== undefined ? 'closed' : !past && clockMinute >= boundary && clockMinute < EVENING_FROM ? 'morning' : 'evening';
   const strip = (r: TodayRow): TodayRow => ({ habit: r.habit, focus: r.focus, asked: r.asked, state: r.state, value: r.value, planned: r.planned });
   const next = addDays(today, 1);
-  const wakes = clockMinute < boundary
+  const wakes = !past && clockMinute < boundary
     ? [...input.habits]
       .filter(h => h.kind === 'time' && isAsked(h, next) && askedOn(h, next) === 'morning')
       .sort((a, b) => a.order - b.order)
@@ -89,19 +93,37 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
   const restDays = [...model.days.values()].filter(d => d.restDay).map(d => d.date);
   const left = restDaysLeft(restDays, today, model.settings.journeyStart);
   return {
-    part, dayNumber: dayNumber(model.settings.journeyStart, today),
+    part, past, dayNumber: dayNumber(model.settings.journeyStart, today),
     morningRows, eveningRows, openFocus, earlier, ahead,
-    restOffer: !day?.restDay && restOffered({ evening: part === 'evening', openFocus: openFocus.length, left }),
+    restOffer: !past && !day?.restDay && restOffered({ evening: part === 'evening', openFocus: openFocus.length, left }),
     closedAt: day?.closedAt, intent: day?.intent, remark: day?.remark,
   };
 }
 
 /**
  * Whether a time row asks for its time instead of taking the clock's. In the evening the clock is
- * almost never a morning time, and a planned row answered after all wasn't done just now.
+ * almost never a morning time, and a planned row answered after all wasn't done just now. Yesterday's
+ * time rows always ask: the clock is today's.
  */
-export function asksForTime(row: TodayRow, part: TodayView['part']): boolean {
-  return row.habit.kind === 'time' && part === 'evening' && (row.asked === 'morning' || row.planned !== undefined);
+export function asksForTime(row: TodayRow, part: TodayView['part'], past = false): boolean {
+  return row.habit.kind === 'time' && (past || (part === 'evening' && (row.asked === 'morning' || row.planned !== undefined)));
+}
+
+/**
+ * The day before today, which Today offers to open: the record takes changes to it until the boundary
+ * that ends today (§8 #21), and never before day 1.
+ */
+export function yesterdayOf(today: LocalDate, journeyStart: LocalDate): LocalDate | undefined {
+  const day = addDays(today, -1);
+  return day >= journeyStart && isOpen(day, 'value', today, false) ? day : undefined;
+}
+
+/**
+ * The day Today draws when it was asked for `asked`: that day if it is still yesterday, else today.
+ * Once the boundary passes, a Yesterday left open is today's screen again.
+ */
+export function shownDay(asked: string, today: LocalDate, journeyStart: LocalDate): { readonly day: LocalDate; readonly past: boolean } {
+  return asked !== '' && asked === yesterdayOf(today, journeyStart) ? { day: asked, past: true } : { day: today, past: false };
 }
 
 /**

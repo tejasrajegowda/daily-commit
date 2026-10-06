@@ -2,11 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_SHAPES } from '../../src/app/dayShapes.ts';
 import { rulesInput } from '../../src/record/read.ts';
-import { closeDay } from '../../src/record/ops/days.ts';
+import { closeDay, reopenDay } from '../../src/record/ops/days.ts';
 import { sheetNow } from '../../src/record/ops/common.ts';
 import { logObservation, planDay } from '../../src/record/ops/observations.ts';
 import { toDayMinute } from '../../src/rules/clock.ts';
-import { asksForTime, fromHm, todayView, shapeRows, skyWords, valueText, wakesAhead, type TodayRow } from '../../src/today/todayView.ts';
+import { asksForTime, fromHm, shownDay, todayView, shapeRows, skyWords, valueText, wakesAhead, yesterdayOf, type TodayRow } from '../../src/today/todayView.ts';
 import { freshDb } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
@@ -164,6 +164,50 @@ test('after the day is closed it is closed, whatever the time', async () => {
   assert.equal((await closeDay(core, { date: today, lightsOut: 1378 })).kind, 'Saved');
   assert.equal(view().part, 'closed');
   assert.ok(view().closedAt);
+});
+
+test('R2-9: yesterday is offered from day 2 on, and only the day before today', () => {
+  assert.equal(yesterdayOf(dateOfDay(17), dateOfDay(1)), dateOfDay(16));
+  assert.equal(yesterdayOf(dateOfDay(1), dateOfDay(1)), undefined);
+  assert.deepEqual(shownDay(dateOfDay(16), dateOfDay(17), dateOfDay(1)), { day: dateOfDay(16), past: true });
+  assert.deepEqual(shownDay('', dateOfDay(17), dateOfDay(1)), { day: dateOfDay(17), past: false });
+  assert.deepEqual(shownDay('closed', dateOfDay(17), dateOfDay(1)), { day: dateOfDay(17), past: false });
+  assert.deepEqual(shownDay(dateOfDay(15), dateOfDay(17), dateOfDay(1)), { day: dateOfDay(17), past: false });
+});
+
+test('R2-9: a day closed at night opens the next morning as yesterday, takes a change, and is gone after the boundary that ends today', async () => {
+  const { core, clock, model, today } = await viewAt('#age=16&t=23:00');
+  const start = model.settings.journeyStart;
+  assert.equal((await closeDay(core, { date: today, lightsOut: 1380 })).kind, 'Saved');
+  clock.set(clock.now() + 10 * 60 * 60_000);   // 09:00, day 17
+  const next = dateOfDay(17);
+  assert.deepEqual(shownDay(today, next, start), { day: today, past: true });
+  const past = () => todayView(rulesInput(model), model, today, 540, true);
+  assert.equal(past().part, 'closed');
+  assert.equal(past().past, true);
+  assert.deepEqual(past().ahead, []);
+  assert.deepEqual(past().morningRows, []);
+  const sheet = sheetNow(core);
+  assert.equal((await reopenDay(core, { date: today, sheet })).kind, 'Saved');
+  assert.equal(past().part, 'evening');
+  assert.equal((await logObservation(core, { habitId: 'h-read', date: today, value: 'did', sheet })).kind, 'Saved');
+  assert.equal(past().eveningRows.find(r => r.habit.id === 'h-read')?.value, 'did');
+  assert.equal(model.observations.get(`h-read|${next}`), undefined);
+  assert.equal(past().restOffer, false);
+  clock.set(clock.now() + 19 * 60 * 60_000 + 5 * 60_000);   // 04:05, day 18
+  const after = dateOfDay(18);
+  assert.equal(yesterdayOf(after, start), next);
+  assert.deepEqual(shownDay(today, after, start), { day: after, past: false });
+  assert.equal((await logObservation(core, { habitId: 'h-read', date: today, value: 'not' })).kind, 'Sealed');
+});
+
+test("R2-9: yesterday's time rows ask for their time, since the clock is today's", async () => {
+  const { view } = await viewAt('#age=17&t=21:30');
+  const night: TodayRow = { ...view().openFocus.find(r => r.habit.id === 'h-wake')!, asked: 'evening' };
+  assert.equal(asksForTime(night, 'evening'), false);
+  assert.equal(asksForTime(night, 'evening', true), true);
+  const walk = view().openFocus.find(r => r.habit.id === 'h-walk')!;
+  assert.equal(asksForTime(walk, 'evening', true), false);
 });
 
 test('no rest day before day 14', async () => {

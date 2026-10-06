@@ -59,7 +59,8 @@ const paused = (nav: Nav, screen: ReactNode) => <PausedGate title={TITLES[nav.sc
 
 function recordScreen(nav: Nav): ReactNode {
   switch (nav.screen) {
-    case 'today': return paused(nav, <Today />);
+    // a date as the variant asks for yesterday, while it is still yesterday
+    case 'today': return paused(nav, <Today asked={nav.variant} />);
     case 'look': return paused(nav, <LookBack />);
     case 'habit': return paused(nav, <Habit />);
     case 'week': return paused(nav, <Week />);

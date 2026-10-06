@@ -17,10 +17,12 @@ import { useWide } from '../ui/useWide.ts';
 import { draft } from './draft.ts';
 import { Horizon } from './Horizon.tsx';
 import { Row, type RowAction } from './Row.tsx';
-import { asksForTime, hm, shapeRows, skyWords, todayView, valueText, wakesAhead, type TodayRow } from './todayView.ts';
+import { asksForTime, hm, shapeRows, shownDay, skyWords, todayView, valueText, wakesAhead, yesterdayOf, type TodayRow } from './todayView.ts';
 
 // Today: the morning (what today is going to be), the evening (what it was), and the closed day.
 // Every save goes through the store; a save that didn't go through says so and keeps what was typed.
+// Yesterday is the same screen for the day before (`asked` is its date), its evening or its closed
+// card, while the record still takes changes to it (§8 #21); after the boundary it is today again.
 
 const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -50,7 +52,7 @@ function Note({ title, text }: { readonly title: string; readonly text: string }
   return <div className="panel note" data-a="save-note"><p className="eb">{title}</p><p className="body" style={{ margin: '8px 0 0' }}>{text}</p></div>;
 }
 
-export function Today() {
+export function Today({ asked = '' }: { readonly asked?: string }) {
   const { core, store } = useApp();
   const { go } = useNav();
   const model = useModel();
@@ -71,6 +73,16 @@ export function Today() {
   const sheet = useMemo(() => (core.session ? sheetNow(core) : undefined), [core, today]);
   const freshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(freshTimer.current), []);
+  // moving between today and yesterday starts the screen afresh: nothing open, no note, no sheet
+  const { day, past } = model && today ? shownDay(asked, today, model.settings.journeyStart) : { day: today, past: false };
+  const [shown, setShown] = useState(day);
+  if (shown !== day) {
+    setShown(day);
+    setOpen(undefined);
+    setNote(undefined);
+    setSheetOpen(false);
+    setRestLeft(false);
+  }
   // a laptop's keys 1–9 mark the rows in drawn order; the handler is refreshed on every draw
   const keyed = useRef<(key: string) => void>(() => {});
   useEffect(() => {
@@ -85,12 +97,13 @@ export function Today() {
 
   const revision = store.revision();
   const input = useMemo(() => (model ? rulesInput(model) : undefined), [model, revision]);
-  if (!model || !today || !input) return null;
-  const view = todayView(input, model, today, t);
+  if (!model || !today || !day || !input) return null;
+  const view = todayView(input, model, day, t, past);
   const boundary = model.settings.boundary;
   const shapes = shapesOf(model.settings);
-  const shape = shapeFor(today, shapes.weekday, shapes.weekend);
-  const weekend = weekdayOf(today) >= 5;
+  const shape = shapeFor(day, shapes.weekday, shapes.weekend);
+  const weekend = weekdayOf(day) >= 5;
+  const yesterday = past ? undefined : yesterdayOf(today, model.settings.journeyStart);
   const tz = model.settings.tz;
 
   const run = async (write: (c: RecordCore) => Promise<Result<void>>, rowId?: string): Promise<boolean> => {
@@ -121,16 +134,16 @@ export function Today() {
   const nowFor = (row: TodayRow) => toDayMinute(t, row.asked, boundary);
   // in the evening a morning time row (or a planned one) asks for its time rather than taking now;
   // a day-ahead row is a wake-up happening now, so it takes now
-  const asks = (row: TodayRow, ahead = false) => !ahead && asksForTime(row, view.part);
+  const asks = (row: TodayRow, ahead = false) => !ahead && asksForTime(row, view.part, past);
   // before the boundary a wake-up goes to the day ahead (B-5). It is judged when it is tapped: the
   // sheet opened earlier in the evening would judge it by then, when the day ahead took no values.
   const aheadDay = addDays(today, 1);
   const rowId = (id: string, ahead: boolean) => (ahead ? `ahead:${id}` : id);
   const logTo = (id: string, date: string, value: number | 'did' | 'partly' | 'not') =>
-    run(c => logObservation(c, { habitId: id, date, value, sheet: date === today ? sheet : undefined }), rowId(id, date !== today));
+    run(c => logObservation(c, { habitId: id, date, value, sheet: date === day ? sheet : undefined }), rowId(id, date !== day));
   const act = (row: TodayRow, action: RowAction, ahead = false) => {
     const id = row.habit.id;
-    const date = ahead ? aheadDay : today;
+    const date = ahead ? aheadDay : day;
     const log = (value: number | 'did' | 'partly' | 'not') => logTo(id, date, value);
     const clear = () => run(c => clearObservation(c, { habitId: id, date, sheet: ahead ? undefined : sheet }), rowId(id, ahead));
     switch (action.kind) {
@@ -183,7 +196,7 @@ export function Today() {
 
   const marks: (readonly [string, number])[] = [];
   for (const o of model.observations.values()) {
-    if (o.date !== today || o.value === undefined) continue;
+    if (o.date !== day || o.value === undefined) continue;
     marks.push([o.habitId, o.kind === 'time' && typeof o.value === 'number' ? clockOfDay(o.value) : clockMinuteOf(o.loggedAt, tz)]);
   }
 
@@ -194,25 +207,45 @@ export function Today() {
     return ok;
   };
   const wordsField = (field: WordsField, placeholder: string, saved: string | undefined) => (
-    <WordsInput key={`${field}-${today}`} id={field} placeholder={placeholder} saved={saved ?? ''}
-      typed={unsaved?.field === field && unsaved.date === today ? unsaved.text : undefined}
-      save={text => saveWords(field, today, text)} lost={text => setUnsaved({ field, date: today, text })} />
+    <WordsInput key={`${field}-${day}`} id={field} placeholder={placeholder} saved={saved ?? ''}
+      typed={unsaved?.field === field && unsaved.date === day ? unsaved.text : undefined}
+      save={text => saveWords(field, day, text)} lost={text => setUnsaved({ field, date: day, text })} />
   );
   const drawnField: WordsField | undefined = view.part === 'morning' ? 'intent' : view.part === 'evening' ? 'remark' : undefined;
-  const held = unsaved && !(unsaved.field === drawnField && unsaved.date === today) ? unsaved : undefined;
+  const held = unsaved && !(unsaved.field === drawnField && unsaved.date === day) ? unsaved : undefined;
 
   const top = (
-    <div className="topline"><span className="eb">{longDate(today)}</span><span className="eb">Day <b>{view.dayNumber}</b></span></div>
+    <>
+      {past && <button type="button" className="btn btn--text" data-a="nav" data-x="today" style={{ paddingLeft: 0, gap: 4 }} onClick={() => go('today')}>{I.back({ width: 18, height: 18 })}Today</button>}
+      <div className="topline"><span className="eb">{past ? `Yesterday · ${longDate(day)}` : longDate(day)}</span><span className="eb">Day <b>{view.dayNumber}</b></span></div>
+    </>
   );
+  // yesterday is over: its sky is drawn at lights out, with no "now" on it
+  const skyAt = past ? shape.lightsOut : t;
+  const until = `until today ends, at ${hm(boundary)}`;
   const closedAt = view.closedAt;
   const [where, next] = skyWords(shape, t, boundary);
   const heading = closedAt !== undefined
-    ? <div className="here"><h1 className="t-xl">That's the day.</h1><p className="meta">Closed at {hm(clockMinuteOf(closedAt, tz))}, lights out with it</p></div>
-    : <div className="here"><h1 className="t-xl">{where}</h1><p className="meta">{next}</p></div>;
+    ? <div className="here"><h1 className="t-xl">That's the day.</h1><p className="meta">{past ? `Closed at ${hm(clockMinuteOf(closedAt, tz))}` : <>Closed at {hm(clockMinuteOf(closedAt, tz))}, lights out with it</>}</p></div>
+    : past
+      ? <div className="here"><h1 className="t-xl">Yesterday</h1><p className="meta">It stays open {until}.</p></div>
+      : <div className="here"><h1 className="t-xl">{where}</h1><p className="meta">{next}</p></div>;
+  // from today, the way to yesterday while it can still be changed
+  const toYesterday = yesterday !== undefined && (
+    <button type="button" className="more" data-a="yesterday" onClick={() => go('today', yesterday)}>Yesterday, {longDate(yesterday)} {I.chev()}</button>
+  );
 
   let main: ReactNode = null;
   let side: ReactNode = null;
-  if (view.part === 'closed') {
+  if (view.part === 'closed' && past) {
+    main = (
+      <div className="closed-card">
+        <p className="body" style={{ margin: 0 }}>Nothing else is asked of it. You can still change it {until}; after that it seals, so there's never a question of going back to fix something.</p>
+        <div style={{ marginTop: 14 }}><button type="button" className="btn btn--text" data-a="reopen" disabled={busy} style={{ paddingLeft: 0 }}
+          onClick={guarded(async () => { await run(c => reopenDay(c, { date: day, sheet })); })}>Open it again</button></div>
+      </div>
+    );
+  } else if (view.part === 'closed') {
     const tomorrow = addDays(today, 1);
     const tomorrowShape = shapeFor(tomorrow, shapes.weekday, shapes.weekend);
     const first = tomorrowShape.steps[0];
@@ -223,10 +256,13 @@ export function Today() {
           <p className="body" style={{ margin: 0 }}>Nothing else is asked of today. You can still change it until tomorrow night; after that it seals, so there's never a question of going back to fix something.</p>
           <div className="tomorrow">{I.today()}<span>{weekdayOf(tomorrow) >= 5 ? 'Tomorrow is a weekend day.' : `Tomorrow starts at ${first ? hm(first.at) : '06:00'}, with the morning check-in.`}</span></div>
           <div style={{ marginTop: 14 }}><button type="button" className="btn btn--text" data-a="reopen" disabled={busy} style={{ paddingLeft: 0 }}
-            onClick={guarded(async () => { await run(c => reopenDay(c, { date: today, sheet })); })}>Open today again</button></div>
+            onClick={guarded(async () => { await run(c => reopenDay(c, { date: day, sheet })); })}>Open today again</button></div>
         </div>
+        {toYesterday}
       </>
     );
+  }
+  if (view.part === 'closed') {
     side = (
       <div className="panel wide-only"><p className="eb">Still open</p><p className="body" style={{ margin: '10px 0 14px' }}>The diary never closes. Nothing is required to end a day — writing included.</p>
         <button type="button" className="btn btn--ghost" data-a="nav" data-x="diary" onClick={() => go('diary')}>Diary</button></div>
@@ -241,6 +277,7 @@ export function Today() {
           <div className="rows">{focus.map(r => rowOf(r))}</div>
           {log.length > 0 && <div className="rows" style={{ marginTop: 8 }}>{log.map(r => rowOf(r))}</div>}
           <button type="button" className="more" data-a="sheet" onClick={() => { setNote(undefined); setSheetOpen(true); }}>Something won't fit today? {I.chev()}</button>
+          {toYesterday}
         </div>
         <div className="group wide-only">
           <div className="eb"><span>Tonight</span><span className="dim" style={{ letterSpacing: '.06em' }}>asked in the evening</span></div>
@@ -277,46 +314,48 @@ export function Today() {
     // a chip tapped open is drawn as its row again, in its place among the Focus rows, until it is answered or closed
     const focusRows = [...view.openFocus, ...view.earlier.filter(r => r.habit.id === open)].sort((a, b) => a.habit.order - b.habit.order);
     const chips = view.earlier.filter(r => r.habit.id !== open);
-    const left = restDaysLeft([...model.days.values()].filter(d => d.restDay).map(d => d.date), today, model.settings.journeyStart);
-    const isRest = model.days.get(today)?.restDay === true;
+    const left = restDaysLeft([...model.days.values()].filter(d => d.restDay).map(d => d.date), day, model.settings.journeyStart);
+    const isRest = model.days.get(day)?.restDay === true;
     main = (
       <>
         {aheadGroup}
-        <div className="group"><div className="eb"><span>Tonight</span></div><div className="rows">{view.eveningRows.map(r => rowOf(r))}</div></div>
+        <div className="group"><div className="eb"><span>{past ? 'That evening' : 'Tonight'}</span></div><div className="rows">{view.eveningRows.map(r => rowOf(r))}</div></div>
         <div className="group">
-          <div className="eb"><span>Earlier today</span></div>
+          <div className="eb"><span>{past ? 'Earlier that day' : 'Earlier today'}</span></div>
           {focusRows.length > 0 && <div className="rows" style={{ marginBottom: 10 }}>{focusRows.map(r => rowOf(r))}</div>}
           {chips.length > 0 && <div className="earlier">{chips.map(chip)}</div>}
         </div>
+        {toYesterday}
       </>
     );
     side = (
       <>
-        {view.intent && <div className="panel wide-only" style={{ marginBottom: 22 }}><p className="eb">This morning you wrote</p><p className="said" style={{ marginTop: 10 }}>{view.intent}</p></div>}
+        {view.intent && <div className="panel wide-only" style={{ marginBottom: 22 }}><p className="eb">{past ? 'That morning you wrote' : 'This morning you wrote'}</p><p className="said" style={{ marginTop: 10 }}>{view.intent}</p></div>}
         <div className="group" style={{ marginTop: 0 }}>
-          <label className="eb field-l" htmlFor="remark">A word about today</label>
-          {wordsField('remark', 'Today was…', view.remark)}
+          <label className="eb field-l" htmlFor="remark">{past ? 'A word about yesterday' : 'A word about today'}</label>
+          {wordsField('remark', past ? 'Yesterday was…' : 'Today was…', view.remark)}
         </div>
         {view.restOffer && !restLeft && (
           <div className="panel rest">
             <p className="eb">A rest day</p>
             <p className="body">{left > 1 ? 'There are two free this month.' : "There's one free this month."} Using it keeps today as planned rest in Look back — a marked square, not an empty one.</p>
             <div className="two">
-              <button type="button" className="btn btn--secondary" data-a="rest" data-x="use" onClick={() => void run(c => planDay(c, { date: today, restDay: true, sheet }))}>Use it</button>
+              <button type="button" className="btn btn--secondary" data-a="rest" data-x="use" onClick={() => void run(c => planDay(c, { date: day, restDay: true, sheet }))}>Use it</button>
               <button type="button" className="btn btn--secondary" data-a="rest" data-x="leave" onClick={() => setRestLeft(true)}>Leave it</button>
             </div>
           </div>
         )}
-        {isRest && <div className="panel rest"><p className="eb">A rest day</p><p className="body" style={{ marginBottom: 0 }}>Today is kept as planned rest.</p></div>}
+        {isRest && <div className="panel rest"><p className="eb">A rest day</p><p className="body" style={{ marginBottom: 0 }}>{past ? 'Yesterday' : 'Today'} is kept as planned rest.</p></div>}
         <div style={{ marginTop: 20 }}>
           <button type="button" className="btn btn--primary wide" data-a="close" disabled={busy} onClick={guarded(async () => {
-            const ok = await run(c => closeDay(c, { date: today, lightsOut: toDayMinute(t, 'evening', boundary), sheet }));
+            // yesterday closes as it is: its lights out was then, not now
+            const ok = await run(c => closeDay(c, { date: day, lightsOut: past ? undefined : toDayMinute(t, 'evening', boundary), sheet }));
             if (!ok) return;
             setJustClosed(true);
             setTimeout(() => setJustClosed(false), 1600);
             window.scrollTo(0, 0);
-          })}>That's the day <span className="sub">· lights out {hm(t)}</span></button>
-          <p className="meta" style={{ textAlign: 'center', margin: '10px 0 0' }}>You can still change today until tomorrow night.</p>
+          })}>That's the day{!past && <> <span className="sub">· lights out {hm(t)}</span></>}</button>
+          {!past && <p className="meta" style={{ textAlign: 'center', margin: '10px 0 0' }}>You can still change today until tomorrow night.</p>}
         </div>
       </>
     );
@@ -324,11 +363,11 @@ export function Today() {
 
   const shapeAside = (
     <>
-      <p className="eb">The shape of {weekend ? 'a weekend day' : 'today'}</p>
+      <p className="eb">The shape of {weekend ? 'a weekend day' : past ? 'yesterday' : 'today'}</p>
       <div className="shape">
         {shapeRows(shape).map(s => {
-          const on = closedAt === undefined && t >= s.at && t < s.end;
-          const ms = marks.filter(([, m]) => m >= s.at && m < s.end && m <= t);
+          const on = !past && closedAt === undefined && t >= s.at && t < s.end;
+          const ms = marks.filter(([, m]) => m >= s.at && m < s.end && (past || m <= t));
           return (
             <div key={s.at} className={`sh${on ? ' is-now' : ''}`}>
               <span className="tm">{hm(s.at)}</span>
@@ -350,8 +389,8 @@ export function Today() {
           {top}
           <div className="sky">
             {heading}
-            <div className="phone-only"><Horizon shape={shape} t={t} marks={marks} fresh={fresh} wideLabels={false} setting={justClosed} boundary={boundary} /></div>
-            <div className="wide-only"><Horizon shape={shape} t={t} marks={marks} fresh={fresh} wideLabels setting={justClosed} boundary={boundary} /></div>
+            <div className="phone-only"><Horizon shape={shape} t={skyAt} marks={marks} fresh={fresh} wideLabels={false} setting={justClosed} boundary={boundary} /></div>
+            <div className="wide-only"><Horizon shape={shape} t={skyAt} marks={marks} fresh={fresh} wideLabels setting={justClosed} boundary={boundary} /></div>
           </div>
           {main}
           {held && (
@@ -374,8 +413,8 @@ export function Today() {
         onClose={() => { setSheetOpen(false); setNote(undefined); }}
         onPlan={async (plans, unplan) => {
           let ok = true;
-          if (plans.length) ok = await run(c => planDay(c, { date: today, plans, sheet }));
-          for (const id of unplan) if (ok) ok = await run(c => clearObservation(c, { habitId: id, date: today, sheet }));
+          if (plans.length) ok = await run(c => planDay(c, { date: day, plans, sheet }));
+          for (const id of unplan) if (ok) ok = await run(c => clearObservation(c, { habitId: id, date: day, sheet }));
           if (ok) setSheetOpen(false);
         }} /></Layer>}
     </>

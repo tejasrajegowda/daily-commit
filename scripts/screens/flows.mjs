@@ -520,6 +520,46 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
     window.harness.dayValue(17, 'h-wake') === 230 && window.harness.dayValue(16, 'h-wake') === undefined)
     && await until(sel => document.querySelector(sel)?.querySelector('.val')?.textContent?.includes('03:50'), ahead));
 
+  // R2-9: "You can still change today until tomorrow night" is true: the next morning Today opens
+  // yesterday in its own layout, a change there is saved to that day, and after the boundary that
+  // ends today the way to it is gone
+  const topline = () => p.locator('.today .topline .eb').first().textContent();
+  await h.open(p, 's=today&age=1&t=21:30');
+  await shows(p, '[data-a="close"]');
+  check('R2-9: on day 1 there is no yesterday to offer', (await p.locator('[data-a="yesterday"]').count()) === 0);
+  await h.open(p, 's=today&age=16&t=22:58&v=closed');
+  await shows(p, '.closed-card');
+  await p.evaluate(() => window.harness.moveClock(600));   // 08:58, day 17
+  check('R2-9: the next morning Today offers yesterday by its date', await shows(p, '[data-a="yesterday"]')
+    && (await p.locator('[data-a="yesterday"]').innerText()).includes('Tuesday 20 January'));
+  await tapIf('[data-a="yesterday"]');
+  check('R2-9: yesterday opens as its closed card, under a header naming the day', await shows(p, '.closed-card')
+    && (await topline()).includes('Yesterday') && (await topline()).includes('Tuesday 20 January')
+    && (await p.locator('[data-a="ahead"], [data-a="sheet"]').count()) === 0);
+  await tapIf('[data-a="reopen"]');
+  const reopened = await shows(p, '[data-a="close"]') && (await topline()).includes('Yesterday') && await shows(p, '.row[data-x="h-read"]');
+  check('R2-9: "Open it again" opens yesterday\'s evening, still yesterday', reopened);
+  if (reopened) {
+    await p.tap('.row[data-x="h-read"]');
+    await tapIf('.row[data-x="h-read"] .opt >> text=Did it');
+  }
+  check('R2-9: a change made there is saved to yesterday, not today', await until(() =>
+    window.harness.dayValue(16, 'h-read') === 'did' && window.harness.dayValue(17, 'h-read') === undefined)
+    && (await p.locator('[data-a="save-note"]').count()) === 0);
+  await tapIf('.row[data-x="h-wake"], .chip[data-x="h-wake"]');
+  check("R2-9: yesterday's wake-up asks for its time instead of taking this morning's clock", await shows(p, '.row[data-x="h-wake"] [data-a="time-at"]'));
+  await tapIf('[data-a="close"]');
+  check('R2-9: yesterday closes again, and stays yesterday', await shows(p, '.closed-card') && (await topline()).includes('Yesterday'));
+  await tapIf('.today [data-a="nav"][data-x="today"]');
+  check('R2-9: "Today" goes back to today', await until(() => !document.querySelector('.today .topline .eb')?.textContent?.includes('Yesterday'))
+    && await shows(p, '[data-a="yesterday"]'));
+  await tapIf('[data-a="yesterday"]');
+  await shows(p, '.closed-card');
+  await p.evaluate(() => window.harness.moveClock(19 * 60 + 7));   // 04:05, day 18
+  check('R2-9: after the boundary that ends today, yesterday is gone: the screen is the new today, offering only the day just ended',
+    await until(() => !document.querySelector('.today .topline .eb')?.textContent?.includes('Yesterday'))
+    && await shows(p, '[data-a="yesterday"]') && !(await p.locator('[data-a="yesterday"]').innerText()).includes('20 January'));
+
     const q = await h.page(LAPTOP, errors);
   await h.open(q, 's=today&t=06:05');
   await shows(q, '.today .row');
