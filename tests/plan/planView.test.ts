@@ -29,6 +29,13 @@ test('the form says what is missing, in words, before anything is saved', () => 
   assert.ok(formProblems({ ...EMPTY_FORM, name: 'X', days: [] }).includes('Pick at least one day.'));
   assert.equal(formProblems({ ...EMPTY_FORM, name: 'X', kind: 'time', band: 420, part: 400 }).length, 1);
   assert.equal(formProblems({ ...EMPTY_FORM, name: 'X', kind: 'min', bar: 30, aim: 10 }).length, 1);
+  assert.equal(formProblems({ ...EMPTY_FORM, name: 'X', kind: 'count', bar: 0 }).length, 1);
+  assert.deepEqual(formProblems({ ...EMPTY_FORM, name: 'X', kind: 'count', bar: 3 }), []);
+});
+
+test('a count habit keeps its bar as the record\'s target, not a time band', () => {
+  const form = { ...EMPTY_FORM, name: 'CANARY-TEST glasses of water', kind: 'count' as const, bar: 3 };
+  assert.deepEqual(newHabitOf(form, 'h-new').target, { bar: 3 });
 });
 
 test('a new habit from the form is saved once; a fourth in Focus is refused', async () => {

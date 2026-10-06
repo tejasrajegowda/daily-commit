@@ -131,7 +131,11 @@ export function Today() {
         } else setOpen(open === id ? undefined : id);
         return;
       case 'set': setOpen(undefined); void log(action.value); return;
-      case 'add': void log((typeof row.value === 'number' ? row.value : 0) + action.minutes); return;
+      case 'add': {
+        const next = (typeof row.value === 'number' ? row.value : 0) + action.by;
+        void log(row.habit.kind === 'count' ? Math.max(0, Math.min(999, next)) : next);
+        return;
+      }
       case 'nudge': void log((typeof row.value === 'number' ? row.value : nowFor(row)) + action.minutes); return;
       case 'now': setOpen(undefined); void log(nowFor(row)); return;
       case 'clear': setOpen(undefined); void clear(); return;
@@ -145,7 +149,8 @@ export function Today() {
     const k = row.habit.kind;
     if (k === 'tri') act(row, row.value === 'did' ? { kind: 'clear' } : { kind: 'set', value: 'did' });
     else if (k === 'time') act(row, row.value === undefined ? { kind: 'now' } : { kind: 'clear' });
-    else if (k === 'min' || k === 'count') act(row, { kind: 'add', minutes: 30 });
+    else if (k === 'min') act(row, { kind: 'add', by: 30 });
+    else if (k === 'count') act(row, { kind: 'add', by: 1 });
   };
   const rowOf = (r: TodayRow, showKey = true) => (
     <Row key={r.habit.id} row={r} open={open === r.habit.id} fresh={fresh === r.habit.id} showKey={showKey}

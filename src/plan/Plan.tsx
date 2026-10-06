@@ -171,7 +171,7 @@ function Editor(p: {
         <input id="h-name" className="inp" value={form.name} maxLength={60} onChange={e => set({ name: e.currentTarget.value })} /></div>
       <div className="fgrp"><label className="eb field-l">What gets recorded</label>
         <div className="seg" style={{ flexWrap: 'wrap' }}>
-          {KINDS.map(([k, label]) => <button key={k} type="button" className={form.kind === k ? 'on' : ''} disabled={habit !== undefined && form.kind !== k} onClick={() => set({ kind: k })}>{label}</button>)}
+          {KINDS.map(([k, label]) => <button key={k} type="button" data-a="kind" data-x={k} className={form.kind === k ? 'on' : ''} disabled={habit !== undefined && form.kind !== k} onClick={() => set({ kind: k })}>{label}</button>)}
         </div>
         <p className="meta" style={{ margin: '2px 4px 0' }}>{PLAN_WORDS.recorded}{habit ? ' What gets recorded stays as it began.' : ''}</p></div>
       {form.kind === 'time' && (
@@ -186,6 +186,10 @@ function Editor(p: {
           <div className="fgrp"><label className="eb field-l" htmlFor="h-aim">Aim (minutes)</label>
             <input id="h-aim" className="inp" type="number" min={1} value={form.aim ?? ''} onChange={e => set({ aim: e.currentTarget.value ? Number(e.currentTarget.value) : undefined })} /></div>
         </>
+      )}
+      {form.kind === 'count' && (
+        <div className="fgrp"><label className="eb field-l" htmlFor="h-bar">Counts as done from</label>
+          <input id="h-bar" className="inp" type="number" min={1} max={999} value={form.bar ?? ''} onChange={e => set({ bar: e.currentTarget.value ? Number(e.currentTarget.value) : undefined })} /></div>
       )}
       <div className="fgrp"><label className="eb field-l">Days</label>
         <div className="days">{LETTERS.map((x, i) => {

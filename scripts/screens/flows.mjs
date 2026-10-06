@@ -608,6 +608,35 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.tap('.sheet [data-a="plan-save"]');
   check('R2-8 (Plan): a thrown write still gets the not-saved words', await until(() =>
     document.querySelector('.sheet .panel.note .eb')?.textContent?.toLowerCase().includes('not saved')));
+
+  // R2-4: a count habit is added with a bar, drawn on Today as a plain number, and edited with -1 / +1
+  const COUNT_NAME = 'CANARY-TEST glasses of water';
+  /** the row's drawn value, found by the habit's name (its id is picked only when the editor opens) */
+  const countValIs = expect => until(a => {
+    const row = [...document.querySelectorAll('.row')].find(r => r.querySelector('.nm')?.textContent === a.name);
+    const val = row?.querySelector('.val')?.cloneNode(true);
+    val?.querySelector('.kbd')?.remove();
+    return val?.textContent?.trim() === a.expect;
+  }, { name: COUNT_NAME, expect });
+  await h.open(p, 's=plan&t=13:00');
+  await p.tap('[data-a="add"]');
+  await p.fill('.sheet #h-name', COUNT_NAME);
+  await p.tap('.sheet [data-a="kind"][data-x="count"]');
+  check('R2-4: Plan offers a bar field for a count, like minutes', await shows(p, '.sheet #h-bar'));
+  await p.fill('.sheet #h-bar', '3');
+  await p.tap('.sheet [data-a="plan-save"]');
+  check('R2-4: the count habit is saved into Log', await until(() => [...document.querySelectorAll('.pl-log .nm')].some(e => e.textContent === 'CANARY-TEST glasses of water')));
+  await p.tap('.dock button[data-x="today"]');
+  await p.evaluate(() => window.harness.moveClock(70));   // past 14:00, so the evening-asked row is drawn
+  await shows(p, '.today');
+  const countRow = `.row:has-text("${COUNT_NAME}")`;
+  check('R2-4: an unlogged count reads "—", not "— min"', await countValIs('—'));
+  await p.tap(countRow);
+  await p.tap(`${countRow} [data-a="addcount"][data-x$=":1"]`);
+  check('R2-4: +1 on a count reads as the number 1, not "15m"', await countValIs('1'));
+  await p.tap(`${countRow} [data-a="addcount"][data-x$=":1"]`);
+  await p.tap(`${countRow} [data-a="addcount"][data-x$=":-1"]`);
+  check('R2-4: -1 brings it back down, one at a time', await countValIs('1'));
 }
 
 // Settings

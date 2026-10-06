@@ -78,6 +78,7 @@ test('values read as they are written beside a row', () => {
   assert.equal(valueText('tri', 'not'), 'not today');
   assert.equal(valueText('tri', 'did'), '');
   assert.equal(valueText('mood', 4), '4');
+  assert.equal(valueText('count', 3), '3');
   assert.equal(valueText('tri', undefined), '');
 });
 

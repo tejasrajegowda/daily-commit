@@ -9,7 +9,7 @@ import { clockOfDay } from '../rules/clock.ts';
 export type RowAction =
   | { readonly kind: 'tap' }
   | { readonly kind: 'set'; readonly value: number | TriValue }
-  | { readonly kind: 'add'; readonly minutes: number }
+  | { readonly kind: 'add'; readonly by: number }
   | { readonly kind: 'nudge'; readonly minutes: number }
   | { readonly kind: 'now' }
   | { readonly kind: 'clear' };
@@ -45,7 +45,8 @@ export function Row({ row, open, fresh, sub, showKey = true, onAction }: RowProp
   let val: ReactNode = null;
   if (state === 'planned') val = <span className="q">planned rest</span>;
   else if (habit.kind === 'time') val = typeof value === 'number' ? hm(clockOfDay(value)) : <span className="q">—</span>;
-  else if (habit.kind === 'min' || habit.kind === 'count') val = typeof value === 'number' ? dur(value) : <span className="q">— min</span>;
+  else if (habit.kind === 'min') val = typeof value === 'number' ? dur(value) : <span className="q">— min</span>;
+  else if (habit.kind === 'count') val = typeof value === 'number' ? String(value) : <span className="q">—</span>;
   else if (value === 'partly') val = <span className="q">partly</span>;
   else if (value === 'not') val = <span className="q">not today</span>;
 
@@ -60,12 +61,21 @@ export function Row({ row, open, fresh, sub, showKey = true, onAction }: RowProp
       </div>
     );
   }
-  if (open && (habit.kind === 'min' || habit.kind === 'count')) {
+  if (open && habit.kind === 'min') {
     opts = (
       <div className="opts four">
         {([[15, '+15m'], [30, '+30m'], [60, '+1h']] as const).map(([m, label]) => (
-          <button key={m} type="button" className="opt" data-a="addmin" data-x={`${habit.id}:${m}`} onClick={() => onAction({ kind: 'add', minutes: m })}>{label}</button>
+          <button key={m} type="button" className="opt" data-a="addmin" data-x={`${habit.id}:${m}`} onClick={() => onAction({ kind: 'add', by: m })}>{label}</button>
         ))}
+        <button type="button" className="opt" data-a="clear" data-x={habit.id} onClick={() => onAction({ kind: 'clear' })}>Clear</button>
+      </div>
+    );
+  }
+  if (open && habit.kind === 'count') {
+    opts = (
+      <div className="opts">
+        <button type="button" className="opt" data-a="addcount" data-x={`${habit.id}:-1`} onClick={() => onAction({ kind: 'add', by: -1 })}>−1</button>
+        <button type="button" className="opt" data-a="addcount" data-x={`${habit.id}:1`} onClick={() => onAction({ kind: 'add', by: 1 })}>+1</button>
         <button type="button" className="opt" data-a="clear" data-x={habit.id} onClick={() => onAction({ kind: 'clear' })}>Clear</button>
       </div>
     );

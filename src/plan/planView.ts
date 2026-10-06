@@ -83,6 +83,7 @@ export function formProblems(f: HabitForm): string[] {
   if (f.kind === 'time' && f.band !== undefined && f.part !== undefined && f.part < f.band) out.push('"Partly" has to be the same time as "did", or later.');
   if (f.kind === 'min' && f.bar !== undefined && f.bar < 1) out.push('Done needs at least one minute.');
   if (f.kind === 'min' && f.bar !== undefined && f.aim !== undefined && f.aim < f.bar) out.push('The aim is at least the minutes that count as done.');
+  if (f.kind === 'count' && f.bar !== undefined && f.bar < 1) out.push('Done needs at least one.');
   return out;
 }
 
