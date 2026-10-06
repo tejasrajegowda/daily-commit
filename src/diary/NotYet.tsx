@@ -1,15 +1,20 @@
 import { useRef, useState } from 'react';
-import { resultWords, useApp, useModel, useNav } from '../app/context.ts';
+import { resultWords, useApp, useHeld, useModel, useNav } from '../app/context.ts';
 import { restoreNotYet, saveNotYet, trashNotYet } from '../record/ops/words.ts';
 import { I } from '../ui/icons.tsx';
 import { DIARY_WORDS, dayOf, inTrash, writtenAt } from './diaryView.ts';
 
 // Not yet: things being thought about. Nothing here is tracked, counted, scheduled or brought up.
+// Words that couldn't be kept are held for the visit and come back in the field.
+
+const HELD = 'notyet:new';
 
 export function NotYet() {
   const { core, store } = useApp();
   const { go } = useNav();
+  const held = useHeld();
   const model = useModel();
+  const kept = held.get(HELD);
   const [adding, setAdding] = useState(false);
   const [newId, setNewId] = useState(() => core.newId());
   const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
@@ -25,13 +30,17 @@ export function NotYet() {
   };
   const add = async () => {
     const text = field.current?.value.trim() ?? '';
-    if (!text) { setAdding(false); return; }
-    if (await run(c => saveNotYet(c, { id: newId, text }))) {
+    if (!text) { held.drop(HELD); setAdding(false); return; }
+    if (await held.keep(HELD, text, () => store.run(c => saveNotYet(c, { id: newId, text })))) {
       if (field.current) field.current.value = '';
       setNewId(core.newId());
       setAdding(false);
     }
   };
+  // words that weren't kept open the field again, even when the answer came after the screen did
+  const open = adding || kept !== undefined;
+  // the words for what is in the field and wasn't kept, or for the last put away or bring back
+  const said = kept?.note ?? note;
   return (
     <div className="ny">
       <button type="button" className="btn btn--text" data-a="nav" data-x="diary" style={{ paddingLeft: 0, gap: 4 }} onClick={() => go('diary')}>{I.back({ width: 18, height: 18 })}Diary</button>
@@ -46,9 +55,9 @@ export function NotYet() {
           </div>
         );
       })}
-      {adding
+      {open
         ? <form onSubmit={e => { e.preventDefault(); void add(); }} style={{ marginTop: 14 }}>
-            <input ref={field} className="pass" data-a="ny-text" aria-label="Something you're thinking about" placeholder="Something you're thinking about" autoFocus onBlur={() => void add()} />
+            <input ref={field} className="pass" data-a="ny-text" aria-label="Something you're thinking about" placeholder="Something you're thinking about" defaultValue={kept?.text} autoFocus onBlur={() => void add()} />
           </form>
         : <button type="button" className="btn btn--text" data-a="ny-add" style={{ paddingLeft: 0, marginTop: 14, gap: 6 }} onClick={() => setAdding(true)}>{I.plus()}Write something down</button>}
       {trashed.length > 0 && (
@@ -62,7 +71,7 @@ export function NotYet() {
           ))}
         </>
       )}
-      {note && <div className="panel note" style={{ marginTop: 16 }}><p className="eb">{note.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{note.text}</p></div>}
+      {said && <div className="panel note" data-a="ny-note" style={{ marginTop: 16 }}><p className="eb">{said.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{said.text}</p></div>}
     </div>
   );
 }

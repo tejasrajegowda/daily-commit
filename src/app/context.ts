@@ -9,6 +9,7 @@ import type { LocalDate } from '../rules/types.ts';
 import type { VaultPlugin } from '../vault/plugin.ts';
 import type { Random } from '../vault/random.ts';
 import type { MinuteClock } from './clock.ts';
+import type { HeldWords } from './heldWords.ts';
 import type { LockMachine } from './lockMachine.ts';
 import type { LockActions } from './lockNotes.ts';
 import type { RecordStore } from './store.ts';
@@ -22,6 +23,7 @@ export type { Secret } from '../vault/cipher.ts';
 export type { LockNote, UnlockHow } from './lockNotes.ts';
 export { NOTE_WORDS } from './lockNotes.ts';
 export { resultWords } from './resultWords.ts';
+export type { Held, HeldWords } from './heldWords.ts';
 export { finishFirstRun, firstSettings, MIN_PASSPHRASE_CHARS, passphraseLongEnough, prepareVault, sameRecoveryCode, type Prepared } from './firstRunFlow.ts';
 export { readBackupFile, restoreWith, type FileRead, type RestoreMessage, type RestoreStep, type StopMessage } from './restoreSteps.ts';
 export { DEFAULT_SHAPES, shapesOf } from './dayShapes.ts';
@@ -69,6 +71,7 @@ export interface Nav {
 
 export const AppContext = createContext<AppDeps | undefined>(undefined);
 export const NavContext = createContext<{ readonly nav: Nav; go(screen: ScreenId, variant?: string): void } | undefined>(undefined);
+export const HeldContext = createContext<HeldWords | undefined>(undefined);
 
 export function useApp(): AppDeps {
   const deps = useContext(AppContext);
@@ -80,6 +83,14 @@ export function useNav(): { readonly nav: Nav; go(screen: ScreenId, variant?: st
   const nav = useContext(NavContext);
   if (!nav) throw new Error('a screen was drawn outside the app');
   return nav;
+}
+
+/** Words whose save didn't go through, held for the visit; the screen draws again when they change. */
+export function useHeld(): HeldWords {
+  const held = useContext(HeldContext);
+  if (!held) throw new Error('a screen was drawn outside the app');
+  useSyncExternalStore(held.subscribe, held.revision);
+  return held;
 }
 
 /** The open record's model, or undefined while locked; the screen draws again after every change. */

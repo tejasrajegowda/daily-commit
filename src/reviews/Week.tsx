@@ -1,13 +1,15 @@
 import { useMemo, useState, type CSSProperties } from 'react';
-import { resultWords, useApp, useModel, useNav, useToday } from '../app/context.ts';
+import { resultWords, useApp, useHeld, useModel, useNav, useToday } from '../app/context.ts';
 import { saveReview } from '../record/ops/reviews.ts';
 import { rulesInput } from '../record/read.ts';
 import { datesFrom } from '../rules/dates.ts';
 import { lookup, stateOf } from '../rules/state.ts';
+import { Answer } from './Answer.tsx';
 import { weekView, type WeekRow } from './reviewView.ts';
 
 // The Sunday review: the week in words. Its two questions are optional; the week counts whether or
-// not anything is written.
+// not anything is written. An answer whose save didn't go through is held for the visit and comes
+// back in its field, and goes with "That's the week".
 
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const DOW = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -17,10 +19,12 @@ const d = (date: string) => new Date(`${date}T00:00:00Z`);
 const short = (date: string) => `${d(date).getUTCDate()} ${MON3[d(date).getUTCMonth()]}`;
 const CLS: Record<string, string> = { did: 'd', partly: 'p', planned: 'pl', nothing: '', off: 'off', outside: 'na' };
 const vars = (v: Record<string, string>) => v as CSSProperties;
+const QUESTIONS = ['changed', 'line'] as const;
 
 export function Week() {
   const { store } = useApp();
   const { go } = useNav();
+  const held = useHeld();
   const model = useModel();
   const today = useToday();
   const [step, setStep] = useState(0);
@@ -37,7 +41,22 @@ export function Week() {
     setNote(resultWords(result));
     return result.kind === 'Saved';
   };
-  const done = async () => { if (await save({}, true)) go('look'); };
+  const heldKey = (q: string) => `week:${v.monday}:${q}`;
+  // an answer goes in on leaving its field; one that isn't the record's any more is held, not lost
+  const answer = (q: (typeof QUESTIONS)[number], text: string) => {
+    if (text === (saved?.answers[q] ?? '')) { held.drop(heldKey(q)); return; }
+    void held.keep(heldKey(q), text, () => store.run(c => saveReview(c, { period: 'week', start: v.monday, answers: { ...saved?.answers, [q]: text }, close: false })));
+  };
+  const done = async () => {
+    const kept = QUESTIONS.flatMap(q => { const h = held.get(heldKey(q)); return h ? [[q, h.text] as const] : []; });
+    if (!await save(Object.fromEntries(kept), true)) return;
+    for (const [q] of kept) held.drop(heldKey(q));
+    go('look');
+  };
+  const heldNote = (q: string) => {
+    const h = held.get(heldKey(q));
+    return h && <div className="panel note" data-a="held-note" style={{ marginTop: 10 }}><p className="eb">{h.note.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{h.note.text}</p></div>;
+  };
 
   const letters = <div className="axis" style={vars({ '--cs': 'var(--wcs)', '--cg': '6px' })}>{LETTERS.map((x, i) => <span key={i}>{x}</span>)}</div>;
   const head = <><div className="wk-head"><div />{letters}</div><div className="phone-only" style={{ marginBottom: 10 }}>{letters}</div></>;
@@ -64,11 +83,11 @@ export function Week() {
   const prompts = (
     <>
       <div className="group" style={{ marginTop: 0 }}><label className="eb field-l" htmlFor="wk-changed">What changed that isn't in the data?</label>
-        <textarea id="wk-changed" key={`c${v.monday}`} className="field" rows={3} placeholder="This week…" defaultValue={saved?.answers.changed ?? ''}
-          onBlur={e => { if (e.currentTarget.value !== (saved?.answers.changed ?? '')) void save({ changed: e.currentTarget.value }); }} /></div>
+        <Answer id="wk-changed" key={`c${v.monday}`} rows={3} placeholder="This week…" saved={saved?.answers.changed ?? ''} held={held.get(heldKey('changed'))?.text}
+          onLeave={text => answer('changed', text)} />{heldNote('changed')}</div>
       <div className="group"><label className="eb field-l" htmlFor="wk-line">One line for the week, in your own words</label>
-        <textarea id="wk-line" key={`l${v.monday}`} className="field" rows={2} placeholder="The week was…" defaultValue={saved?.answers.line ?? ''}
-          onBlur={e => { if (e.currentTarget.value !== (saved?.answers.line ?? '')) void save({ line: e.currentTarget.value }); }} /></div>
+        <Answer id="wk-line" key={`l${v.monday}`} rows={2} placeholder="The week was…" saved={saved?.answers.line ?? ''} held={held.get(heldKey('line'))?.text}
+          onLeave={text => answer('line', text)} />{heldNote('line')}</div>
     </>
   );
   const how = (

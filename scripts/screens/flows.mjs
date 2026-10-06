@@ -682,6 +682,193 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Not yet: bringing it back', await gone(p, '[data-a="ny-trashed"]'));
 }
 
+// R3-1 and R3-5: diary words, Not yet, the bad-night note and review lines are never lost to a
+// trash, a new day or a refused save (invented words only)
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  const tryTap = sel => p.tap(sel, { timeout: 5000 }).then(() => true, () => false);
+  const textOf = sel => p.evaluate(s => document.querySelector(s)?.textContent ?? '', sel);
+  const valueOf = sel => p.evaluate(s => document.querySelector(s)?.value ?? '', sel);
+  const pages = () => p.evaluate(() => window.harness.pages());
+  const write = async text => { await p.tap('[data-a="page-text"]'); await p.keyboard.type(text); await p.tap('.diary .top .meta'); };
+
+  // R3-1: today's page goes to the trash, and a new one is written in the same visit
+  await h.open(p, 's=diary&t=22:20');
+  await shows(p, '[data-a="page-text"]');
+  await write('CANARY page one');
+  await until(() => window.harness.pages().some(e => e.body === 'CANARY page one'));
+  await p.tap('[data-a="trash"]');
+  await p.tap('[data-a="trash-yes"]');
+  await shows(p, '[data-a="earlier-list"] [data-a="trashed"]');
+  await write('CANARY page two');
+  check('R3-1: after a trash, a new page in the same visit is saved, with no "Not saved"',
+    await until(() => window.harness.pages().some(e => e.body === 'CANARY page two' && !e.trashed)) && (await p.locator('.diary .panel.note').count()) === 0);
+  check('R3-1: the trashed page keeps its own words', (await pages()).some(e => e.body === 'CANARY page one' && e.trashed));
+  await p.tap('.dock button[data-x="today"]');
+  await p.tap('.dock button[data-x="diary"]');
+  check('R3-1: leaving the diary and coming back, the new page is there', await until(() => document.querySelector('[data-a="page-text"]')?.textContent === 'CANARY page two'));
+
+  // R3-1: a visit open across the boundary never writes over the day before's page
+  await h.open(p, 's=diary&t=03:30&age=18');
+  await shows(p, '[data-a="page-text"]');
+  await write('CANARY night page');
+  await until(() => window.harness.pages().some(e => e.body === 'CANARY night page'));
+  await p.evaluate(() => window.harness.moveClock(40));
+  check('R3-1: at the new day the page starts empty', await until(() => document.querySelector('[data-a="page-text"]')?.textContent === ''));
+  await write('CANARY morning page');
+  check("R3-1: a page written after the boundary is the new day's; the night's page keeps its words", await until(() => {
+    const all = window.harness.pages();
+    const night = all.find(e => e.body === 'CANARY night page'), morning = all.find(e => e.body === 'CANARY morning page');
+    return !!night && !!morning && night.date < morning.date;
+  }));
+  await h.open(p, 's=diary&t=03:30&age=18');
+  await shows(p, '[data-a="page-text"]');
+  await p.tap('[data-a="page-text"]');
+  await p.keyboard.type('CANARY still writing');
+  await p.evaluate(() => window.harness.moveClock(40));
+  check('R3-1: words still being typed as the day moves on are saved to their page', await until(() => window.harness.pages().some(e => e.body === 'CANARY still writing')));
+
+  // R3-5: a full phone; tonight's page, then another page opened from the index
+  await h.open(p, 's=diary&t=22:20');
+  await shows(p, '[data-a="page-text"]');
+  await p.evaluate(() => window.harness.fullPhone(true));
+  await p.tap('[data-a="page-text"]');
+  await p.keyboard.type('CANARY tonight');
+  await p.tap('[data-a="earlier"]');
+  check('R3-5: a refused page says so while its words are on screen', await until(() => document.querySelector('.diary .panel.note')?.textContent?.includes('Not saved')));
+  await p.locator('[data-a="earlier-list"] [data-a="page"]', { hasText: 'Yesterday' }).first().tap();
+  check("R3-5: yesterday's page opens with no words about tonight's", await until(() => document.querySelector('[data-a="page-text"]')?.textContent === 'CANARY page for day 16')
+    && (await p.locator('.diary .panel.note').count()) === 0);
+  await tryTap('[data-a="earlier"]');
+  check('R3-5: the index marks the page that is not saved yet', (await p.locator('[data-a="earlier-list"] .li', { hasText: 'not saved yet' }).count()) === 1);
+  await p.locator('[data-a="earlier-list"] button.li', { hasText: 'Today' }).first().tap();
+  check('R3-5: back on it, the refused page is in its field, with the not-saved words', await until(() => document.querySelector('[data-a="page-text"]')?.textContent === 'CANARY tonight')
+    && (await textOf('.diary .panel.note')).includes('Not saved'));
+  await p.evaluate(() => window.harness.fullPhone(false));
+  await p.tap('[data-a="page-text"]');
+  await p.tap('.diary .top .meta');
+  check('R3-5: with space again, the next tap saves it and the words go', await until(() => window.harness.pages().some(e => e.body === 'CANARY tonight'))
+    && await gone(p, '.diary .panel.note'));
+
+  // R3-5: a refused page, then a dock tab; held words go at a lock (RF1)
+  await h.open(p, 's=diary&t=22:20');
+  await shows(p, '[data-a="page-text"]');
+  await p.evaluate(() => window.harness.fullPhone(true));
+  await p.tap('[data-a="page-text"]');
+  await p.keyboard.type('CANARY dock page');
+  await p.tap('.dock button[data-x="today"]');
+  await shows(p, '.today');
+  await p.tap('.dock button[data-x="diary"]');
+  check('R3-5: a page refused as the dock was tapped comes back in its field, with the not-saved words', await until(() => document.querySelector('[data-a="page-text"]')?.textContent === 'CANARY dock page')
+    && (await textOf('.diary .panel.note')).includes('Not saved'));
+  await p.evaluate(() => window.harness.fullPhone(false));
+  await p.evaluate(() => window.harness.leave());
+  await p.evaluate(() => window.harness.resume());
+  await shows(p, '.lk-pass');
+  await p.fill('input.pass', PASSPHRASE);
+  await p.tap('[data-a="unlock"]');
+  await shows(p, '.today', 15000);
+  await p.tap('.dock button[data-x="diary"]');
+  await shows(p, '[data-a="page-text"]');
+  check('R3-5: words held for a visit are gone after a lock (RF1)', (await textOf('[data-a="page-text"]')) === '' && (await p.locator('.diary .panel.note').count()) === 0
+    && !(await pages()).some(e => e.body.includes('CANARY dock page')));
+
+  // R3-5: Not yet, refused, then back to the diary
+  await h.open(p, 's=notyet&t=22:30');
+  await shows(p, '.ny');
+  await p.tap('[data-a="ny-add"]');
+  await p.fill('[data-a="ny-text"]', 'CANARY later');
+  await p.evaluate(() => window.harness.fullPhone(true));
+  await p.tap('.ny [data-a="nav"][data-x="diary"]');
+  await shows(p, '.diary');
+  await p.tap('.diary .top [data-a="nav"][data-x="notyet"]');
+  check('R3-5: a Not yet item that was refused comes back in its field, with the not-saved words', await until(() => document.querySelector('[data-a="ny-text"]')?.value === 'CANARY later')
+    && (await textOf('.ny .panel.note')).includes('Not saved'));
+  await p.evaluate(() => window.harness.fullPhone(false));
+  if (await p.locator('[data-a="ny-text"]').count()) await p.press('[data-a="ny-text"]', 'Enter');
+  check('R3-5: with space again, Not yet keeps it and the words go', await until(() => [...document.querySelectorAll('[data-a="ny-item"]')].some(e => e.textContent?.includes('CANARY later')))
+    && (await p.locator('.ny .panel.note').count()) === 0);
+
+  // R3-5: a refusal that comes back after the screen was opened again still brings the words back
+  await h.open(p, 's=notyet&t=22:30');
+  await shows(p, '.ny');
+  await p.tap('[data-a="ny-add"]');
+  await p.fill('[data-a="ny-text"]', 'CANARY slow later');
+  await p.evaluate(() => window.harness.fullPhone(true, 1500));
+  await p.tap('.ny [data-a="nav"][data-x="diary"]');
+  await shows(p, '.diary');
+  await p.tap('.diary .top [data-a="nav"][data-x="notyet"]');
+  await shows(p, '.ny');
+  const before = await p.locator('[data-a="ny-text"]').count();
+  check('R3-5: a Not yet refusal answered after the screen came back still brings the words back', before === 0
+    && await until(() => document.querySelector('[data-a="ny-text"]')?.value === 'CANARY slow later'));
+  await h.open(p, 's=month&t=12:30&age=60&v=steady');
+  await shows(p, '.phone-only #mo-line');
+  await p.fill('.phone-only #mo-line', 'CANARY slow month line');
+  await p.evaluate(() => window.harness.fullPhone(true, 1500));
+  await p.tap('.dock button[data-x="look"]');
+  await p.tap('.panel.due');
+  await shows(p, '.phone-only #mo-line');
+  const empty = await valueOf('.phone-only #mo-line');
+  check("R3-5: a month line refused after the screen came back still comes back in its field", empty === ''
+    && await until(() => document.querySelector('.phone-only #mo-line')?.value === 'CANARY slow month line'));
+  await p.evaluate(() => window.harness.fullPhone(false));
+
+  // R3-5: the note for a bad night, refused, then back to Settings
+  await h.open(p, 's=support&t=13:00');
+  await shows(p, '[data-a="badnight"]');
+  await p.evaluate(() => window.harness.fullPhone(true));
+  await p.fill('[data-a="badnight"]', 'CANARY bad night');
+  await p.tap('[data-a="support-back"]');
+  await shows(p, '.settings');
+  await p.tap('[data-a="support"]');
+  check('R3-5: a refused note for a bad night comes back in its field, with the not-saved words', await until(() => document.querySelector('[data-a="badnight"]')?.value === 'CANARY bad night')
+    && (await textOf('[data-a="badnight-problem"]')).includes('out of space'));
+  await p.evaluate(() => window.harness.fullPhone(false));
+  await p.focus('[data-a="badnight"]');
+  await p.tap('h1');
+  await gone(p, '[data-a="badnight-problem"]');
+  await p.tap('[data-a="support-back"]');
+  await p.tap('[data-a="support"]');
+  check('R3-5: with space again, the note for a bad night is kept', await until(() => document.querySelector('[data-a="badnight"]')?.value === 'CANARY bad night')
+    && (await p.locator('[data-a="badnight-problem"]').count()) === 0);
+
+  // R3-5: the week's line, refused as Next takes it off screen
+  await h.open(p, 's=week&t=10:30');
+  await shows(p, '[data-a="wstep"]');
+  await p.tap('[data-a="wstep"]');
+  await p.fill('.phone-only #wk-line', 'CANARY week line');
+  await p.evaluate(() => window.harness.fullPhone(true));
+  await p.tap('[data-a="wstep"]');
+  await p.waitForTimeout(300);
+  check('R3-5: on the next card, nothing says the line is still here', !(await p.locator('#view').innerText()).includes('still here'));
+  await p.tap('.dock button[data-x="look"]');
+  await p.tap('[data-a="nav"][data-x="week"]');
+  await p.tap('[data-a="wstep"]');
+  check("R3-5: back on the week's questions, the refused line is in its field, with the not-saved words", await until(() => document.querySelector('.phone-only #wk-line')?.value === 'CANARY week line')
+    && (await textOf('.phone-only [data-a="held-note"]')).includes('Not saved'));
+  await p.evaluate(() => window.harness.fullPhone(false));
+  await p.tap('[data-a="wstep"]');
+  await tryTap('.phone-only [data-a="week-done"]');
+  await shows(p, '.hcard');
+  await tryTap('[data-a="nav"][data-x="week"]');
+  await tryTap('[data-a="wstep"]');
+  check("R3-5: That's the week takes the held line with it", await until(() => document.querySelector('.phone-only #wk-line')?.value === 'CANARY week line')
+    && (await p.locator('.phone-only [data-a="held-note"]').count()) === 0);
+
+  // R3-5: the month's line, refused as a dock tab leaves it
+  await h.open(p, 's=month&t=12:30&age=60&v=steady');
+  await shows(p, '.phone-only #mo-line');
+  await p.fill('.phone-only #mo-line', 'CANARY month line');
+  await p.evaluate(() => window.harness.fullPhone(true));
+  await p.tap('.dock button[data-x="look"]');
+  await p.tap('.panel.due');
+  check("R3-5: back on the month, the refused line is in its field, with the not-saved words", await until(() => document.querySelector('.phone-only #mo-line')?.value === 'CANARY month line')
+    && (await textOf('.phone-only [data-a="held-note"]')).includes('Not saved'));
+  await p.evaluate(() => window.harness.fullPhone(false));
+}
+
 // Plan
 {
   const p = await h.page(PHONE, errors);

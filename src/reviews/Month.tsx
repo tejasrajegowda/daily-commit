@@ -1,15 +1,17 @@
 import { useMemo, useState } from 'react';
-import { resultWords, useApp, useModel, useNav, useToday } from '../app/context.ts';
+import { resultWords, useApp, useHeld, useModel, useNav, useToday } from '../app/context.ts';
 import { settleHabit } from '../record/ops/habits.ts';
 import { saveReview } from '../record/ops/reviews.ts';
 import { rulesInput } from '../record/read.ts';
 import { datesFrom } from '../rules/dates.ts';
 import { lookup, stateOf } from '../rules/state.ts';
+import { Answer } from './Answer.tsx';
 import { monthView } from './reviewView.ts';
 
 // The monthly review, from day 60: the month in words, what seemed to go well together (only good
 // pairings, only with eight days on each side, never as a cause), and the offer to stop asking
-// about a habit that has been steady for eight weeks.
+// about a habit that has been steady for eight weeks. A line whose save didn't go through is held for
+// the visit and comes back in its field, and goes with "That's the month".
 
 const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const short = (date: string) => { const d = new Date(`${date}T00:00:00Z`); return `${d.getUTCDate()} ${MON3[d.getUTCMonth()]}`; };
@@ -18,6 +20,7 @@ const CLS: Record<string, string> = { did: 'd', partly: 'p', planned: 'pl', noth
 export function Month() {
   const { store } = useApp();
   const { go } = useNav();
+  const held = useHeld();
   const model = useModel();
   const today = useToday();
   const [settled, setSettled] = useState<'yes' | 'no' | undefined>(undefined);
@@ -45,6 +48,13 @@ export function Month() {
     setNote(resultWords(result));
     return result.kind === 'Saved';
   };
+  const heldKey = `month:${v.first}:line`;
+  const kept = held.get(heldKey);
+  // the line goes in on leaving its field; one that isn't the record's any more is held, not lost
+  const answer = (text: string) => {
+    if (text === (saved?.answers.line ?? '')) { held.drop(heldKey); return; }
+    void held.keep(heldKey, text, () => store.run(c => saveReview(c, { period: 'month', start: v.first, answers: { ...saved?.answers, line: text }, close: false })));
+  };
   const days = datesFrom(v.from, v.to);
   const settle = v.settle;
   const settlePanel = settled === 'yes' && settle === undefined
@@ -66,11 +76,15 @@ export function Month() {
       ) : null;
   const line = (
     <div className="group" style={{ marginTop: 0 }}><label className="eb field-l" htmlFor="mo-line">One line for {v.name}, in your own words</label>
-      <textarea id="mo-line" key={v.first} className="field" rows={3} placeholder={`${v.name} was…`} defaultValue={saved?.answers.line ?? ''}
-        onBlur={e => { if (e.currentTarget.value !== (saved?.answers.line ?? '')) void save({ line: e.currentTarget.value }); }} /></div>
+      <Answer id="mo-line" key={v.first} rows={3} placeholder={`${v.name} was…`} saved={saved?.answers.line ?? ''} held={kept?.text} onLeave={answer} />
+      {kept && <div className="panel note" data-a="held-note" style={{ marginTop: 10 }}><p className="eb">{kept.note.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{kept.note.text}</p></div>}</div>
   );
   const notePanel = note && <div className="panel note"><p className="eb">{note.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{note.text}</p></div>;
-  const finish = <button type="button" className="btn btn--primary wide" data-a="month-done" onClick={async () => { if (await save({}, true)) go('look'); }}>That's the month</button>;
+  const finish = <button type="button" className="btn btn--primary wide" data-a="month-done" onClick={async () => {
+    if (!await save(kept ? { line: kept.text } : {}, true)) return;
+    held.drop(heldKey);
+    go('look');
+  }}>That's the month</button>;
 
   return (
     <div className="scr scr-2">

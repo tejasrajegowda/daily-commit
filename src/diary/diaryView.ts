@@ -19,6 +19,16 @@ export function todaysPage(model: Model, today: LocalDate): EntryRecord | undefi
   return pages(model).find(e => e.date === today);
 }
 
+/**
+ * Whether a new page's id, made on `made`, can still take today's new page. Not once that page is in
+ * the trash (a save to it would be refused), and not once the day has moved on (it would land on
+ * the day before's page): a new page then gets a new id.
+ */
+export function freshStill(model: Model, fresh: { readonly id: string; readonly made: LocalDate | undefined }, today: LocalDate): boolean {
+  const page = model.entries.get(fresh.id);
+  return fresh.made === today && (page === undefined || (page.trashedAt === undefined && page.date === today));
+}
+
 /** Pages and Not-yet items waiting in the trash, with the day their words go. */
 export function inTrash<T extends EntryRecord | NotYetRecord>(items: Iterable<T>): { readonly item: T; readonly goneAt: number }[] {
   return [...items].filter(x => x.trashedAt !== undefined).map(item => ({ item, goneAt: (item.trashedAt ?? 0) + TRASH_MS }));
@@ -59,4 +69,5 @@ export const DIARY_WORDS = {
   trashYes: 'Move to trash',
   trashNo: 'Keep it',
   notYetIntro: "Things you're thinking about. Nothing here is tracked, counted, scheduled or brought up by the app.",
+  notSaved: 'not saved yet',
 } as const;

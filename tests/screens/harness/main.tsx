@@ -9,6 +9,7 @@ import type { AppDeps, DevicePort, Nav, ScreenId, UnlockHow } from '../../../src
 import { memoryFiles } from '../../../src/device/browser.ts';
 import { openRecord, type RecordCore, type WriteSpec } from '../../../src/record/core.ts';
 import { openDb } from '../../../src/record/db.ts';
+import { quotaFull, type Result } from '../../../src/record/results.ts';
 import { exportBackup } from '../../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../../src/record/backup/format.ts';
 import { LATEST } from '../../../src/record/backup/snapshot.ts';
@@ -46,6 +47,10 @@ export interface HarnessControls {
   failCheck(): void;
   /** the next write to the record throws, as a storage fault other than a full phone would, so the screen must say so itself */
   failWrite(): void;
+  /** from now on (or no longer) every write is refused as a full phone refuses it, the refusal coming back after `after` ms */
+  fullPhone(on: boolean, after?: number): void;
+  /** the invented record's diary pages: their day, their words, and whether they are in the trash */
+  pages(): readonly { readonly date: string; readonly body: string; readonly trashed: boolean }[];
   /** the clock moves on by this many minutes, and the screens draw again as they do at each new minute */
   moveClock(minutes: number): void;
   /** the words the invented record holds for a day number: the morning intent and the evening remark */
@@ -100,9 +105,11 @@ async function deleteDb(name: string): Promise<void> {
 }
 
 /** Wraps a record core so a flow can make its next write throw something other than quota-full,
- * the way an aborted transaction or a closed connection would. */
-function failableCore(core: RecordCore): { readonly core: RecordCore; failNext(): void } {
+ * the way an aborted transaction or a closed connection would, or refuse every write as a full phone does. */
+function failableCore(core: RecordCore): { readonly core: RecordCore; failNext(): void; full(on: boolean, after?: number): void } {
   let failing = false;
+  let full = false;
+  let refusedAfter = 50;
   return {
     core: {
       db: core.db,
@@ -114,12 +121,15 @@ function failableCore(core: RecordCore): { readonly core: RecordCore; failNext()
       lock: core.lock,
       write<T>(spec: WriteSpec<T>) {
         if (failing) { failing = false; return Promise.reject(new Error('CANARY-TEST injected write failure')); }
+        // the refusal comes back from storage a moment later, as a real one does, not within the tap
+        if (full) return new Promise<Result<T>>(done => setTimeout(() => done(quotaFull<T>()), refusedAfter));
         return core.write(spec);
       },
       serial: core.serial,
       commit: core.commit,
     },
     failNext: () => { failing = true; },
+    full: (on, after = 50) => { full = on; refusedAfter = after; },
   };
 }
 
@@ -213,7 +223,7 @@ async function start(): Promise<void> {
   let refusing = false;
   const plugin: DevicePort['plugin'] = { ...phone.plugin, enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)) };
   const { device, leave, resume, failCopy } = harnessDevice(plugin);
-  const { core: writable, failNext: failWrite } = failableCore(core);
+  const { core: writable, failNext: failWrite, full: fullPhone } = failableCore(core);
   // the harness's time stands still, so its minute clock ticks only when a flow moves the clock on
   let tick = () => {};
   const assembled = assemble(writable, device);
@@ -237,6 +247,8 @@ async function start(): Promise<void> {
     cancelPrompt: () => phone.cancelNext(),
     failCheck: () => phone.lieNext('not-a-key'),
     failWrite,
+    fullPhone,
+    pages: () => [...(core.session?.model.entries.values() ?? [])].map(e => ({ date: e.date, body: e.body, trashed: e.trashedAt !== undefined })),
     moveClock: minutes => {
       if (!setNow) throw new Error('harness: this state has no clock to move');
       setNow(core.now() + minutes * 60_000);

@@ -17,8 +17,9 @@ import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
-import { AppContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
+import { AppContext, HeldContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
+import { heldWords } from './heldWords.ts';
 import { PausedGate } from './Paused.tsx';
 import { readBackupFile } from './restoreSteps.ts';
 import { displayOf } from './yourData.ts';
@@ -88,6 +89,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   const [passphraseOnly, setPassphraseOnly] = useState(false);
   const [byCode, setByCode] = useState(false);          // the recovery code in place of the passphrase, kept across a failed try
   const [writing, setWriting] = useState(false);
+  const [held] = useState(heldWords);                    // words whose save didn't go through, for this visit only
   const offered = useRef<readonly DeviceMode[]>([]);
   if (state.kind === 'Locked' && state.offered !== undefined) offered.current = state.offered;
 
@@ -107,6 +109,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
 
   useEffect(() => machine.listen(next => {
     store.changed();
+    if (next.kind !== 'Open') held.clear();             // held words never outlast the visit they were typed in
     if (next.kind === 'Open') {
       lock.clear();
       setPassphraseOnly(false);
@@ -119,7 +122,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
       setFlow(undefined);
       setNav(HOME);                                      // nothing that was open on screen survives a lock
     }
-  }), [machine, store, lock]);
+  }), [machine, store, lock, held]);
 
   useEffect(() => {
     void displayOf(deps).then(applyDisplay, () => {});   // this device's contrast and dimming, before unlock
@@ -192,9 +195,11 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   return (
     <AppContext.Provider value={deps}>
       <NavContext.Provider value={navValue}>
-        <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
-          {body}
-        </Frame>
+        <HeldContext.Provider value={held}>
+          <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
+            {body}
+          </Frame>
+        </HeldContext.Provider>
       </NavContext.Provider>
     </AppContext.Provider>
   );

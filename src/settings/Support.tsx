@@ -1,24 +1,30 @@
 import { useState } from 'react';
-import { resultWords, useApp, useModel, useNav } from '../app/context.ts';
+import { resultWords, useApp, useHeld, useModel, useNav } from '../app/context.ts';
 import { setSetting } from '../record/ops/settings.ts';
 import { I } from '../ui/icons.tsx';
 import { SUPPORT_WORDS as W } from './settingsWords.ts';
 
 // Support: always in the same place, never highlighted, never triggered by anything logged. The
 // helplines, someone you trust and a note for a bad night, both kept under the words key and shown
-// only here. The app never contacts anyone.
+// only here. The app never contacts anyone. A note whose save didn't go through is held for the
+// visit and comes back in its field.
+
+const HELD = 'support:badNightNote';
 
 export function Support() {
   const { store } = useApp();
+  const held = useHeld();
   const model = useModel();
   const { go } = useNav();
+  const kept = held.get(HELD);
   const [editingContact, setEditingContact] = useState(false);
   const [contact, setContact] = useState<string | undefined>(undefined);
   const [note, setNote] = useState<string | undefined>(undefined);
   const [problem, setProblem] = useState<string | undefined>(undefined);
   if (!model) return null;
   const s = model.settings;
-  const save = async (name: 'contact' | 'badNightNote', value: string) => {
+  const noteNow = note ?? kept?.text ?? s.badNightNote ?? '';
+  const save = async (name: 'contact', value: string) => {
     const r = await store.run(c => setSetting(c, name, value.trim()));
     setProblem(resultWords(r)?.text);
     return r.kind === 'Saved';
@@ -53,9 +59,13 @@ export function Support() {
           <div className="panel">
             <p className="eb">A note for a bad night</p>
             <textarea className="field" rows={3} style={{ marginTop: 12 }} data-a="badnight" aria-label="A note for a bad night" placeholder={W.notePlaceholder}
-              value={note ?? s.badNightNote ?? ''} onChange={e => setNote(e.currentTarget.value)}
-              onBlur={() => { if (note !== undefined && note.trim() !== (s.badNightNote ?? '')) void save('badNightNote', note); }} />
+              value={noteNow} onChange={e => setNote(e.currentTarget.value)}
+              onBlur={() => {
+                if (noteNow.trim() === (s.badNightNote ?? '')) held.drop(HELD);
+                else void held.keep(HELD, noteNow, () => store.run(c => setSetting(c, 'badNightNote', noteNow.trim())));
+              }} />
             <p className="meta" style={{ margin: '10px 4px 0' }}>{W.noteMeta}</p>
+            {kept && <p className="meta" data-a="badnight-problem" style={{ margin: '10px 4px 0' }}>{kept.note.text}</p>}
           </div>
           {problem && <p className="meta" data-a="support-problem">{problem}</p>}
         </div>
