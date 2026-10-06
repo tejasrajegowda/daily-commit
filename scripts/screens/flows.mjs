@@ -503,6 +503,42 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await shows(q, '[data-a="editor"]');
   await q.click('.slot[data-x="h-walk"]');
   check('Plan, laptop: selecting switches the editor', await q.waitForFunction(() => document.querySelector('main [data-a="editor"] h2')?.textContent === 'Walk', null, { timeout: 8000 }).then(() => true, () => false));
+
+  // R2-6: Focus/Log buttons save at once, and the editor shows the change instead of looking stuck
+  await h.open(p, 's=plan&t=13:00');
+  await p.tap('.slot[data-x="h-walk"]');
+  await shows(p, '.sheet [data-a="editor"]');
+  await p.tap('.sheet [data-a="tier"][data-x="log"]');
+  check('R2-6: tapping Log in the editor moves the segment at once', await until(() =>
+    document.querySelector('.sheet [data-a="tier"][data-x="log"]')?.classList.contains('on')
+    && !document.querySelector('.sheet [data-a="tier"][data-x="focus"]')?.classList.contains('on')));
+  check('R2-6: the words under it follow, too', (await p.locator('.sheet .fgrp:has-text("Tier") .meta').innerText()) === 'Log is kept and never scored.');
+  await p.tap('.sheet [data-a="plan-x"]');
+  check("R2-6: Cancel never pretended to undo a save that already happened — Walk left Focus for good",
+    (await p.locator('.slot[data-x="h-walk"]').count()) === 0 && (await p.locator('.pl-log .nm').allInnerTexts()).includes('Walk'));
+
+  // R2-11: on a laptop, Cancel discards edits in the editor shown by default (nothing explicitly chosen)
+  await h.open(q, 's=plan&t=13:00');
+  await shows(q, '[data-a="editor"]');
+  check('R2-11: the default editor is the first Focus habit', (await q.inputValue('#h-name')) === 'Wake up');
+  await q.fill('#h-name', 'CANARY-TEST changed name');
+  await q.click('main [data-a="plan-x"]');
+  check('R2-11: Cancel discards the typed name', await q.waitForFunction(
+    () => document.querySelector('#h-name')?.value === 'Wake up', null, { timeout: 8000 }).then(() => true, () => false));
+
+  // R2-12: "Bring back" with Focus full says why, instead of a dead-end refusal
+  await h.open(p, 's=plan&v=retired&t=13:00');
+  await shows(p, '.slots');
+  check('R2-12: Read moved into the slot Walk left', (await p.locator('.slot .nm').allInnerTexts()).includes('Read'));
+  check('R2-12: Walk sits in Retired', await shows(p, '[data-a="edit"][data-x="h-walk"]')
+    && (await p.locator('.group:has-text("Retired") .nm').innerText()) === 'Walk');
+  await p.tap('[data-a="edit"][data-x="h-walk"]');
+  await shows(p, '.sheet [data-a="editor"]');
+  await p.tap('[data-a="return"]');
+  check("R2-12: Bring back with Focus full says why, not 'Something in it can't be saved'",
+    await until(() => document.querySelector('.sheet .panel.note .eb')?.textContent === 'Back in Log')
+    && (await p.locator('.sheet .panel.note .body').innerText()).includes('Focus is full'));
+  check('R2-12: it really did go to Log — the segment shows it', (await p.locator('.sheet [data-a="tier"][data-x="log"].on').count()) === 1);
 }
 
 // Settings

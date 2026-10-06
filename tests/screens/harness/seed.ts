@@ -4,8 +4,8 @@
 // once it is closed.
 import { openRecord, type RecordCore } from '../../../src/record/core.ts';
 import type { RecordDb } from '../../../src/record/db.ts';
-import { dayToParts, entryToParts, observationToParts } from '../../../src/record/mapping.ts';
-import type { DayRecord, ObservationRecord, Settings } from '../../../src/record/model.ts';
+import { dayToParts, entryToParts, habitToParts, observationToParts } from '../../../src/record/mapping.ts';
+import type { DayRecord, HabitRecord, ObservationRecord, Settings } from '../../../src/record/model.ts';
 import { storedRow } from '../../../src/record/ops/common.ts';
 import { firstRun } from '../../../src/record/ops/firstRun.ts';
 import { createHabit, type NewHabit } from '../../../src/record/ops/habits.ts';
@@ -104,6 +104,24 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
     if (startDay > state.day) continue;
     const made = await createHabit(core, { ...h, startedOn: dateOfDay(startDay, state.start) });
     if (made.kind !== 'Saved') throw new Error(`habit ${h.id}: ${made.kind}`);
+  }
+
+  // v=retired (Plan): Walk (Focus) retired a week ago and Read moved into its slot, so Focus is
+  // full by the time the screen draws — the scenario "Bring back" with no room runs into. "Today
+  // never goes backwards" (record/time.ts) rules out backdating this through the real ops once
+  // first run has stamped the target day, so the already-retired, already-swapped rows are written
+  // directly, the same way the history below is.
+  if (state.variant === 'retired' && state.day > 8) {
+    const walk = core.session?.model.habits.get('h-walk');
+    const read = core.session?.model.habits.get('h-read');
+    if (!walk || !read) throw new Error('harness retired variant: h-walk or h-read missing');
+    const movedOn = dateOfDay(state.day - 6, state.start);
+    const retiredWalk: HabitRecord = { ...walk, periods: [{ from: walk.periods[0]?.from ?? movedOn, until: movedOn }] };
+    const focusRead: HabitRecord = { ...read, tierHistory: [...read.tierHistory, { tier: 'focus', from: movedOn }] };
+    await db.habits.bulkPut([
+      await storedRow(cipher, 'habits', habitToParts(retiredWalk), stamp),
+      await storedRow(cipher, 'habits', habitToParts(focusRead), stamp),
+    ] as never[]);
   }
 
   const next = generator(7);

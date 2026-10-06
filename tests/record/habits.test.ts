@@ -79,7 +79,7 @@ test('retiring keeps today\'s log, and coming back the same day simply undoes it
   assert.deepEqual(retired.periods, [{ from: '2026-01-05', until: '2026-01-06' }]);
   assert.equal(stateOf(retired, { habitId: 'h-walk', date: '2026-01-05', value: 'did' }, '2026-01-05'), 'did');
   assert.equal(stateOf(retired, undefined, '2026-01-06'), 'outside');
-  assert.equal((await returnHabit(core, { id: 'h-walk' })).kind, 'Saved');
+  assert.deepEqual(await returnHabit(core, { id: 'h-walk' }), { kind: 'Saved', value: { into: 'focus', focusFull: false } });
   assert.deepEqual(core.session?.model.habits.get('h-walk')?.periods, [{ from: '2026-01-05' }]);
 });
 
@@ -88,7 +88,7 @@ test('coming back days later adds a new period; the days away are outside it, ne
   await createHabit(core, walk());
   await retireHabit(core, { id: 'h-walk' });
   clock.set('2026-01-09T09:00:00Z');
-  assert.equal((await returnHabit(core, { id: 'h-walk' })).kind, 'Saved');
+  assert.deepEqual(await returnHabit(core, { id: 'h-walk' }), { kind: 'Saved', value: { into: 'focus', focusFull: false } });
   const h = core.session?.model.habits.get('h-walk');
   assert.ok(h);
   assert.deepEqual(h.periods, [{ from: '2026-01-05', until: '2026-01-06' }, { from: '2026-01-09' }]);
@@ -127,7 +127,8 @@ test('Focus never holds more than three habits in the plan on any day: retiring,
   assert.equal((await createHabit(core, walk({ id: 'h-d' }))).kind, 'Invalid', 'a retiring habit still counts today');
   clock.set('2026-01-08T09:00:00Z');                                            // h-a is out of the plan now
   assert.equal((await createHabit(core, walk({ id: 'h-d' }))).kind, 'Saved');
-  assert.equal((await returnHabit(core, { id: 'h-a' })).kind, 'Invalid', 'coming back in Focus would make four');
+  assert.deepEqual(await returnHabit(core, { id: 'h-a' }), { kind: 'Saved', value: { into: 'log', focusFull: true } }, 'Focus full: comes back into Log instead');
+  assert.equal(core.session?.model.habits.get('h-a')?.tierHistory.at(-1)?.tier, 'log');
   assert.equal((await createHabit(core, walk({ id: 'h-e', tier: 'log', startedOn: '2026-01-05' }))).kind, 'Saved');
   assert.equal((await createHabit(core, walk({ id: 'h-f', startedOn: '2026-01-05' }))).kind, 'Invalid', 'a backdated Focus habit would make four on past days');
   assert.equal((await editHabit(core, { id: 'h-d', startedOn: '2026-01-05' })).kind, 'Invalid', 'moving a Focus habit\'s start earlier would make four');

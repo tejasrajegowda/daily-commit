@@ -192,15 +192,33 @@ export function retireHabit(core: RecordCore, input: { readonly id: string; read
   });
 }
 
-export function returnHabit(core: RecordCore, input: { readonly id: string; readonly sheet?: Sheet }): Promise<Result<void>> {
-  return changeHabit(core, input.id, input.sheet, (h, today, model) => {
-    const last = h.periods.at(-1);
-    if (!last || last.until === undefined) return invalid('not retired');
-    // back before a day was missed: the retire is simply undone
-    const next: HabitRecord = last.until >= today
-      ? { ...h, periods: [...h.periods.slice(0, -1), { from: last.from }] }
-      : { ...h, periods: [...h.periods, { from: today }] };
-    return tooManyInFocus(model, next, today, today) ?? next;
+/**
+ * Brings a retired habit back. Focus already holding three: rather than refuse, the habit comes
+ * back into Log instead, with the move said so, so a Focus slot freed for it isn't a dead end.
+ */
+export function returnHabit(core: RecordCore, input: { readonly id: string; readonly sheet?: Sheet }): Promise<Result<{ readonly into: Tier; readonly focusFull: boolean }>> {
+  return core.write({
+    tables: ['habits'],
+    async prepare(s, stamp) {
+      const h = s.model.habits.get(input.id);
+      if (!h) return invalid('no such habit');
+      const last = h.periods.at(-1);
+      if (!last || last.until === undefined) return invalid('not retired');
+      const { today } = judgedNow(core, s, input.sheet);
+      // back before a day was missed: the retire is simply undone
+      const reopened: HabitRecord = last.until >= today
+        ? { ...h, periods: [...h.periods.slice(0, -1), { from: last.from }] }
+        : { ...h, periods: [...h.periods, { from: today }] };
+      const focusFull = tierOn(h, today) === 'focus' && tooManyInFocus(s.model, reopened, today, today) !== undefined;
+      const next = focusFull ? { ...reopened, tierHistory: withEntry(h.tierHistory, { tier: 'log' as const, from: today }, sameTier) } : reopened;
+      const problem = habitProblem(next, s.model.settings.boundary);
+      if (problem) return invalid(problem);
+      return {
+        puts: [{ table: 'habits', row: await storedRow(s.cipher, 'habits', habitToParts(next), stamp) }],
+        apply: m => { m.habits.set(next.id, next); },
+        value: { into: tierOn(next, today) ?? 'log', focusFull },
+      };
+    },
   });
 }
 

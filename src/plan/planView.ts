@@ -111,4 +111,5 @@ export const PLAN_WORDS = {
   privateOff: 'Without it, the words appear in the notification, and Android keeps them in its notification history.',
   nudge: 'A reminder only nudges: it asks nothing, is never repeated, and stays quiet between lights out and waking.',
   retire: 'Every day it was logged stays in Look back.',
+  backInLog: 'Focus is full, so it came back into Log. It can move to Focus once a slot is free.',
 } as const;

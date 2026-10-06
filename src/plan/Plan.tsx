@@ -42,12 +42,15 @@ export function Plan() {
   const { go } = useNav();
   const [editing, setEditing] = useState<string | 'new' | undefined>(undefined);
   const [newId, setNewId] = useState(() => core.newId());
+  const [resetAt, setResetAt] = useState(0);
   if (!model || !today) return null;
   const lists = planLists(model, today);
   const shapes = shapesOf(model.settings);
   const chosen = editing === 'new' ? undefined : editing ? model.habits.get(editing) : wide ? lists.focus.find(Boolean) ?? lists.log[0] : undefined;
   const filled = lists.focus.filter(Boolean).length;
   const open = (id: string | 'new') => setEditing(id);
+  // Cancel discards edits by remounting the editor, even one shown by default with nothing chosen
+  const cancel = () => { setEditing(undefined); setResetAt(n => n + 1); };
 
   const list = (
     <>
@@ -92,8 +95,8 @@ export function Plan() {
   );
 
   const editor = (editing !== undefined || (wide && chosen)) && (
-    <Editor key={chosen?.id ?? newId} habit={chosen} newId={newId} today={today} focusFull={filled >= 3}
-      onDone={() => setEditing(undefined)} store={store} model={model} />
+    <Editor key={`${chosen?.id ?? newId}-${resetAt}`} habit={chosen} newId={newId} today={today} focusFull={filled >= 3}
+      onSaved={() => setEditing(undefined)} onCancel={cancel} store={store} model={model} />
   );
 
   return (
@@ -105,7 +108,7 @@ export function Plan() {
       </div>
       {!wide && editing !== undefined && (
         <Layer>
-          <div className="scrim" data-a="plan-x" onClick={() => setEditing(undefined)} />
+          <div className="scrim" data-a="plan-x" onClick={cancel} />
           <div className="sheet" role="dialog" aria-label="Edit habit"><div className="grab" />{editor}</div>
         </Layer>
       )}
@@ -115,7 +118,8 @@ export function Plan() {
 
 function Editor(p: {
   readonly habit: HabitRecord | undefined; readonly newId: string; readonly today: string; readonly focusFull: boolean;
-  readonly store: ReturnType<typeof useApp>['store']; readonly model: NonNullable<ReturnType<typeof useModel>>; onDone(): void;
+  readonly store: ReturnType<typeof useApp>['store']; readonly model: NonNullable<ReturnType<typeof useModel>>;
+  onSaved(): void; onCancel(): void;
 }) {
   const { habit, today, store, model } = p;
   const [form, setForm] = useState<HabitForm>(habit ? formOf(habit, today) : EMPTY_FORM);
@@ -133,7 +137,14 @@ function Editor(p: {
     setProblems(wrong);
     if (wrong.length) return;
     const ok = habit ? await run(c => editHabit(c, changeOf(form, habit))) : await run(c => createHabit(c, newHabitOf(form, p.newId)));
-    if (ok) p.onDone();
+    if (ok) p.onSaved();
+  };
+  const bringBack = async () => {
+    if (!habit) return;
+    const result = await store.run(c => returnHabit(c, { id: habit.id }));
+    if (result.kind !== 'Saved') { setNote(resultWords(result)); return; }
+    set({ tier: result.value.into });
+    setNote(result.value.focusFull ? { title: 'Back in Log', text: PLAN_WORDS.backInLog } : undefined);
   };
   const cues = habit ? [...model.cues.values()].filter(c => c.habitId === habit.id) : [];
   const retired = habit !== undefined && habit.periods.at(-1)?.until !== undefined;
@@ -196,22 +207,22 @@ function Editor(p: {
       )}
       <div className="fgrp"><label className="eb field-l">Tier</label>
         {habit
-          ? <div className="seg"><button type="button" className={isFocus ? 'on' : ''} disabled={!isFocus && p.focusFull} onClick={() => { if (!isFocus) void run(c => swapFocus(c, { into: habit.id })); }}>Focus</button>
-              <button type="button" className={isFocus ? '' : 'on'} onClick={() => { if (isFocus) void run(c => swapFocus(c, { out: habit.id })); }}>Log</button></div>
-          : <div className="seg"><button type="button" className={isFocus ? 'on' : ''} disabled={p.focusFull} onClick={() => set({ tier: 'focus' })}>Focus</button>
-              <button type="button" className={isFocus ? '' : 'on'} onClick={() => set({ tier: 'log' })}>Log</button></div>}
+          ? <div className="seg"><button type="button" data-a="tier" data-x="focus" className={isFocus ? 'on' : ''} disabled={!isFocus && p.focusFull} onClick={() => { if (!isFocus) void run(c => swapFocus(c, { into: habit.id })).then(ok => { if (ok) set({ tier: 'focus' }); }); }}>Focus</button>
+              <button type="button" data-a="tier" data-x="log" className={isFocus ? '' : 'on'} onClick={() => { if (isFocus) void run(c => swapFocus(c, { out: habit.id })).then(ok => { if (ok) set({ tier: 'log' }); }); }}>Log</button></div>
+          : <div className="seg"><button type="button" data-a="tier" data-x="focus" className={isFocus ? 'on' : ''} disabled={p.focusFull} onClick={() => set({ tier: 'focus' })}>Focus</button>
+              <button type="button" data-a="tier" data-x="log" className={isFocus ? '' : 'on'} onClick={() => set({ tier: 'log' })}>Log</button></div>}
         <p className="meta" style={{ margin: '2px 4px 0' }}>{isFocus ? PLAN_WORDS.focus : PLAN_WORDS.log}</p></div>
       {habit && (
         <div className="fgrp"><div className="hold">
           <span><span className="body" style={{ display: 'block', color: 'var(--ink-1)' }}>{retired ? `Bring back ${habit.name.toLowerCase()}` : `Retire ${habit.name.toLowerCase()}`}</span><span className="meta">{PLAN_WORDS.retire}</span></span>
           <button type="button" className="btn btn--secondary" data-a={retired ? 'return' : 'retire'} style={{ minHeight: 40 }}
-            onClick={() => void run(c => (retired ? returnHabit(c, { id: habit.id }) : retireHabit(c, { id: habit.id })))}>{retired ? 'Bring back' : 'Retire'}</button>
+            onClick={() => { if (retired) void bringBack(); else void run(c => retireHabit(c, { id: habit.id })); }}>{retired ? 'Bring back' : 'Retire'}</button>
         </div></div>
       )}
       {problems.length > 0 && <div className="panel note" data-a="form-problems" style={{ marginTop: 12 }}><p className="body" style={{ margin: 0 }}>{problems.join(' ')}</p></div>}
       {note && <div className="panel note" style={{ marginTop: 12 }}><p className="eb">{note.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{note.text}</p></div>}
       <div className="actions" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 18 }}>
-        <button type="button" className="btn btn--secondary" data-a="plan-x" onClick={p.onDone}>Cancel</button>
+        <button type="button" className="btn btn--secondary" data-a="plan-x" onClick={p.onCancel}>Cancel</button>
         <button type="button" className="btn btn--primary" data-a="plan-save" onClick={() => void save()}>Save</button>
       </div>
     </div>
