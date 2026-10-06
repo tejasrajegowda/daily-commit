@@ -17,9 +17,10 @@ import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
-import { AppContext, HeldContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
+import { AppContext, HeldContext, LeaveContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
 import { heldWords } from './heldWords.ts';
+import { leaveSaves } from './leaveSaves.ts';
 import { PausedGate } from './Paused.tsx';
 import { readBackupFile } from './restoreSteps.ts';
 import { displayOf } from './yourData.ts';
@@ -90,6 +91,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   const [byCode, setByCode] = useState(false);          // the recovery code in place of the passphrase, kept across a failed try
   const [writing, setWriting] = useState(false);
   const [held] = useState(heldWords);                    // words whose save didn't go through, for this visit only
+  const [saves] = useState(leaveSaves);                  // the saves of fields still being written in, run at a leave
   const offered = useRef<readonly DeviceMode[]>([]);
   if (state.kind === 'Locked' && state.offered !== undefined) offered.current = state.offered;
 
@@ -139,6 +141,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
 
   useEffect(() => {
     const stopLeave = device.onLeave(() => {
+      saves.run();                                       // words still in a field are queued before the lock is
       // a leave from the lock screen forgets it too: the note, a wrong code before, the way chosen
       lock.clear();
       setPassphraseOnly(false);
@@ -147,7 +150,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     });
     const stopResume = device.onResume(() => void machine.resume());
     return () => { stopLeave(); stopResume(); };
-  }, [device, machine, lock]);
+  }, [device, machine, lock, saves]);
 
   useEffect(() => {
     if (hasVault) void machine.resume();                 // asks the phone which ways to open it are there
@@ -176,7 +179,10 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     }
   };
   // the rail's Lock: the app stays in front, so once locked it asks the phone again and the lock screen shows
-  const leave = () => void machine.leave().then(() => machine.resume());
+  const leave = () => {
+    saves.run();
+    void machine.leave().then(() => machine.resume());
+  };
   const onNav = (to: Section | 'settings') => navValue.go(to);
 
   const screen = screenOf(state);
@@ -196,9 +202,11 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     <AppContext.Provider value={deps}>
       <NavContext.Provider value={navValue}>
         <HeldContext.Provider value={held}>
-          <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
-            {body}
-          </Frame>
+          <LeaveContext.Provider value={saves}>
+            <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
+              {body}
+            </Frame>
+          </LeaveContext.Provider>
         </HeldContext.Provider>
       </NavContext.Provider>
     </AppContext.Provider>

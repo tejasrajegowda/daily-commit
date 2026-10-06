@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { resultWords, useApp, useClockMinute, useHeld, useModel, useNav, useToday } from '../app/context.ts';
+import { resultWords, useApp, useClockMinute, useHeld, useModel, useNav, useSaveAtLeave, useToday } from '../app/context.ts';
 import type { RecordCore } from '../record/core.ts';
 import type { Result } from '../record/results.ts';
 import { restoreEntry, saveEntry, trashEntry } from '../record/ops/words.ts';
@@ -145,7 +145,7 @@ export function Diary() {
 /**
  * The page being written. It belongs to one page (its key is the page's id), and words still in it
  * when it goes away (another page opened, the day moving on) are saved to that page: React never
- * calls a removed field's blur.
+ * calls a removed field's blur. Words in it when the app is left are saved before the lock.
  */
 function PageField(p: { readonly text: string; save(text: string): void }) {
   const field = useRef<HTMLDivElement>(null);
@@ -157,6 +157,7 @@ function PageField(p: { readonly text: string; save(text: string): void }) {
   }, [p.text]);
   useEffect(() => () => { if (typed.current !== undefined) latest.current.save(typed.current); }, []);
   const read = () => (typed.current = field.current?.innerText.replace(/\n+$/, '') ?? '');
+  useSaveAtLeave(field, () => latest.current.save(read()));
   return (
     <div ref={field} className="page" contentEditable suppressContentEditableWarning spellCheck data-ph="Today was…" data-a="page-text"
       role="textbox" aria-multiline="true" aria-label="Diary page" onInput={read} onBlur={() => p.save(read())} />

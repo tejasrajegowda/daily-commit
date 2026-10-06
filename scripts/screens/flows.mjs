@@ -869,6 +869,50 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.evaluate(() => window.harness.fullPhone(false));
 }
 
+// R3-6: the app is left while a field still has focus (the screen going off mid-sentence, before
+// any blur): what is in the field is saved before the lock, and is there after an unlock (invented words only)
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  const leaveAndUnlock = async () => {
+    await p.evaluate(() => window.harness.leave());
+    const blank = await gone(p, '.scr', 3000);
+    await p.evaluate(() => window.harness.resume());
+    await shows(p, '.lk-pass');
+    await p.fill('input.pass', PASSPHRASE);
+    await p.tap('[data-a="unlock"]');
+    return blank && await shows(p, '.today', 15000);
+  };
+
+  await h.open(p, 's=diary&t=22:20');
+  await shows(p, '[data-a="page-text"]');
+  await p.tap('[data-a="page-text"]');
+  await p.keyboard.type('CANARY mid-sentence when the screen went off');
+  const focused = await p.evaluate(() => document.activeElement?.matches('[data-a="page-text"]') === true);
+  const back = await leaveAndUnlock();
+  check('R3-6: a leave with the diary page in focus still blanks the screen at once (RF1)', focused && back);
+  check('R3-6: ... and the page is saved before the lock, there after an unlock', await until(() => window.harness.pages().some(e => e.body === 'CANARY mid-sentence when the screen went off')));
+  await p.tap('.dock button[data-x="diary"]');
+  check('R3-6: ... and it is on the diary page', await until(() => document.querySelector('[data-a="page-text"]')?.textContent === 'CANARY mid-sentence when the screen went off'));
+
+  await h.open(p, 's=notyet&t=22:30');
+  await shows(p, '.ny');
+  await p.tap('[data-a="ny-add"]');
+  await shows(p, '[data-a="ny-text"]');
+  await p.keyboard.type('CANARY a thought still in the field');
+  await leaveAndUnlock();
+  await p.tap('.dock button[data-x="diary"]');
+  await p.tap('.diary .top [data-a="nav"][data-x="notyet"]');
+  check('R3-6: a Not yet item still in its field at a leave is kept', await until(() => [...document.querySelectorAll('[data-a="ny-item"]')].some(e => e.textContent?.includes('CANARY a thought still in the field'))));
+
+  await h.open(p, 's=today&t=21:30');
+  await shows(p, '#remark');
+  await p.tap('#remark');
+  await p.keyboard.type('CANARY-TEST an evening line');
+  await leaveAndUnlock();
+  check("R3-6: Today's evening words still in their field at a leave are saved to the day", await until(() => window.harness.dayWords(17).remark === 'CANARY-TEST an evening line'));
+}
+
 // Plan
 {
   const p = await h.page(PHONE, errors);

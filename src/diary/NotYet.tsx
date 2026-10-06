@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { resultWords, useApp, useHeld, useModel, useNav } from '../app/context.ts';
+import { resultWords, useApp, useHeld, useModel, useNav, useSaveAtLeave } from '../app/context.ts';
 import { restoreNotYet, saveNotYet, trashNotYet } from '../record/ops/words.ts';
 import { I } from '../ui/icons.tsx';
 import { DIARY_WORDS, dayOf, inTrash, writtenAt } from './diaryView.ts';
@@ -19,6 +19,7 @@ export function NotYet() {
   const [newId, setNewId] = useState(() => core.newId());
   const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
   const field = useRef<HTMLInputElement>(null);
+  useSaveAtLeave(field, () => void add());
   if (!model) return null;
   const tz = model.settings.tz;
   const items = [...model.notyet.values()].filter(n => n.trashedAt === undefined).sort((a, b) => (a.id < b.id ? -1 : 1));

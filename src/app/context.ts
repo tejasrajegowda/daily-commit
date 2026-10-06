@@ -1,4 +1,4 @@
-import { createContext, useContext, useSyncExternalStore } from 'react';
+import { createContext, useContext, useEffect, useRef, useSyncExternalStore, type RefObject } from 'react';
 import type { RecordCore } from '../record/core.ts';
 import type { SnapshotFiles } from '../record/files.ts';
 import type { Model } from '../record/model.ts';
@@ -10,6 +10,7 @@ import type { VaultPlugin } from '../vault/plugin.ts';
 import type { Random } from '../vault/random.ts';
 import type { MinuteClock } from './clock.ts';
 import type { HeldWords } from './heldWords.ts';
+import type { LeaveSaves } from './leaveSaves.ts';
 import type { LockMachine } from './lockMachine.ts';
 import type { LockActions } from './lockNotes.ts';
 import type { RecordStore } from './store.ts';
@@ -72,6 +73,7 @@ export interface Nav {
 export const AppContext = createContext<AppDeps | undefined>(undefined);
 export const NavContext = createContext<{ readonly nav: Nav; go(screen: ScreenId, variant?: string): void } | undefined>(undefined);
 export const HeldContext = createContext<HeldWords | undefined>(undefined);
+export const LeaveContext = createContext<LeaveSaves | undefined>(undefined);
 
 export function useApp(): AppDeps {
   const deps = useContext(AppContext);
@@ -91,6 +93,20 @@ export function useHeld(): HeldWords {
   if (!held) throw new Error('a screen was drawn outside the app');
   useSyncExternalStore(held.subscribe, held.revision);
   return held;
+}
+
+/**
+ * A field saved when it is left: while it has focus, leaving the app saves it too, before the lock
+ * (the screen going off doesn't wait for the field's blur).
+ */
+export function useSaveAtLeave(field: RefObject<HTMLElement | null>, save: () => void): void {
+  const saves = useContext(LeaveContext);
+  if (!saves) throw new Error('a screen was drawn outside the app');
+  const latest = useRef(save);
+  latest.current = save;
+  useEffect(() => saves.add(() => {
+    if (field.current && field.current === document.activeElement) latest.current();
+  }), [saves, field]);
 }
 
 /** The open record's model, or undefined while locked; the screen draws again after every change. */

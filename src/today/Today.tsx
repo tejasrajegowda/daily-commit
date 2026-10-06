@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { resultWords, shapesOf, useApp, useClockMinute, useModel, useNav, useToday } from '../app/context.ts';
+import { resultWords, shapesOf, useApp, useClockMinute, useModel, useNav, useSaveAtLeave, useToday } from '../app/context.ts';
 import type { Result } from '../record/results.ts';
 import type { RecordCore } from '../record/core.ts';
 import { sheetNow } from '../record/ops/common.ts';
@@ -423,7 +423,8 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
 
 /**
  * One of Today's two fields. It belongs to one day (its key carries the date) and keeps what was
- * typed in a draft, so words still in it when it goes away are saved to that day.
+ * typed in a draft, so words still in it when it goes away are saved to that day, and words in it
+ * when the app is left are saved before the lock.
  */
 function WordsInput(p: {
   readonly id: WordsField;
@@ -434,12 +435,14 @@ function WordsInput(p: {
   lost(text: string): void;
 }) {
   const [words] = useState(() => draft(p.saved, p.save, p.lost, p.typed));
+  const field = useRef<HTMLTextAreaElement>(null);
+  useSaveAtLeave(field, () => words.flush());
   useEffect(() => {
     words.open();
     return () => words.close();
   }, [words]);
   return (
-    <textarea id={p.id} className="field" rows={2} placeholder={p.placeholder} defaultValue={p.typed ?? p.saved}
+    <textarea ref={field} id={p.id} className="field" rows={2} placeholder={p.placeholder} defaultValue={p.typed ?? p.saved}
       onChange={e => words.type(e.currentTarget.value)} onBlur={() => words.flush()} />
   );
 }
