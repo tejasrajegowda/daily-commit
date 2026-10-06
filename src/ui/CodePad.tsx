@@ -28,7 +28,7 @@ export function CodePad(p: CodePadProps) {
       <div className="pad">
         {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(k => <button key={k} type="button" data-a="pin" data-x={k} onClick={() => p.onDigit(k)}>{k}</button>)}
         {p.bio
-          ? <button type="button" className="k-bio" data-a="bio" aria-label="Use fingerprint" onClick={() => p.onBio?.()}>{I.finger()}</button>
+          ? <button type="button" className="k-bio" data-a="bio" aria-label="Use fingerprint" disabled={p.busy} onClick={() => p.onBio?.()}>{I.finger()}</button>
           : <span />}
         <button type="button" data-a="pin" data-x="0" onClick={() => p.onDigit('0')}>0</button>
         <button type="button" className="k-sm" data-a="unpin" aria-label="Delete" onClick={p.onDelete}>{I.del()}</button>

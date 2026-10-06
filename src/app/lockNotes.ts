@@ -66,6 +66,7 @@ export interface LockActions {
 export function lockActions(machine: LockMachine): LockActions {
   let note: LockNote | undefined;
   let before: UnlockOutcome | undefined;
+  let turn = 0;                                          // a clear starts a new turn; an answer from an older one is dropped
   const listeners = new Set<() => void>();
   const set = (next: LockNote | undefined) => {
     note = next;
@@ -80,7 +81,9 @@ export function lockActions(machine: LockMachine): LockActions {
   return {
     async unlock(how) {
       set(undefined);
+      const mine = turn;
       const outcome = await machine.unlock(how);
+      if (mine !== turn) return outcome;
       set(noteFor(wayOf(how), outcome, before));
       before = outcome;
       return outcome;
@@ -91,6 +94,7 @@ export function lockActions(machine: LockMachine): LockActions {
       return () => { listeners.delete(listener); };
     },
     clear() {
+      turn += 1;
       before = undefined;
       if (note !== undefined) set(undefined);
     },

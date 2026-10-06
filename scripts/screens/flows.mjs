@@ -106,6 +106,12 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
 
   await h.open(p, 's=lock&v=pass');
   check('no device copy: the passphrase only, and no way back to a device', await shows(p, '.lk-pass') && (await p.locator('[data-a="lockbio"]').count()) === 0);
+  await p.fill('.lk-pass input', 'CANARY not the passphrase');
+  await p.press('.lk-pass input', 'Enter');
+  const noted = await shows(p, '.lk-note', 15000);
+  await p.evaluate(() => window.harness.leave());
+  await p.evaluate(() => window.harness.resume());
+  check('a wrong passphrase, then a leave: coming back shows the lock with no note from before', noted && await shows(p, '.lk-pass') && await gone(p, '.lk-note'));
 
   // RF1: leaving blanks the record at once
   await h.open(p, 's=today');

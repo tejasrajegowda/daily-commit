@@ -54,3 +54,25 @@ test('the actions keep the note of the last unlock, clear it when the next start
   assert.equal(actions.note(), undefined);
   assert.ok(heard >= 3);
 });
+
+test('a clear (a leave) forgets the note and a wrong code before, so one wrong code after it is not called the fifth', async () => {
+  const actions = lockActions(scripted([{ kind: 'WrongSecret' }, { kind: 'WrongCode', triesLeft: 1 }, { kind: 'CopyGone', offered: [] }]));
+  await actions.unlock({ method: 'passphrase', text: 'CANARY passphrase' });
+  assert.equal(actions.note(), 'wrong-secret');
+  actions.clear();
+  assert.equal(actions.note(), undefined);
+  await actions.unlock({ mode: 'own-code', code: '00000000' });
+  actions.clear();
+  await actions.unlock({ mode: 'own-code', code: '00000000' });
+  assert.equal(actions.note(), 'mode-off');
+});
+
+test('an answer that lands after a clear says nothing and is not remembered', async () => {
+  let answer: (o: UnlockOutcome) => void = () => {};
+  const actions = lockActions({ unlock: () => new Promise<UnlockOutcome>(r => { answer = r; }) } as unknown as LockMachine);
+  const late = actions.unlock({ mode: 'own-code', code: '00000000' });
+  actions.clear();
+  answer({ kind: 'WrongCode', triesLeft: 1 });
+  await late;
+  assert.equal(actions.note(), undefined);
+});

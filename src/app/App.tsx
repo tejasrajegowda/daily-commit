@@ -131,10 +131,16 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   }, []);
 
   useEffect(() => {
-    const stopLeave = device.onLeave(() => void machine.leave());
+    const stopLeave = device.onLeave(() => {
+      // a leave from the lock screen forgets it too: the note, a wrong code before, the way chosen
+      lock.clear();
+      setPassphraseOnly(false);
+      setByCode(false);
+      void machine.leave();
+    });
     const stopResume = device.onResume(() => void machine.resume());
     return () => { stopLeave(); stopResume(); };
-  }, [device, machine]);
+  }, [device, machine, lock]);
 
   useEffect(() => {
     if (hasVault) void machine.resume();                 // asks the phone which ways to open it are there
