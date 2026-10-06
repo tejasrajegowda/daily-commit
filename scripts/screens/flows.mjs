@@ -533,6 +533,44 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
     return b?.textContent === 'Continue' && !b.disabled;
   }));
 
+  // a way of opening the phone can't confirm: Settings says what wasn't set and what opens it now, path by path
+  const unconfirmed = async (hash, setUp, path, words) => {
+    try {
+      await h.open(p, hash);
+      await shows(p, '[data-a="auth"]');
+      await p.evaluate(setUp);
+      await p.fill('input.pass', PASSPHRASE);
+      await p.tap('[data-a="auth"]');
+      if (path === 'new-code' || path === 'code-change') {
+        await shows(p, '.pad', 15000);
+        for (const step of ['Type it again', '']) {
+          await typeCode(p, CODE);
+          await p.tap('[data-a="pinok"]');
+          if (step) await until(t => document.querySelector('h1')?.textContent === t, step);
+        }
+      }
+      return await until(([x, w]) => {
+        const n = document.querySelector('[data-a="notverified"]');
+        return n?.getAttribute('data-x') === x && w.every(t => n.textContent.includes(t));
+      }, [path, words]);
+    } catch {
+      return false;
+    }
+  };
+  const on = x => p.locator(`[data-a="unlockmode"][data-x="${x}"].on`).count().then(n => n === 1);
+  check("Privacy: a first code the phone couldn't confirm says so, and that the phone's lock still opens it",
+    await unconfirmed('s=secret&v=owncode&t=13:00', () => window.harness.failCheck(), 'new-code', ["The code wasn't set", "Your phone's lock and your passphrase still open Daily Commit"]) && await on('phone'));
+  check("Privacy: a changed code the phone couldn't confirm says the code is off and only the passphrase opens it",
+    await unconfirmed('s=secret&v=changecode&t=13:00', async () => { await window.harness.ownCode(); window.harness.failCheck(); }, 'code-change',
+      ['The separate code is off', 'The old code had already been replaced', 'For now only your passphrase opens Daily Commit']) && !(await on('own')) && !(await on('phone')));
+  check("Privacy: the phone's lock prompt backed out of, from own-code mode, says the code still opens it",
+    await unconfirmed('s=secret&v=phone&t=13:00', async () => { await window.harness.ownCode(); window.harness.cancelPrompt(); }, 'phone-lock',
+      ["The phone's lock wasn't set up", 'Your code, the fingerprint and your passphrase still open Daily Commit']) && await on('own') && !(await on('phone')));
+  check('Privacy: the fingerprint prompt backed out of says the fingerprint is still off and the code still opens it',
+    await unconfirmed('s=secret&v=finger&t=13:00', async () => { await window.harness.ownCode(); window.harness.cancelPrompt(); }, 'fingerprint',
+      ['Fingerprint is still off', 'Your code and your passphrase still open Daily Commit']) && await on('own')
+      && !(await p.locator('[data-a="biotoggle"] .toggle.on').count()));
+
   await h.open(p, 's=secret&v=pass&t=13:00');
   await shows(p, '[data-a="pass-change"]');
   await p.fill('input[aria-label="Current passphrase"]', PASSPHRASE);
@@ -580,8 +618,8 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.tap('[data-a="check"]');
   check("Check the code: a wrong one says it doesn't match", await shows(p, '[data-a="secret-note"]', 15000));
 
-  await h.open(p, 's=settings&v=notverified&t=13:00');
-  check('Privacy: a code the phone could not confirm shows "The separate code is off"', await shows(p, '[data-a="notverified"]'));
+  await h.open(p, 's=settings&v=notverified-new-code&t=13:00');
+  check("Privacy: a code the phone could not confirm shows \"The code wasn't set\"", await shows(p, '[data-a="notverified"][data-x="new-code"]'));
   check('Privacy: no loud lines', !/[!%]/.test(await p.locator('.settings').innerText()));
 }
 

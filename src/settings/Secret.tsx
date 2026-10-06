@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   finishNewCode, checkCode, meter, newPassphrase, secretOpens, setMode, startNewCode, useApp, useNav,
-  type Bars, type DeviceMode, type PendingCode, type Secret as Typed,
+  type Bars, type PendingCode, type Secret as Typed,
 } from '../app/context.ts';
 import { CodePad, MAX_DIGITS } from '../ui/CodePad.tsx';
 import { codeGroups } from '../ui/codeGroups.ts';
 import { I } from '../ui/icons.tsx';
 import { TypeBack } from '../ui/TypeBack.tsx';
+import { notVerifiedVariant } from './settingsWords.ts';
 
 // The keys to the record: a new passphrase, a new recovery code (in use only once typed back),
 // checking the code on paper, and how the app opens on this phone. Each change that needs the raw
@@ -222,7 +223,8 @@ function NewCode() {
 
 const OWN_WARNING = "Your own code stops people. Someone who can break into the phone's software could try every six-digit code in hours to days, and with this setting the passphrase does not stop that. The phone's own lock is checked by its security chip, which slows guessing down, so it is stronger against that. A longer code takes far longer: each extra two digits make it a hundred times as long, so hours become weeks.";
 
-function OwnCode() {
+/** Setting up a code of its own, or changing it: `change` when a code is already set. */
+function OwnCode({ change }: { readonly change: boolean }) {
   const deps = useApp();
   const { go } = useNav();
   const auth = useRef<Typed | undefined>(undefined);
@@ -236,7 +238,7 @@ function OwnCode() {
   const [done, setDone] = useState(false);
   useEffect(() => () => { auth.current = undefined; first.current = ''; digits.current = ''; }, []);
   if (done) return <Done title="Your code is set" text="Daily Commit now opens with your code. Fingerprint can open it too, if you switch that on in Settings, Privacy." />;
-  if (step === 'auth') return <AskPassphrase why="Setting up a code of your own needs it once." onRight={a => { auth.current = a; setStep('choose'); }} />;
+  if (step === 'auth') return <AskPassphrase why={change ? 'Changing your code needs it once.' : 'Setting up a code of your own needs it once.'} onRight={a => { auth.current = a; setStep('choose'); }} />;
   const set = (d: string) => { digits.current = d; setCount(d.length); };
   const ok = async () => {
     const typed = digits.current;
@@ -260,7 +262,7 @@ function OwnCode() {
     const r = await setMode(deps, a, 'own-code', typed).catch(() => undefined).finally(() => setBusy(false));
     if (r?.kind !== 'Enrolled') setStep('choose');      // a failed try starts again from the first entry, which is gone
     if (r?.kind === 'Enrolled') { auth.current = undefined; setDone(true); }
-    else if (r?.kind === 'NotVerified') go('settings', 'notverified');
+    else if (r?.kind === 'NotVerified') go('settings', notVerifiedVariant(change ? 'code-change' : 'new-code'));
     else setNote(NOT_SET);
   };
   return (
@@ -279,7 +281,7 @@ function OwnCode() {
 }
 
 /** Switching to the phone's lock, or adding the fingerprint inside own-code mode. */
-function SwitchMode({ mode }: { readonly mode: DeviceMode }) {
+function SwitchMode({ mode }: { readonly mode: 'phone-lock' | 'fingerprint' }) {
   const deps = useApp();
   const { go } = useNav();
   const why = mode === 'phone-lock' ? "Switching to your phone's lock needs it once." : 'Letting the fingerprint open it needs it once.';
@@ -287,7 +289,7 @@ function SwitchMode({ mode }: { readonly mode: DeviceMode }) {
     <AskPassphrase why={why} failed={NOT_SET} onRight={async auth => {
       const r = await setMode(deps, auth, mode);
       if (r.kind === 'Enrolled') go('settings', 'privacy');
-      else if (r.kind === 'NotVerified') go('settings', 'notverified');
+      else if (r.kind === 'NotVerified') go('settings', notVerifiedVariant(mode));
       else throw new Error('not set');
     }} />
   );
@@ -298,7 +300,8 @@ export function Secret() {
   switch (nav.variant) {
     case 'check': return <CheckCode />;
     case 'newcode': return <NewCode />;
-    case 'owncode': return <OwnCode />;
+    case 'owncode': return <OwnCode change={false} />;
+    case 'changecode': return <OwnCode change />;
     case 'phone': return <SwitchMode mode="phone-lock" />;
     case 'finger': return <SwitchMode mode="fingerprint" />;
     default: return <ChangePassphrase />;

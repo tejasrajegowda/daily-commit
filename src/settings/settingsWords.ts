@@ -1,3 +1,4 @@
+import type { DeviceMode } from '../app/context.ts';
 import type { CueRecord, Settings } from '../record/model.ts';
 
 // Settings' words, kept apart from the screen so a test can read every line: nothing stale from the
@@ -88,7 +89,6 @@ export const SETTINGS_WORDS = {
   ownCode: { nm: 'A separate code, only for Daily Commit', sub: "Six digits or more, only for this app, and after 5 wrong tries only your passphrase opens it. It stops people. Against someone who can break into the phone's software it is weaker than your phone's lock; setting it up says how much." },
   finger: { nm: 'Fingerprint opens it too', sub: 'If anyone adds a new fingerprint to the phone, this switches itself off until you type your code.' },
   changeCode: { nm: 'Change the code', sub: 'six digits or more' },
-  notVerified: { title: 'The separate code is off', text: "The new code couldn't be checked by the phone, so it wasn't kept. Your phone's lock and your passphrase still open Daily Commit. Set the code again whenever you like." },
   passAlways: "Your passphrase always works too. It's the only way in on a new phone, or after 5 wrong codes.",
   passOnly: 'Here only your passphrase opens Daily Commit. On the phone, its own lock or a code of your own can open it day to day.',
   locks: { nm: 'Locks the moment you leave', sub: "switching apps, or the screen going off. Picking a file or sharing from inside the app doesn't count" },
@@ -97,6 +97,42 @@ export const SETTINGS_WORDS = {
   newCode: { nm: 'Make a new recovery code', sub: 'if the paper is lost, or someone has seen it' },
   supportRow: { nm: 'Support', sub: 'always here, in the same place' },
 } as const;
+
+/**
+ * A way of opening the phone couldn't confirm once it was made, so its copy was deleted. Each one
+ * leaves the phone differently: a first code or the phone's lock or the fingerprint changes nothing
+ * else, but a changed code has already replaced the old one. Settings is told which through its
+ * variant, `notverified-<path>`.
+ */
+export type NotVerifiedPath = 'new-code' | 'code-change' | 'phone-lock' | 'fingerprint';
+
+const NOT_VERIFIED: Readonly<Record<NotVerifiedPath, { readonly title: string; readonly what: string; readonly again: string }>> = {
+  'new-code': { title: "The code wasn't set", what: "The phone couldn't confirm the new code, so it wasn't kept. Nothing else was changed.", again: 'Set it up again whenever you like.' },
+  'code-change': { title: 'The separate code is off', what: "The phone couldn't confirm the new code, so it wasn't kept. The old code had already been replaced, so it no longer opens Daily Commit.", again: 'Set a code again whenever you like.' },
+  'phone-lock': { title: "The phone's lock wasn't set up", what: "The phone couldn't confirm its lock, so nothing was changed.", again: 'You can try again whenever you like.' },
+  'fingerprint': { title: 'Fingerprint is still off', what: "The phone couldn't confirm the fingerprint, so nothing was changed.", again: 'You can try again whenever you like.' },
+};
+
+export const notVerifiedVariant = (path: NotVerifiedPath): string => `notverified-${path}`;
+
+/** The path a Settings variant names, if it names one. */
+export function notVerifiedPath(variant: string): NotVerifiedPath | undefined {
+  return (Object.keys(NOT_VERIFIED) as NotVerifiedPath[]).find(p => variant === notVerifiedVariant(p));
+}
+
+/** What still opens it, from the device copies there are now; a fingerprint counts only beside the code, as on the lock screen. */
+function stillOpens(modes: readonly DeviceMode[]): string {
+  if (modes.includes('own-code')) return modes.includes('fingerprint') ? 'Your code, the fingerprint and your passphrase still open Daily Commit.' : 'Your code and your passphrase still open Daily Commit.';
+  if (modes.includes('phone-lock')) return "Your phone's lock and your passphrase still open Daily Commit.";
+  return 'For now only your passphrase opens Daily Commit.';
+}
+
+/** The note after a way of opening wasn't confirmed: what wasn't set, then what opens it now. */
+export function notVerifiedWords(path: NotVerifiedPath, modes: readonly DeviceMode[]): { readonly title: string; readonly text: string } {
+  const w = NOT_VERIFIED[path];
+  const finger = path === 'code-change' && modes.includes('fingerprint') && !modes.includes('own-code') ? ' The fingerprint works only beside a code, so it is off too.' : '';
+  return { title: w.title, text: `${w.what}${finger} ${stillOpens(modes)} ${w.again}` };
+}
 
 export const SUPPORT_WORDS = {
   intro: 'Always in this place. Never highlighted, never triggered by anything you log.',

@@ -4,7 +4,7 @@ import { setSetting } from '../record/ops/settings.ts';
 import { applyDisplay } from '../ui/display.ts';
 import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
-import { CATEGORIES, checkinLines, dayLines, SETTINGS_WORDS as W, sizeWords, whenWords, type Category, type Line } from './settingsWords.ts';
+import { CATEGORIES, checkinLines, dayLines, notVerifiedPath, notVerifiedWords, SETTINGS_WORDS as W, sizeWords, whenWords, type Category, type Line } from './settingsWords.ts';
 
 // Settings: every group stacked on a phone, a category list beside one panel on a laptop. Support
 // is a screen of its own, reached from here, always in the same place.
@@ -25,7 +25,7 @@ export function Settings() {
   const model = useModel();
   const { nav, go } = useNav();
   const wide = useWide();
-  const notVerified = nav.variant === 'notverified';
+  const notVerified = notVerifiedPath(nav.variant);
   const [cat, setCat] = useState<Category>(notVerified ? 'privacy' : CATEGORIES.some(c => c[0] === nav.variant) ? nav.variant as Category : 'display');
   const [modes, setModes] = useState<readonly DeviceMode[] | undefined>(undefined);
   const [display, setDisplay] = useState<Display | undefined>(undefined);
@@ -94,6 +94,8 @@ export function Settings() {
       const own = modes?.includes('own-code') ?? false;
       const phone = modes?.includes('phone-lock') ?? false;
       const finger = modes?.includes('fingerprint') ?? false;
+      // said once the copies there are now are known, since what still opens it comes from them
+      const unconfirmed = notVerified && modes ? notVerifiedWords(notVerified, modes) : undefined;
       const choice = (k: 'phone' | 'own', on: boolean, line: Line) => (
         <button type="button" className={`li opt-li${on ? ' on' : ''}`} data-a="unlockmode" data-x={k} aria-pressed={on} onClick={on ? undefined : () => go('secret', k === 'own' ? 'owncode' : 'phone')}>
           <span><span className="nm">{line.nm}</span><span className="sub">{line.sub}</span></span><span className="radio" aria-hidden="true" /></button>
@@ -108,9 +110,9 @@ export function Settings() {
                 {choice('own', own, W.ownCode)}
                 {own && <Row line={W.finger} a="biotoggle" end={<Toggle on={finger} />}
                   onClick={() => (finger ? void fingerprintOff(deps).then(() => modesNow(deps)).then(setModes) : go('secret', 'finger'))} />}
-                {own && <Row line={W.changeCode} a="changecode" end={<Chev />} onClick={() => go('secret', 'owncode')} />}
+                {own && <Row line={W.changeCode} a="changecode" end={<Chev />} onClick={() => go('secret', 'changecode')} />}
               </div>
-              {notVerified && <div className="panel note" data-a="notverified" style={{ marginTop: 12 }}><p className="eb">{W.notVerified.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{W.notVerified.text}</p></div>}
+              {unconfirmed && <div className="panel note" data-a="notverified" data-x={notVerified} style={{ marginTop: 12 }}><p className="eb">{unconfirmed.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{unconfirmed.text}</p></div>}
             </>
           )}
           <Note>{deps.device.deviceModes ? W.passAlways : W.passOnly}</Note>

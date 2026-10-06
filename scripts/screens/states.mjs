@@ -22,7 +22,7 @@ export const STATES = [
   ['plan', 's=plan&t=13:00'],
   ['settings', 's=settings&t=13:00'],
   ['privacy', 's=settings&v=privacy&t=13:00'],
-  ['notverified', 's=settings&v=notverified&t=13:00'],
+  ['notverified', 's=settings&v=notverified-new-code&t=13:00'],
   ['secret-pass', 's=secret&v=pass&t=13:00'],
   ['secret-owncode', 's=secret&v=owncode&t=13:00'],
   ['secret-newcode', 's=secret&v=newcode&t=13:00'],

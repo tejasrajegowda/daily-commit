@@ -37,6 +37,12 @@ export interface HarnessControls {
   backup(kind: 'source' | 'mine' | 'newer' | 'damaged'): Promise<string>;
   /** from now on the phone's key store refuses to save a key, as one with no secure screen lock does */
   refuseEnrol(): void;
+  /** the next time the phone asks for its lock or a fingerprint, the person backs out */
+  cancelPrompt(): void;
+  /** the next copy the phone opens gives back something else, so a new copy can't be confirmed */
+  failCheck(): void;
+  /** this phone moves to a code of its own with the fingerprint beside it, as Settings would set them up */
+  ownCode(): Promise<void>;
   /** the invented record's recovery code, as the first day would have shown it (none for an empty record) */
   readonly recoveryCode: string | undefined;
 }
@@ -166,6 +172,9 @@ async function start(): Promise<void> {
       return toBase64url(kind === 'newer' ? newerOf(file) : kind === 'damaged' ? damagedOf(file) : file);
     },
     refuseEnrol: () => { refusing = true; },
+    cancelPrompt: () => phone.cancelNext(),
+    failCheck: () => phone.lieNext('not-a-key'),
+    ownCode: () => enrolFor({ ...state, variant: 'own' }, core, phone),
     recoveryCode,
   };
   const initial: Nav | undefined = (SCREENS as readonly string[]).includes(state.screen) ? { screen: state.screen as ScreenId, variant: state.variant } : undefined;
