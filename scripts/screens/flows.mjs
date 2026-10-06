@@ -249,6 +249,24 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Replace everything ends Restored', await shows(p, '[data-a="open"]', 20000));
   await p.tap('[data-a="open"]');
   check('... and Open shows the lock', await shows(p, '.lk-pass'));
+
+  // R1-4: a replace whose safety copy can't be written says so, and its one way on is the lock screen
+  for (const [why, title, words] of [['other', 'Not replaced', "couldn't be saved first"], ['full', 'The phone is full', 'free some space']]) {
+    await h.open(p, 's=restore&v=replace');
+    await shows(p, '[data-a="choose"]');
+    await setFile('source');
+    await p.fill('input.pass', PASSPHRASE);
+    await p.tap('[data-a="restore-go"]');
+    await shows(p, '[data-a="replace"]', 20000);
+    await p.evaluate(w => window.harness.failCopy(w), why);
+    await p.tap('[data-a="replace"]');
+    const said = await shows(p, '[data-a="restore-stopped"]', 20000) ? (await p.locator('[data-a="restore-stopped"]').innerText()).toLowerCase() : '';
+    check(`a replace that can't keep its copy (${why}) says so: '${title}', that it's locked now, and never 'try again'`,
+      said.includes(title.toLowerCase()) && said.includes(words) && said.includes('locked now') && !said.includes('try again'));
+    check(`... (${why}) and asks nothing again: no Replace everything is offered`, (await p.locator('[data-a="replace"]').count()) === 0);
+    if (await shows(p, '[data-a="open"]', 2000)) await p.tap('[data-a="open"]');
+    check(`... (${why}) and Open leads to the lock screen`, await shows(p, '.lk-finger, .lk-pass') && (await p.locator('[data-a="restore-stopped"]').count()) === 0);
+  }
 }
 
 // Today

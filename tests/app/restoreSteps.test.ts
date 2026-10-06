@@ -1,12 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readBackupFile, restoreWith } from '../../src/app/restoreSteps.ts';
+import { assemble } from '../../src/app/compose.ts';
+import type { AppDeps, DevicePort } from '../../src/app/context.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../src/record/backup/format.ts';
 import { SAFETY } from '../../src/record/backup/copies.ts';
 import { jsonBytes } from '../../src/record/bytes.ts';
 import type { RecordCore } from '../../src/record/core.ts';
 import { fillRecord } from '../record/helpers.ts';
+import { memoryFiles } from '../record/memoryFiles.ts';
+import { fakePlugin } from '../vault/fakePlugin.ts';
 import { emptyApp, testDeps } from './deps.ts';
 import { PASSPHRASE, realRecord } from './realRecord.ts';
 
@@ -22,6 +26,15 @@ async function filledBackup(passphrase = PASSPHRASE) {
   const r = await realRecord(passphrase);
   await fillRecord(r.core, r.clock);
   return { ...r, file: await backupOf(r.core) };
+}
+
+/** Deps whose private files are the failure-injecting stand-in, so a replace's safety copy can be made to fail. */
+function failingDeps(core: RecordCore, files: ReturnType<typeof memoryFiles>['files']): AppDeps {
+  const phone = fakePlugin();
+  const device: DevicePort = { plugin: phone.plugin, deviceModes: true, files, onLeave: () => () => {}, onResume: () => () => {} };
+  const deps = assemble(core, device);
+  deps.clock.stop();                                      // tests move no real time
+  return deps;
 }
 
 test('a file that is not a backup says so; a backup with a broken header is unreadable; a newer format says so; a backup gives when it was made', async () => {
@@ -98,4 +111,60 @@ test('after asking, replace restores the other record and keeps a safety copy of
   assert.equal((await mine.db.vault.get('main'))?.vault_id, (await theirs.db.vault.get('main'))?.vault_id);
   assert.equal((await deps.device.files.list(SAFETY)).length, 1);
   assert.equal(deps.machine.state.kind, 'Locked');
+});
+
+// ── R1-4: a failed "Replace everything" says so, and ends at the lock rather than asking again.
+
+const THEIRS = { method: 'passphrase', text: 'CANARY another passphrase' } as const;
+
+test("R1-4: when the safety copy can't be saved, replace stops with words instead of nothing, and nothing is replaced", async () => {
+  const mine = await filledBackup();
+  const theirs = await filledBackup(THEIRS.text);
+  const before = await mine.db.habits.toArray();
+  const m = memoryFiles();
+  m.failOn('write tmp/safety');
+  const deps = failingDeps(mine.core, m.files);
+  assert.deepEqual(await restoreWith(deps, theirs.file, THEIRS, true), { kind: 'Stopped', message: 'not-saved' });
+  assert.deepEqual(await mine.db.habits.toArray(), before);
+  assert.equal(mine.core.session, undefined);
+  assert.equal(deps.machine.state.kind, 'Locked');
+  assert.equal((await m.files.list(SAFETY)).length, 0);
+});
+
+test('R1-4: a full phone during the safety copy stops with "full", the lock-screen kind', async () => {
+  const mine = await filledBackup();
+  const theirs = await filledBackup(THEIRS.text);
+  const m = memoryFiles();
+  m.failOn('write tmp/safety', () => new DOMException('disk full', 'QuotaExceededError'));
+  const deps = failingDeps(mine.core, m.files);
+  assert.deepEqual(await restoreWith(deps, theirs.file, THEIRS, true), { kind: 'Stopped', message: 'full' });
+  assert.equal(mine.core.session, undefined);
+});
+
+test('R1-4: a failure with no name of its own, after the keys went, still stops with words', async () => {
+  const mine = await filledBackup();
+  const theirs = await filledBackup(THEIRS.text);
+  const m = memoryFiles();
+  const deps = failingDeps(mine.core, m.files);
+  // the replace itself throws once the safety copy is kept: the keys are already gone by then
+  mine.db.habits.hook('creating', () => { throw new Error('CANARY injected'); });
+  assert.deepEqual(await restoreWith(deps, theirs.file, THEIRS, true), { kind: 'Stopped', message: 'not-finished' });
+  assert.equal(mine.core.session, undefined);
+});
+
+test('R1-4: a failure with no name of its own, with nothing locked, says so and leaves a try again', async () => {
+  const theirs = await filledBackup(THEIRS.text);
+  const app = emptyApp();
+  app.deps.core.db.habits.hook('creating', () => { throw new Error('CANARY injected'); });
+  assert.deepEqual(await restoreWith(app.deps, theirs.file, THEIRS, false), { kind: 'Message', message: 'not-finished' });
+});
+
+test('R1-4: once the keys are gone, a replace ends at the lock instead of asking again', async () => {
+  const mine = await filledBackup();
+  const theirs = await filledBackup(THEIRS.text);
+  const m = memoryFiles();
+  const deps = failingDeps(mine.core, m.files);
+  await mine.core.lock();
+  assert.deepEqual(await restoreWith(deps, theirs.file, THEIRS, true), { kind: 'Locked' });
+  assert.equal((await m.files.list(SAFETY)).length, 0);
 });

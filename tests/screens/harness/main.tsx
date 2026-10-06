@@ -37,6 +37,8 @@ export interface HarnessControls {
   backup(kind: 'source' | 'mine' | 'newer' | 'damaged'): Promise<string>;
   /** from now on the phone's key store refuses to save a key, as one with no secure screen lock does */
   refuseEnrol(): void;
+  /** from now on the copy kept before a replace can't be written: the phone is full, or the write fails otherwise */
+  failCopy(why: 'full' | 'other'): void;
   /** the next time the phone asks for its lock or a fingerprint, the person backs out */
   cancelPrompt(): void;
   /** the next copy the phone opens gives back something else, so a new copy can't be confirmed */
@@ -92,17 +94,29 @@ async function deleteDb(name: string): Promise<void> {
 function harnessDevice(plugin: DevicePort['plugin']) {
   const leaving = new Set<() => void>();
   const resuming = new Set<() => void>();
+  const stored = memoryFiles();
+  let failing: 'full' | 'other' | undefined;
   const device: DevicePort = {
     plugin,
     deviceModes: true,
-    files: memoryFiles(),
+    files: {
+      ...stored,
+      write: (path, bytes) => (failing && path.startsWith('tmp/safety')
+        ? Promise.reject(failing === 'full' ? new DOMException('no space left', 'QuotaExceededError') : new Error('write failed'))
+        : stored.write(path, bytes)),
+    },
     onLeave(cb) { leaving.add(cb); return () => { leaving.delete(cb); }; },
     onResume(cb) { resuming.add(cb); return () => { resuming.delete(cb); }; },
     // the phone's "save as": the flows read the name of what was saved
     async saveFile(name) { document.documentElement.dataset.saved = name; return true; },
     async spaceUsed() { return 2.4 * 1024 * 1024; },
   };
-  return { device, leave: () => { for (const cb of leaving) cb(); }, resume: () => { for (const cb of resuming) cb(); } };
+  return {
+    device,
+    leave: () => { for (const cb of leaving) cb(); },
+    resume: () => { for (const cb of resuming) cb(); },
+    failCopy: (why: 'full' | 'other') => { failing = why; },
+  };
 }
 
 /** The device copies a lock state starts with. */
@@ -157,7 +171,7 @@ async function start(): Promise<void> {
   }
   let refusing = false;
   const plugin: DevicePort['plugin'] = { ...phone.plugin, enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)) };
-  const { device, leave, resume } = harnessDevice(plugin);
+  const { device, leave, resume, failCopy } = harnessDevice(plugin);
   const deps = assemble(core, device);
   await prelude(state, deps, phone);
   let source: Promise<Uint8Array> | undefined;
@@ -172,6 +186,7 @@ async function start(): Promise<void> {
       return toBase64url(kind === 'newer' ? newerOf(file) : kind === 'damaged' ? damagedOf(file) : file);
     },
     refuseEnrol: () => { refusing = true; },
+    failCopy,
     cancelPrompt: () => phone.cancelNext(),
     failCheck: () => phone.lieNext('not-a-key'),
     ownCode: () => enrolFor({ ...state, variant: 'own' }, core, phone),

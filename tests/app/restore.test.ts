@@ -211,7 +211,7 @@ test('R1-4: a phone that refuses the first delete still loses every copy, so a c
   assert.equal(core.session, undefined);
 });
 
-test('R1-8: a restore that fails after the record was locked leaves the machine locked, not saying Open', async () => {
+test('R1-4: a safety copy that fails to write says so and leaves the machine locked, not saying Open; a retry finds the keys already gone', async () => {
   const { core } = await realRecord();
   const exported = await exportBackup(core, OPTS);
   if (exported.kind !== 'Saved') throw new Error(exported.kind);
@@ -219,10 +219,26 @@ test('R1-8: a restore that fails after the record was locked leaves the machine 
   m.failOn('write tmp/safety');
   const f = fakePlugin();
   const machine = lockMachine({ core, plugin: f.plugin, close: { files: m.files, sleep: never, appVersion: '0.1.0' } });
-  await assert.rejects(
-    restoreBackup({ core, plugin: f.plugin, machine }, { file: exported.value.bytes, secret: PASS, backupCipher: backupCipher(), replace: { files: m.files, appVersion: '0.1.0' } }),
-    /injected failure/,
-  );
+  const input = { file: exported.value.bytes, secret: PASS, backupCipher: backupCipher(), replace: { files: m.files, appVersion: '0.1.0' } };
+  assert.deepEqual(await restoreBackup({ core, plugin: f.plugin, machine }, input), { kind: 'CopyFailed' });
+  assert.equal(core.session, undefined);
+  assert.deepEqual(machine.state, { kind: 'Locked', offered: [] });
+  m.failOn(undefined);
+  // the keys never come back on their own: a retry can only ever find them already gone
+  assert.deepEqual(await restoreBackup({ core, plugin: f.plugin, machine }, input), { kind: 'Locked' });
+  assert.equal(core.session, undefined);
+});
+
+test('R1-4: a full phone during the safety copy says so, as "full" does elsewhere', async () => {
+  const { core } = await realRecord();
+  const exported = await exportBackup(core, OPTS);
+  if (exported.kind !== 'Saved') throw new Error(exported.kind);
+  const m = memoryFiles();
+  m.failOn('write tmp/safety', () => new DOMException('disk full', 'QuotaExceededError'));
+  const f = fakePlugin();
+  const machine = lockMachine({ core, plugin: f.plugin, close: { files: m.files, sleep: never, appVersion: '0.1.0' } });
+  const input = { file: exported.value.bytes, secret: PASS, backupCipher: backupCipher(), replace: { files: m.files, appVersion: '0.1.0' } };
+  assert.deepEqual(await restoreBackup({ core, plugin: f.plugin, machine }, input), { kind: 'QuotaFull' });
   assert.equal(core.session, undefined);
   assert.deepEqual(machine.state, { kind: 'Locked', offered: [] });
 });

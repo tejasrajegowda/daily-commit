@@ -1,20 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
-import { readBackupFile, restoreWith, useApp, type RestoreMessage, type Secret } from '../app/context.ts';
+import { readBackupFile, restoreWith, useApp, type RestoreMessage, type Secret, type StopMessage } from '../app/context.ts';
 import { I } from '../ui/icons.tsx';
 import type { FoundCopy } from './FirstRun.tsx';
-import { madeAtWords, RESTORE_WORDS } from './restoreWords.ts';
+import { madeAtWords, RESTORE_WORDS, STOP_WORDS } from './restoreWords.ts';
 
 // Restore from a backup. The file and the secret are checked first; if this phone already holds a
 // record, the person is asked before anything is replaced, and told when the file is from a
 // different record. The secret waits for that answer in a ref, never in state, and goes when the
-// screen does.
+// screen does. A replace that fails after the keys were put away for its safety copy says why and
+// leads to the lock screen: the question is never asked again, since a second try can't work.
 
 export interface RestoreProps {
   /** this phone already holds a record (restore was opened from Settings) */
   readonly replacing: boolean;
   /** a file already chosen: the copy Android put back */
   readonly preset?: FoundCopy;
-  /** Back, Leave it, or Open after Restored */
+  /** Back, Leave it, Open after Restored, or Open after a replace that stopped (the lock screen) */
   onClose(outcome: 'back' | 'restored'): void;
 }
 
@@ -37,7 +38,8 @@ export function Restore(props: RestoreProps) {
   const [file, setFile] = useState<FoundCopy | undefined>(props.preset);
   const [method, setMethod] = useState<Secret['method']>('passphrase');
   const [message, setMessage] = useState<RestoreMessage | undefined>(undefined);
-  const [step, setStep] = useState<'pick' | 'ask' | 'done'>('pick');
+  const [step, setStep] = useState<'pick' | 'ask' | 'done' | 'stopped'>('pick');
+  const [stopped, setStopped] = useState<StopMessage>('not-finished');
   const [other, setOther] = useState(false);
   const [busy, setBusy] = useState(false);
   const secret = useRef<Secret | undefined>(undefined);
@@ -56,15 +58,22 @@ export function Restore(props: RestoreProps) {
     setBusy(true);
     try {
       const result = await restoreWith(deps, file.bytes, s, replace);
-      if (result.kind === 'Restored') {
-        secret.current = undefined;
-        setStep('done');
-      } else if (result.kind === 'Ask') {
+      if (result.kind === 'Ask') {
         secret.current = s;
         setOther(result.otherRecord);
         setStep('ask');
+        return;
+      }
+      secret.current = undefined;                        // nothing else ever asks for it again
+      if (result.kind === 'Restored') {
+        setStep('done');
+      } else if (result.kind === 'Stopped') {
+        setStopped(result.message);
+        setStep('stopped');
+      } else if (result.kind === 'Locked') {
+        // the keys were already gone and never come back on their own: only the lock screen opens it now
+        close('back');
       } else {
-        secret.current = undefined;
         setMessage(result.message);
         setStep('pick');
       }
@@ -105,6 +114,18 @@ export function Restore(props: RestoreProps) {
           ? <p className="meta" style={{ margin: '12px 0 26px' }}>After that, Settings → Privacy sets up your phone's lock or your own code again.{props.replacing ? ' They were switched off, because they belonged to the record that was here before.' : ''}</p>
           : <div style={{ height: 26 }} />}
         <button type="button" className="btn btn--primary wide" data-a="open" onClick={() => close('restored')}>Open</button>
+      </div>
+    );
+  }
+
+  if (step === 'stopped') {
+    const words = STOP_WORDS[stopped];
+    return (
+      <div className="center-col first" data-a="restore-stopped">
+        <div className="fr-mark">{I.brand()}</div>
+        <h1 className="t-l" style={{ marginTop: 6 }}>{words.title}</h1>
+        <p className="body" style={{ margin: '12px 0 26px' }}>{words.text}</p>
+        <button type="button" className="btn btn--primary wide" data-a="open" onClick={() => close('back')}>Open</button>
       </div>
     );
   }

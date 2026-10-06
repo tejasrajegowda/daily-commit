@@ -8,7 +8,7 @@ import { plainOf, rowId } from '../payload.ts';
 import type { VaultRow } from '../rows.ts';
 import { BODY_TABLES, gunzip, parseBody, type StoredRows } from './body.ts';
 import { SAFETY, keepCopy } from './copies.ts';
-import { sealBackup } from './export.ts';
+import { sealBackup, type SealedBackup } from './export.ts';
 import { readFrame, type BackupHeader } from './format.ts';
 import { LATEST, writeSnapshot } from './snapshot.ts';
 
@@ -86,6 +86,8 @@ export type RestoreResult =
   /** the record has data and "replace everything" wasn't chosen; the question says if the file is another vault's */
   | { readonly kind: 'HasData'; readonly otherVault: boolean }
   | { readonly kind: 'QuotaFull' }
+  /** the safety copy before a replace couldn't be written, for a reason other than a full phone; nothing was replaced */
+  | { readonly kind: 'CopyFailed' }
   | { readonly kind: 'Locked' };
 
 /**
@@ -104,10 +106,21 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
   const existing = await core.db.vault.get('main');
   if (existing && !replace) return { kind: 'HasData', otherVault: existing.vault_id !== checked.header.vault_id };
   if (existing && replace) {
-    // sealed while the record is still open; then the keys drop, and the copy is written
-    const safety = await core.lock(session => sealBackup(core.db, session, core.now(), { appVersion: replace.appVersion }));
+    // sealed while the record is still open; then the keys drop, before the copy is written, and
+    // stay gone whatever follows. A failed seal or copy replaces nothing. `Locked` means the keys
+    // were already gone when this attempt began, so there was nothing to seal.
+    let safety: SealedBackup | undefined;
+    try {
+      safety = await core.lock(session => sealBackup(core.db, session, core.now(), { appVersion: replace.appVersion }));
+    } catch (e) {
+      return isQuotaFull(e) ? { kind: 'QuotaFull' } : { kind: 'CopyFailed' };
+    }
     if (!safety) return { kind: 'Locked' };
-    await keepCopy(replace.files, SAFETY, core.now(), 'dcbak', safety.bytes);
+    try {
+      await keepCopy(replace.files, SAFETY, core.now(), 'dcbak', safety.bytes);
+    } catch (e) {
+      return isQuotaFull(e) ? { kind: 'QuotaFull' } : { kind: 'CopyFailed' };
+    }
   }
   const result = await core.serial(() => replaceAll(core, checked.header, upgradeTables(checked.tables, checked.header.schema_version, input.schemas), replace !== undefined));
   if (result.kind === 'Restored' && replace) await becomeLatest(replace.files, input.file);

@@ -5,9 +5,10 @@ export function memoryFiles() {
   const store = new Map<string, Uint8Array>();
   const log: string[] = [];
   let failing: string | undefined;
+  let failError: (call: string) => Error = call => new Error(`injected failure: ${call}`);
   const step = (call: string) => {
     log.push(call);
-    if (failing !== undefined && call.startsWith(failing)) throw new Error(`injected failure: ${call}`);
+    if (failing !== undefined && call.startsWith(failing)) throw failError(call);
   };
   const files: SnapshotFiles = {
     async write(path, bytes) { step(`write ${path}`); store.set(path, bytes.slice()); },
@@ -26,6 +27,9 @@ export function memoryFiles() {
     async remove(path) { step(`remove ${path}`); store.delete(path); },
   };
   /** every call whose text starts with `prefix` fails, until it is set to undefined */
-  const failOn = (prefix: string | undefined) => { failing = prefix; };
+  const failOn = (prefix: string | undefined, error?: (call: string) => Error) => {
+    failing = prefix;
+    if (error) failError = error;
+  };
   return { files, store, log, failOn };
 }
