@@ -9,8 +9,9 @@ import { doneAndAsked } from '../rules/stats.ts';
 import type { LocalDate } from '../rules/types.ts';
 import { band, bandWords, momentum, type Momentum } from '../rules/words.ts';
 
-// The two reviews, in words, never numbers. The Sunday review covers the last finished Monday to
-// Sunday; the monthly review, from day 60, covers the last finished calendar month.
+// The two reviews, in words, never numbers. The Sunday review covers Monday to that Sunday on a
+// Sunday, and the last finished Monday to Sunday on any other day (C-4); the monthly review, from
+// day 60, covers the last finished calendar month.
 
 const MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const hm = (m: number) => `${String(Math.floor(m / 60) % 24).padStart(2, '0')}:${String(Math.round(m) % 60).padStart(2, '0')}`;
@@ -34,9 +35,10 @@ export interface WeekView {
   readonly log: readonly WeekRow[];
 }
 
-/** The last Monday to Sunday that has finished before today. */
+/** The week the Sunday review covers: Monday to today on a Sunday, else the last finished week (C-4). */
 export function lastWeek(today: LocalDate): { readonly monday: LocalDate; readonly sunday: LocalDate } {
-  const sunday = addDays(today, -(weekdayOf(today) + 1));
+  const weekday = weekdayOf(today);
+  const sunday = weekday === 6 ? today : addDays(today, -(weekday + 1));
   return { monday: addDays(sunday, -6), sunday };
 }
 

@@ -15,10 +15,10 @@ async function at(day: number) {
   return { core, model, input: rulesInput(model), today: dateOfDay(day) };
 }
 
-test('the last week is the Monday to Sunday that finished before today', () => {
+test('the last week is the Monday to Sunday that finished before today; on a Sunday it is the week just lived (C-4)', () => {
   assert.deepEqual(lastWeek('2026-01-21'), { monday: '2026-01-12', sunday: '2026-01-18' });
   assert.deepEqual(lastWeek('2026-01-19'), { monday: '2026-01-12', sunday: '2026-01-18' });   // a Monday
-  assert.deepEqual(lastWeek('2026-01-18'), { monday: '2026-01-05', sunday: '2026-01-11' });   // a Sunday
+  assert.deepEqual(lastWeek('2026-01-18'), { monday: '2026-01-12', sunday: '2026-01-18' });   // a Sunday: the week just lived
 });
 
 test('in the first week nothing is said yet; after it, each row has its words', async () => {
@@ -35,6 +35,16 @@ test('in the first week nothing is said yet; after it, each row has its words', 
   for (const r of [...v.focus, ...v.log]) assert.ok(r.words === undefined || ['most days', 'about half', 'a few days'].includes(r.words));
   assert.ok(v.focus.some(r => r.momentum !== undefined));
   assert.ok(v.log.every(r => r.momentum === undefined));
+});
+
+test('on a Sunday, the week review covers the week just lived, not the week before (C-4)', async () => {
+  const sun = await at(14);                                  // Sunday 18 January
+  const v = weekView(sun.input, sun.model, sun.today);
+  assert.equal(v.monday, '2026-01-12');
+  assert.equal(v.sunday, '2026-01-18');
+  const saved = await saveReview(sun.core, { period: 'week', start: v.monday, answers: { line: 'invented' }, close: true });
+  assert.equal(saved.kind, 'Saved');
+  assert.equal(sun.model.reviews.get('w:2026-01-12')?.answers.line, 'invented');
 });
 
 test('the monthly review opens on day 60 and covers the month before', async () => {

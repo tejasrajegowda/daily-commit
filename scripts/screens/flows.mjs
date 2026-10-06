@@ -708,6 +708,20 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check("R3-2: That's the week, clicked from its line on a laptop, keeps both answers and closes the week", await shows(w, '.hcard')
     && await until(w, () => window.harness.reviews().some(r => r.key.startsWith('w:') && r.closed
       && r.answers.changed === 'CANARY-TEST a new route' && r.answers.line === 'CANARY-TEST an even week')));
+
+  // R3-4: on a Sunday, the week review covers Monday to that Sunday (C-4), not the week before
+  await h.open(p, 's=week&t=10:30&age=14');
+  await shows(p, '.wk-row');
+  const sunText = await p.locator('#view').innerText();
+  check('R3-4: a Sunday opens the week just lived, not the week before',
+    sunText.toUpperCase().includes('SUNDAY 18 JANUARY') && sunText.includes('12 Jan – 18 Jan')
+    && !sunText.toUpperCase().includes('11 JANUARY') && !sunText.includes('5 Jan'));
+  await p.tap('[data-a="wstep"]');
+  await p.fill('.phone-only #wk-line', 'CANARY-TEST a Sunday line');
+  await p.tap('[data-a="wstep"]');
+  await p.locator('.phone-only [data-a="week-done"]').tap();
+  check("R3-4: That's the week files the answer under this week's own Monday, not last week's",
+    await shows(p, '.hcard') && await until(p, () => window.harness.reviews().some(r => r.key === 'w:2026-01-12' && r.answers.line === 'CANARY-TEST a Sunday line')));
 }
 
 // the diary and Not yet (invented words only)
