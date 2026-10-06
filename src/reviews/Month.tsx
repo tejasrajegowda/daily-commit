@@ -38,7 +38,7 @@ export function Month() {
       <div className="scr"><main className="col" style={{ maxWidth: 520, margin: '0 auto', width: '100%' }}>
         <div className="gate" style={{ minHeight: '60dvh' }}>
           <p className="eb">Monthly review</p><h1 className="t-l" style={{ marginTop: 8 }}>Opens on day 60</h1>
-          <p className="body" style={{ margin: '12px 0 0' }}>{short(v.opensOn)} — in {left} days. A month in words needs at least one whole month, and anything it says about what helps needs at least eight days of each side.</p>
+          <p className="body" style={{ margin: '12px 0 0' }}>{short(v.opensOn)} — in {left} days. A month in words needs at least one whole month, and what seems to go well together needs at least eight days of each side.</p>
         </div>
       </main></div>
     );

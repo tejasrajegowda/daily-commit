@@ -1,9 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cellClass, cells, monthsField, opensLater, sentence, tiers, trend, weekSpans, window } from '../../src/look-back/lookView.ts';
+import { cellClass, cells, monthsField, opensLater, sentence, tiers, trend, valueWords, weekSpans, window } from '../../src/look-back/lookView.ts';
 import { rulesInput } from '../../src/record/read.ts';
-import { lookup, stateOf } from '../../src/rules/state.ts';
+import { addDays } from '../../src/rules/dates.ts';
+import { indexObservations, lookup, stateOf } from '../../src/rules/state.ts';
 import { freshDb } from '../record/helpers.ts';
+import { history, tri, walk } from '../rules/fixtures.ts';
 import { dateOfDay, readState, START } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
 
@@ -74,7 +76,20 @@ test('the sentence counts up in words, starts the record on day 1, and never say
   }
 });
 
-test('the views still to come are named in advance', () => {
-  assert.deepEqual(opensLater(17).map(o => o.what), ['Wake-time trend', 'Am I improving?', 'The shape of months', 'What actually helps']);
-  assert.deepEqual(opensLater(60), []);
+test('the views still to come are named in advance, with no causal claim', () => {
+  assert.deepEqual(opensLater(17, true).map(o => o.what), ['Wake-time trend', 'Am I improving?', 'The shape of months', 'What seems to go well together']);
+  assert.deepEqual(opensLater(60, true), []);
+});
+
+test('R3-10: the wake-time trend is named only when a time habit exists', () => {
+  assert.deepEqual(opensLater(17, false).map(o => o.what), ['Am I improving?', 'The shape of months', 'What seems to go well together']);
+});
+
+test('R3-8: a logged "not today" and a day never answered read the same, a faint dash', () => {
+  const w = { ...walk, name: 'Walk', order: 0 };
+  const idx = indexObservations(history('walk', tri('dn.')));
+  const input = { index: idx, habits: [], cues: [], cueSettings: {} as never };
+  assert.equal(valueWords(w, input, addDays(START, 1)), '—');  // a logged miss
+  assert.equal(valueWords(w, input, addDays(START, 2)), '—');  // never answered
+  assert.equal(valueWords(w, input, START), 'did it');         // unaffected: an actual answer still reads
 });

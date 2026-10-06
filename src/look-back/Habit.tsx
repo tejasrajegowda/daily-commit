@@ -52,12 +52,15 @@ export function Habit() {
     );
   };
 
+  // the run in progress is a headline only while it's 1 or more; at 0 it would be the one number
+  // here allowed to go back down, so it drops out and the two numbers that never go down remain (§8 #1, #2)
+  const showRun = habit.kind === 'min' || n.currentRun >= 1;
   const numbers = (
     <div className="panel">
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: showRun ? 'repeat(3,1fr)' : 'repeat(2,1fr)', gap: 12 }}>
         <div><div className="num-xl">{n.did}</div><div className="meta">{habit.kind === 'min' ? 'sessions' : 'all time'}</div></div>
         <div><div className="num-xl">{n.longestRun}</div><div className="meta">longest run</div></div>
-        <div><div className="num-xl">{habit.kind === 'min' ? Math.round(n.minutes / 60) : n.currentRun}</div><div className="meta">{habit.kind === 'min' ? 'hours in all' : 'this run'}</div></div>
+        {showRun && <div><div className="num-xl">{habit.kind === 'min' ? Math.round(n.minutes / 60) : n.currentRun}</div><div className="meta">{habit.kind === 'min' ? 'hours in all' : 'this run'}</div></div>}
       </div>
     </div>
   );

@@ -47,7 +47,7 @@ export function valueWords(habit: HabitRecord, input: RulesInput, date: LocalDat
   if (s === 'planned') return 'planned rest';
   const v = obs?.value;
   if (v === undefined) return '—';
-  if (typeof v === 'string') return v === 'did' ? 'did it' : v === 'partly' ? 'partly' : 'not today';
+  if (typeof v === 'string') return v === 'did' ? 'did it' : v === 'partly' ? 'partly' : '—';
   if (habit.kind === 'time') return hm(clockOfDay(v));
   if (habit.kind === 'min') return dur(v);
   return String(v);
@@ -182,11 +182,11 @@ export function trend(input: RulesInput, habit: HabitRecord, start: LocalDate, t
 }
 
 /** The views still to come, said in advance: a trend through three points is noise. */
-export function opensLater(day: number): { readonly what: string; readonly when: string }[] {
+export function opensLater(day: number, hasTimeHabit: boolean): { readonly what: string; readonly when: string }[] {
   const out: { what: string; when: string }[] = [];
-  if (day < OPENS_ON.timeTrend) out.push({ what: 'Wake-time trend', when: `day 21 · in ${OPENS_ON.timeTrend - day} days` });
+  if (hasTimeHabit && day < OPENS_ON.timeTrend) out.push({ what: 'Wake-time trend', when: `day 21 · in ${OPENS_ON.timeTrend - day} days` });
   if (day < OPENS_ON.improving) out.push({ what: 'Am I improving?', when: `day 30 · in ${OPENS_ON.improving - day} days` });
   if (day < OPENS_ON.months) out.push({ what: 'The shape of months', when: `day 35 · in ${OPENS_ON.months - day} days` });
-  if (day < OPENS_ON.monthlyReview) out.push({ what: 'What actually helps', when: 'day 60 · monthly review' });
+  if (day < OPENS_ON.monthlyReview) out.push({ what: 'What seems to go well together', when: 'day 60 · monthly review' });
   return out;
 }

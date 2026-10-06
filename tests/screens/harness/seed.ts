@@ -100,7 +100,9 @@ export async function reopen(started: Started): Promise<Seeded> {
 export async function seedRecord(db: RecordDb, state: HarnessState): Promise<Seeded> {
   const started = await startRecord(db, state, HARNESS_SETTINGS);
   const { core, cipher, stamp } = started;
-  for (const { startDay, ...h } of HABITS) {
+  // v=notime: no habit of kind 'time' at all, for the scenario where a time-only view has nothing to show
+  const activeHabits = state.variant === 'notime' ? HABITS.filter(h => h.kind !== 'time') : HABITS;
+  for (const { startDay, ...h } of activeHabits) {
     if (startDay > state.day) continue;
     const made = await createHabit(core, { ...h, startedOn: dateOfDay(startDay, state.start) });
     if (made.kind !== 'Saved') throw new Error(`habit ${h.id}: ${made.kind}`);
@@ -137,7 +139,7 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
     const date = dateOfDay(d, state.start);
     const weekday = ((d - 1) % 7) as Weekday;
     const evening = Date.parse(`${date}T21:00:00Z`);
-    for (const h of HABITS) {
+    for (const h of activeHabits) {
       const drawn = valueFor(h, next);                   // drawn for every habit, so a skipped day keeps the rest the same
       const value = steady && h.id === 'h-walk' ? 'did' : marked(d) && h.id === 'h-wake' ? 415 : marked(d) && h.id === 'h-practice' ? 85 : drawn;
       if (!opened || value === undefined || d < h.startDay || !h.days.includes(weekday)) continue;

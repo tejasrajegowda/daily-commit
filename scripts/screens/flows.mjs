@@ -618,6 +618,53 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
     && /^one entry · open$/.test(await q.locator('.side [data-x="diary"]').innerText()) && !(await q.locator('.side').innerText()).includes('CANARY'));
   await q.locator('.side [data-x="diary"]').click();
   check('Look back, laptop: the line opens the diary', await shows(q, '.diary'));
+
+  // R3-10: no causal claim, and the wake-time trend named only when a time habit exists
+  await h.open(p, 's=look&t=12:30');
+  await shows(p, '.said-panel');
+  check('R3-10: the views still to come never claim what helps', !(await p.locator('.later').first().innerText()).includes('What actually helps')
+    && (await p.locator('.later').first().innerText()).includes('What seems to go well together'));
+  await h.open(p, 's=look&t=12:30&v=notime');
+  check('R3-10: with no time habit, the wake-time trend is not named as still to come',
+    await shows(p, '.said-panel') && !(await p.locator('.later').first().innerText()).includes('Wake-time trend'));
+
+  // R3-3: the run in progress is a headline only while it is 1 or more; at 0 it drops out, leaving
+  // only the two numbers that never go down (§8 #1, #2)
+  await h.open(p, 's=habit&v=h-walk&t=12:30&age=17');
+  await shows(p, '.cal');
+  check('R3-3: with a run in progress, the habit page shows three numbers, "this run" among them',
+    (await p.locator('.phone-only .panel').first().locator('.meta').allInnerTexts()).includes('this run'));
+  await h.open(p, 's=habit&v=h-walk&t=12:30&age=38');
+  await shows(p, '.cal');
+  check('R3-3: once a run has ended, "this run" is gone, and never shows a visible 0',
+    !(await p.locator('.phone-only .panel').first().locator('.meta').allInnerTexts()).includes('this run')
+    && (await p.locator('.phone-only .panel').first().locator('.num-xl').count()) === 2);
+
+  // R3-8: the laptop day panel never spells out a miss ("not today"); a miss and an unanswered day
+  // read as the identical faint dash (§8 R0, #7)
+  await h.open(q, 's=look&t=12:30&age=38');
+  await shows(q, '.evi .c');
+  let dashCount = 0, sawMiss = false, colourOk = true;
+  for (let i = 0; i < 28; i++) {
+    const cell = q.locator('.evi .cells').first().locator(`.c[data-x="${i}"]`);
+    if ((await cell.count()) === 0) continue;
+    await cell.click();
+    const dayRow = await q.evaluate(() => {
+      const panel = document.querySelector('.side .panel');
+      const vals = [...(panel?.querySelectorAll('.between') ?? [])].map(r => {
+        const span = r.querySelectorAll('span')[1];
+        return { text: span?.textContent ?? '', colour: span ? getComputedStyle(span).color : '' };
+      });
+      return { miss: vals.some(v => v.text === 'not today'), dashes: vals.filter(v => v.text === '—') };
+    });
+    if (dayRow.miss) sawMiss = true;
+    if (dayRow.dashes.length > 0) {
+      dashCount += dayRow.dashes.length;
+      if (!dayRow.dashes.every(v => v.colour === dayRow.dashes[0].colour)) colourOk = false;
+    }
+  }
+  check('R3-8: the day panel never says "not today"; every miss or unanswered day reads the same faint dash',
+    !sawMiss && dashCount > 0 && colourOk);
 }
 
 // reviews

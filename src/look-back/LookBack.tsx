@@ -55,7 +55,7 @@ export function LookBack() {
   // the phone's cards show the last two weeks
   const cardFrom = datesBack(today, Math.min(day, 14));
 
-  const later = opensLater(day);
+  const later = opensLater(day, wake !== undefined);
   const laterPanel = later.length > 0 && (
     <div className="later">
       <p className="eb" style={{ margin: '0 4px 10px' }}>Opens later</p>
