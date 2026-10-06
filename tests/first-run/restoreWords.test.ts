@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { madeAtWords, RESTORE_WORDS } from '../../src/first-run/restoreWords.ts';
 
-test('the five messages are all different, and none has ! or %', () => {
+test('the six messages are all different, and none has ! or %', () => {
   const all = Object.values(RESTORE_WORDS).map(w => `${w.title} ${w.text}`);
-  assert.equal(new Set(all).size, 5);
+  assert.equal(new Set(all).size, 6);
   for (const t of all) assert.doesNotMatch(t, /[!%]/);
 });
 
@@ -12,8 +12,8 @@ test('a wrong passphrase points to the recovery code, since a damaged copy of it
   assert.match(RESTORE_WORDS.wrong.text, /recovery code/);
 });
 
-test('newer, damaged and full each say nothing on this phone was changed', () => {
-  for (const m of ['newer', 'damaged', 'full'] as const) assert.match(RESTORE_WORDS[m].text, /nothing on this phone was changed/i);
+test('newer, damaged, full and not-a-backup each say nothing on this phone was changed', () => {
+  for (const m of ['newer', 'damaged', 'full', 'not-backup'] as const) assert.match(RESTORE_WORDS[m].text, /nothing on this phone was changed/i);
 });
 
 test('a file from another record says so', () => {

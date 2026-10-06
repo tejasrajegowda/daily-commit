@@ -24,9 +24,13 @@ async function filledBackup(passphrase = PASSPHRASE) {
   return { ...r, file: await backupOf(r.core) };
 }
 
-test('a file that is not a backup is unreadable; a newer format says so; a backup gives when it was made', async () => {
+test('a file that is not a backup says so; a backup with a broken header is unreadable; a newer format says so; a backup gives when it was made', async () => {
   const { file } = await filledBackup();
-  assert.deepEqual(readBackupFile(new TextEncoder().encode('not a backup')), { kind: 'Unreadable' });
+  for (const other of [new TextEncoder().encode('not a backup'), new Uint8Array(0), Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0)]) {
+    assert.deepEqual(readBackupFile(other), { kind: 'NotBackup' });
+  }
+  assert.deepEqual(readBackupFile(file.slice(0, 6)), { kind: 'Unreadable' });
+  assert.deepEqual(readBackupFile(Uint8Array.of(...file.slice(0, 8), ...new Uint8Array(40).fill(0x7b))), { kind: 'Unreadable' });
   const f = readFrame(file);
   assert.deepEqual(readBackupFile(frame(jsonBytes({ ...f.header, format_version: 2 }), f.ct)), { kind: 'Newer' });
   const read = readBackupFile(file);

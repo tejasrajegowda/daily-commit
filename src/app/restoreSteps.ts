@@ -1,4 +1,4 @@
-import { readFrame } from '../record/backup/format.ts';
+import { MAGIC, readFrame } from '../record/backup/format.ts';
 import { backupCipher } from '../vault/backupCipher.ts';
 import { BackupError, type Secret } from '../vault/cipher.ts';
 import type { AppDeps } from './context.ts';
@@ -11,10 +11,14 @@ import { restoreBackup } from './restoreFlow.ts';
 export type FileRead =
   | { readonly kind: 'File'; readonly bytes: Uint8Array; readonly madeAt: number }
   | { readonly kind: 'Newer' }
+  /** not a Daily Commit backup at all (no backup mark): a photo, a document, an empty file */
+  | { readonly kind: 'NotBackup' }
+  /** a backup whose header can't be read */
   | { readonly kind: 'Unreadable' };
 
 /** Reads the plain header only (no secret needed): when the backup was made. */
 export function readBackupFile(bytes: Uint8Array): FileRead {
+  if (bytes.length < MAGIC.length || !MAGIC.every((b, i) => bytes[i] === b)) return { kind: 'NotBackup' };
   try {
     return { kind: 'File', bytes, madeAt: readFrame(bytes).header.exported_at };
   } catch (e) {
@@ -22,7 +26,7 @@ export function readBackupFile(bytes: Uint8Array): FileRead {
   }
 }
 
-export type RestoreMessage = 'wrong' | 'newer' | 'damaged' | 'full';
+export type RestoreMessage = 'wrong' | 'newer' | 'damaged' | 'full' | 'not-backup';
 
 export type RestoreStep =
   | { readonly kind: 'Restored' }

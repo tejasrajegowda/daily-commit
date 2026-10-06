@@ -89,7 +89,7 @@ export function Restore(props: RestoreProps) {
       setMessage(undefined);
     } else {
       setFile(undefined);
-      setMessage(read.kind === 'Newer' ? 'newer' : 'damaged');
+      setMessage(read.kind === 'Newer' ? 'newer' : read.kind === 'NotBackup' ? 'not-backup' : 'damaged');
     }
   };
 

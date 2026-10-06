@@ -206,6 +206,11 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
     }
     check(`restore says: ${said}`, await shows(p, '[data-a="restore-note"]', 20000) && (await p.locator('[data-a="restore-note"]').innerText()).toLowerCase().includes(words));
   }
+  await h.open(p, 's=restore');
+  await shows(p, '[data-a="choose"]');
+  await p.setInputFiles('input[type=file]', { name: 'photo.jpg', mimeType: 'image/jpeg', buffer: Buffer.from('not a backup at all') });
+  const notBackup = await shows(p, '[data-a="restore-note"]') ? (await p.locator('[data-a="restore-note"]').innerText()).toLowerCase() : '';
+  check("restore says a file that isn't a backup is not one, not that it's damaged", notBackup.includes("isn't a daily commit backup") && !notBackup.includes('damaged'));
 
   await h.open(p, 's=restore&v=replace');
   await shows(p, '[data-a="choose"]');
