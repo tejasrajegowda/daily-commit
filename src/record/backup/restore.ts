@@ -1,12 +1,13 @@
 import { BackupError, CipherError, type BackupCipher, type BackupFailure, type Envelope, type EnvelopeContext, type Secret } from '../../vault/cipher.ts';
 import { TABLE_TAGS, type LockedTable } from '../../vault/tags.ts';
 import { isQuotaFull, type RecordCore } from '../core.ts';
-import type { Schema } from '../db.ts';
+import { jsonBytes } from '../bytes.ts';
+import type { RecordDb, Schema } from '../db.ts';
 import { upgradeTables } from '../upgrade.ts';
 import type { SnapshotFiles } from '../files.ts';
 import { plainOf, rowId } from '../payload.ts';
 import type { VaultRow } from '../rows.ts';
-import { BODY_TABLES, gunzip, parseBody, type StoredRows } from './body.ts';
+import { BODY_TABLES, gunzip, gzip, parseBody, readRaw, type StoredRows } from './body.ts';
 import { SAFETY, keepCopy } from './copies.ts';
 import { sealBackup, type SealedBackup } from './export.ts';
 import { readFrame, type BackupHeader } from './format.ts';
@@ -74,7 +75,16 @@ export interface RestoreInput {
   /** opens the file; it needs no backup key, so it works on a phone never set up */
   readonly backupCipher: BackupCipher;
   /** given when "replace everything" was chosen: the safety copy is kept through these files first */
-  readonly replace?: { readonly files: SnapshotFiles; readonly appVersion: string };
+  readonly replace?: {
+    readonly files: SnapshotFiles;
+    readonly appVersion: string;
+    /**
+     * the record here refused to open, so it can't be sealed: while it is locked it is replaced
+     * without being opened, and its rows as stored, with the phone's last snapshot of it, are the
+     * safety copy
+     */
+    readonly unopened?: boolean;
+  };
   /** the schema versions to bring an older file's rows up to; the app leaves it out */
   readonly schemas?: readonly Schema[];
 }
@@ -92,7 +102,8 @@ export type RestoreResult =
 
 /**
  * Restores a backup. Into an empty record any valid file goes; into one with data only when
- * "replace everything" was chosen, after a safety copy. The record ends locked either way.
+ * "replace everything" was chosen, after a safety copy. The record ends locked either way. A
+ * record that refused to open is replaced only when the caller says so, and only while it is locked.
  */
 export async function restore(core: RecordCore, input: RestoreInput): Promise<RestoreResult> {
   let checked: CheckedBackup;
@@ -105,7 +116,19 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
   const replace = input.replace;
   const existing = await core.db.vault.get('main');
   if (existing && !replace) return { kind: 'HasData', otherVault: existing.vault_id !== checked.header.vault_id };
-  if (existing && replace) {
+  if (existing && replace?.unopened && !core.session) {
+    // nothing is open and nothing is dropped: a failed copy or replace leaves the record exactly as it was.
+    // A record that won't open may still hold good rows, so they are always kept as stored, and the
+    // phone's last snapshot of it beside them when there is one.
+    try {
+      const at = core.now();
+      await keepCopy(replace.files, SAFETY, at, RAW_EXT, await rawRecordCopy(core.db));
+      const last = await replace.files.read(LATEST);
+      if (last) await keepCopy(replace.files, SAFETY, at, 'dcbak', last);
+    } catch (e) {
+      return isQuotaFull(e) ? { kind: 'QuotaFull' } : { kind: 'CopyFailed' };
+    }
+  } else if (existing && replace) {
     // sealed while the record is still open; then the keys drop, before the copy is written, and
     // stay gone whatever follows. A failed seal or copy replaces nothing. `Locked` means the keys
     // were already gone when this attempt began, so there was nothing to seal.
@@ -125,6 +148,20 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
   const result = await core.serial(() => replaceAll(core, checked.header, upgradeTables(checked.tables, checked.header.schema_version, input.schemas), replace !== undefined));
   if (result.kind === 'Restored' && replace) await becomeLatest(replace.files, input.file);
   return result;
+}
+
+/** The extension of a raw copy, so it is never taken for a backup. */
+export const RAW_EXT = 'dcraw';
+/** Names what a raw copy is, in its own first field. */
+export const RAW_FORMAT = 'daily-commit raw record copy';
+
+/**
+ * A record exactly as stored, read without any key: every body table and the wrappers, as gzip of
+ * UTF-8 JSON under a small header. Locked values stay locked, so nothing in it becomes readable.
+ */
+export async function rawRecordCopy(db: RecordDb): Promise<Uint8Array> {
+  const raw = await readRaw(db);
+  return gzip(jsonBytes({ format: RAW_FORMAT, version: 1, schema_version: db.verno, tables: raw.tables, wrappers: raw.wrappers }));
 }
 
 /**

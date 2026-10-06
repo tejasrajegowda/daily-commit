@@ -2,9 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { madeAtWords, RESTORE_WORDS, STOP_WORDS } from '../../src/first-run/restoreWords.ts';
 
-test('the seven messages are all different, and none has ! or %', () => {
+test('the eight messages are all different, and none has ! or %', () => {
   const all = Object.values(RESTORE_WORDS).map(w => `${w.title} ${w.text}`);
-  assert.equal(new Set(all).size, 7);
+  assert.equal(new Set(all).size, 8);
   for (const t of all) assert.doesNotMatch(t, /[!%]/);
 });
 
@@ -19,6 +19,12 @@ test('newer, damaged, full and not-a-backup each say nothing on this phone was c
 test("a restore that stopped before it finished promises nothing it can't know about the phone", () => {
   assert.doesNotMatch(RESTORE_WORDS['not-finished'].text, /nothing on this phone was changed/i);
   assert.doesNotMatch(STOP_WORDS['not-finished'].text, /nothing on this phone was changed|as it was/i);
+});
+
+test("a replace of a record that can't be opened that didn't happen says the record is as it was, and to try again", () => {
+  assert.match(RESTORE_WORDS['not-replaced'].title, /Not replaced/);
+  assert.match(RESTORE_WORDS['not-replaced'].text, /as it was/);
+  assert.match(RESTORE_WORDS['not-replaced'].text, /try again/i);
 });
 
 test("a replace that stopped says it's locked now and to open it, never to try again from here; all differ, none has ! or %", () => {

@@ -13,7 +13,7 @@ import { BODY_TABLES, bodyJson, gunzip, gzip, parseBody, type StoredRows } from 
 import { COPY_LIFE_MS, KEEP_COPIES, keepCopy, pruneCopies } from '../../src/record/backup/copies.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../src/record/backup/format.ts';
-import { restore } from '../../src/record/backup/restore.ts';
+import { RAW_EXT, restore } from '../../src/record/backup/restore.ts';
 import { LATEST } from '../../src/record/backup/snapshot.ts';
 import { closeSession } from '../../src/record/ops/session.ts';
 import { filledRecord, freshDb } from './helpers.ts';
@@ -214,6 +214,19 @@ test('private copies keep at most two, and each goes after 7 days', async () => 
   assert.deepEqual([...m.store.keys()].sort(), [`safety/${t0 + day}.dcbak`, `safety/${t0 + 2 * day}.dcbak`]);
   await pruneCopies(m.files, 'safety', t0 + day + COPY_LIFE_MS);
   assert.deepEqual([...m.store.keys()], [`safety/${t0 + 2 * day}.dcbak`]);
+});
+
+test('a raw copy and a snapshot kept together at one moment are both kept, and both go after 7 days', async () => {
+  const m = memoryFiles();
+  const t0 = Date.UTC(2026, 0, 5);
+  await keepCopy(m.files, 'safety', t0 - 86_400_000, 'dcbak', Uint8Array.of(0));        // an older safety copy
+  await keepCopy(m.files, 'safety', t0, RAW_EXT, Uint8Array.of(1));
+  await keepCopy(m.files, 'safety', t0, 'dcbak', Uint8Array.of(2));
+  assert.deepEqual([...m.store.keys()].sort(), [`safety/${t0}.dcbak`, `safety/${t0}.${RAW_EXT}`]);
+  await pruneCopies(m.files, 'safety', t0 + COPY_LIFE_MS - 1);
+  assert.equal(m.store.size, 2);
+  await pruneCopies(m.files, 'safety', t0 + COPY_LIFE_MS);
+  assert.equal(m.store.size, 0);
 });
 
 test('after "replace everything", the restored file is the latest snapshot, not the data it replaced', async () => {

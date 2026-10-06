@@ -5,8 +5,11 @@ import { assemble } from '../../src/app/compose.ts';
 import type { AppDeps, DevicePort } from '../../src/app/context.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../src/record/backup/format.ts';
+import { gunzip, readRaw } from '../../src/record/backup/body.ts';
 import { SAFETY } from '../../src/record/backup/copies.ts';
-import { jsonBytes } from '../../src/record/bytes.ts';
+import { RAW_FORMAT } from '../../src/record/backup/restore.ts';
+import { LATEST } from '../../src/record/backup/snapshot.ts';
+import { jsonBytes, parseJsonBytes } from '../../src/record/bytes.ts';
 import type { RecordCore } from '../../src/record/core.ts';
 import { fillRecord } from '../record/helpers.ts';
 import { memoryFiles } from '../record/memoryFiles.ts';
@@ -166,5 +169,124 @@ test('R1-4: once the keys are gone, a replace ends at the lock instead of asking
   const deps = failingDeps(mine.core, m.files);
   await mine.core.lock();
   assert.deepEqual(await restoreWith(deps, theirs.file, THEIRS, true), { kind: 'Locked' });
+  assert.equal((await m.files.list(SAFETY)).length, 0);
+});
+
+// ── R1-2: a record that refused to open is replaced from its lock screen, without being opened.
+
+/** The record locked, with its lock damaged so the passphrase is refused, and the app put together around it. */
+async function damagedRecord(snapshot?: Uint8Array) {
+  const mine = await filledBackup();
+  const m = memoryFiles();
+  if (snapshot) await m.files.write(LATEST, snapshot);
+  await mine.core.lock();
+  await mine.db.vault.update('main', { kid: 'CANARY-damaged' });
+  const deps = failingDeps(mine.core, m.files);
+  await deps.machine.resume();
+  assert.deepEqual(await deps.lock.unlock(PASS), { kind: 'Refused', reason: 'damaged' });
+  m.log.length = 0;
+  return { ...mine, m, deps };
+}
+
+/** Everything the record holds, to compare before and after. */
+async function rowsIn(core: RecordCore) {
+  const { db } = core;
+  return { vault: await db.vault.toArray(), wrappers: await db.wrappers.toArray(), habits: await db.habits.toArray(), entries: await db.entries.toArray() };
+}
+
+/** The record's rows as stored, through JSON, as a raw copy holds them. */
+async function storedRows(core: RecordCore) {
+  const raw = await readRaw(core.db);
+  return JSON.parse(JSON.stringify({ tables: raw.tables, wrappers: raw.wrappers })) as unknown;
+}
+
+/** The safety copies by extension: the raw copy opened back to its JSON, a snapshot as its bytes. */
+async function keptCopies(m: ReturnType<typeof memoryFiles>) {
+  const names = await m.files.list(SAFETY);
+  const raw = names.filter(n => /^\d{13}\.dcraw$/.test(n));
+  const snap = names.filter(n => /^\d{13}\.dcbak$/.test(n));
+  assert.equal(raw.length + snap.length, names.length, `only raw copies and snapshots: ${names.join()}`);
+  const rawBytes = raw[0] === undefined ? undefined : await m.files.read(`${SAFETY}/${raw[0]}`);
+  return {
+    names,
+    raw: rawBytes && parseJsonBytes(await gunzip(rawBytes)) as { format: string; version: number; schema_version: number; tables: unknown; wrappers: unknown },
+    rawText: rawBytes && new TextDecoder().decode(await gunzip(rawBytes)),
+    snapshot: snap[0] === undefined ? undefined : await m.files.read(`${SAFETY}/${snap[0]}`),
+  };
+}
+
+test('R1-2: a record that refuses to open asks first, then Replace keeps its rows as stored and its last snapshot, puts its backup in, and ends locked; the passphrase opens it', async () => {
+  const snapshot = Uint8Array.of(1, 2, 3);                // stands in for the phone's last automatic copy
+  const { core, file, m, deps } = await damagedRecord(snapshot);
+  assert.deepEqual(await restoreWith(deps, file, PASS, false, true), { kind: 'Ask', otherRecord: false });
+  assert.equal((await m.files.list(SAFETY)).length, 0, 'asking keeps nothing and replaces nothing');
+  const before = await storedRows(core);
+  assert.deepEqual(await restoreWith(deps, file, PASS, true, true), { kind: 'Restored' });
+  const kept = await keptCopies(m);
+  assert.equal(kept.names.length, 2);
+  assert.deepEqual(kept.snapshot, snapshot);
+  assert.equal(kept.raw?.format, RAW_FORMAT);
+  assert.equal(kept.raw?.version, 1);
+  assert.equal(kept.raw?.schema_version, core.db.verno);
+  assert.deepEqual({ tables: kept.raw?.tables, wrappers: kept.raw?.wrappers }, before, 'every row and wrapper, unchanged');
+  assert.ok(!kept.rawText?.includes('CANARY-TEST'), 'locked values stay locked in the raw copy');
+  assert.deepEqual(await m.files.read(LATEST), file, 'the restored file is the latest copy now');
+  assert.equal(core.session, undefined, 'never opened without a secret');
+  assert.equal(deps.machine.state.kind, 'Locked');
+  assert.equal((await deps.lock.unlock(PASS)).kind, 'Open');
+});
+
+test('R1-2: with no snapshot on the phone the rows as stored are still kept before the record is replaced', async () => {
+  const { core, file, m, deps } = await damagedRecord();
+  const before = await storedRows(core);
+  assert.deepEqual(await restoreWith(deps, file, PASS, true, true), { kind: 'Restored' });
+  const kept = await keptCopies(m);
+  assert.equal(kept.names.length, 1);
+  assert.equal(kept.snapshot, undefined);
+  assert.deepEqual({ tables: kept.raw?.tables, wrappers: kept.raw?.wrappers }, before);
+  assert.equal((await deps.lock.unlock(PASS)).kind, 'Open');
+});
+
+test("R1-2: a wrong passphrase replaces nothing and asks nothing", async () => {
+  const { core, file, deps } = await damagedRecord();
+  const before = await rowsIn(core);
+  assert.deepEqual(await restoreWith(deps, file, { method: 'passphrase', text: 'CANARY not it at all' }, true, true), { kind: 'Message', message: 'wrong' });
+  assert.deepEqual(await rowsIn(core), before);
+});
+
+test("R1-2: when the raw copy or the snapshot can't be kept, the record is exactly as it was and 'Not replaced' says so; a full phone says full", async () => {
+  const cases = [
+    ['write tmp/safety.dcraw', undefined, 'not-replaced'],
+    ['write tmp/safety.dcraw', () => new DOMException('disk full', 'QuotaExceededError'), 'full'],
+    ['write tmp/safety.dcbak', undefined, 'not-replaced'],
+    ['write tmp/safety.dcbak', () => new DOMException('disk full', 'QuotaExceededError'), 'full'],
+  ] as const;
+  for (const [call, error, message] of cases) {
+    const { core, file, m, deps } = await damagedRecord(Uint8Array.of(1, 2, 3));
+    const before = await rowsIn(core);
+    m.failOn(call, error);
+    assert.deepEqual(await restoreWith(deps, file, PASS, true, true), { kind: 'Message', message }, call);
+    assert.deepEqual(await rowsIn(core), before);
+    assert.ok(!m.log.some(c => c.startsWith('write tmp/safety.dcbak')) || call.endsWith('dcbak'), 'a failed raw copy goes no further');
+    assert.deepEqual(await deps.lock.unlock(PASS), { kind: 'Refused', reason: 'damaged' }, 'still the record that was here');
+    m.failOn(undefined);
+    assert.deepEqual(await restoreWith(deps, file, PASS, true, true), { kind: 'Restored' }, 'and it can be tried again');
+  }
+});
+
+test("R1-2: when the replace itself fails, the record is exactly as it was and 'Not replaced' says so", async () => {
+  const { core, db, file, deps } = await damagedRecord();
+  const before = await rowsIn(core);
+  db.habits.hook('creating', () => { throw new Error('CANARY injected'); });
+  assert.deepEqual(await restoreWith(deps, file, PASS, true, true), { kind: 'Message', message: 'not-replaced' });
+  assert.deepEqual(await rowsIn(core), before);
+  assert.equal(core.session, undefined);
+});
+
+test('R1-2: without being told the record refused to open, a locked record is never replaced', async () => {
+  const { core, file, m, deps } = await damagedRecord(Uint8Array.of(1, 2, 3));
+  const before = await rowsIn(core);
+  assert.deepEqual(await restoreWith(deps, file, PASS, true), { kind: 'Locked' });
+  assert.deepEqual(await rowsIn(core), before);
   assert.equal((await m.files.list(SAFETY)).length, 0);
 });

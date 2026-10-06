@@ -5,6 +5,7 @@ export const STATES = [
   ['lockpass', 's=lock&v=pass&t=06:05'],
   ['lockfive', 's=lock&v=five&t=06:05'],
   ['locknewfinger', 's=lock&v=newfinger&t=06:05'],
+  ['lockdamaged', 's=lock&v=damaged&t=06:05'],
   ['morning', 's=today&t=06:48'],
   ['practice', 's=today&t=08:40'],
   ['evening', 's=today&t=21:30'],

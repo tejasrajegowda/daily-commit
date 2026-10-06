@@ -13,6 +13,7 @@ export const RESTORE_WORDS: Readonly<Record<RestoreMessage | 'other', { readonly
   'not-backup': { title: "This isn't a Daily Commit backup", text: 'Choose a backup file that Daily Commit made. Nothing on this phone was changed.' },
   full: { title: 'The phone is full', text: 'Nothing was restored, and nothing on this phone was changed. Free some space and try again.' },
   'not-finished': { title: 'Not finished', text: 'The restore stopped before it finished. Try again. If it stops again, an older backup may still open.' },
+  'not-replaced': { title: 'Not replaced', text: 'The restore stopped before anything was replaced. The record on this phone is as it was. Try again.' },
   other: OTHER_RECORD,
   'other-record': OTHER_RECORD,
 };

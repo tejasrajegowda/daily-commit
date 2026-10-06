@@ -8,11 +8,15 @@ import { madeAtWords, RESTORE_WORDS, STOP_WORDS } from './restoreWords.ts';
 // record, the person is asked before anything is replaced, and told when the file is from a
 // different record. The secret waits for that answer in a ref, never in state, and goes when the
 // screen does. A replace that fails after the keys were put away for its safety copy says why and
-// leads to the lock screen: the question is never asked again, since a second try can't work.
+// leads to the lock screen: the question is never asked again, since a second try can't work. From
+// the lock screen of a record that can't be opened, nothing is open to put away: a replace that
+// fails leaves that record as it was, and can be tried again.
 
 export interface RestoreProps {
-  /** this phone already holds a record (restore was opened from Settings) */
+  /** this phone already holds a record (restore was opened from Settings, or from the lock screen) */
   readonly replacing: boolean;
+  /** the record on this phone can't be opened: restore was opened from the lock screen's note */
+  readonly unopened?: boolean;
   /** a file already chosen: the copy Android put back */
   readonly preset?: FoundCopy;
   /** Back, Leave it, Open after Restored, or Open after a replace that stopped (the lock screen) */
@@ -47,7 +51,8 @@ export function Restore(props: RestoreProps) {
   const picker = useRef<HTMLInputElement>(null);
   useEffect(() => () => { secret.current = undefined; }, []);
 
-  const backLabel = props.replacing ? 'Settings' : 'Back';
+  const unopened = props.unopened === true;
+  const backLabel = props.replacing && !unopened ? 'Settings' : 'Back';
   const close = (outcome: 'back' | 'restored') => {
     secret.current = undefined;
     props.onClose(outcome);
@@ -57,7 +62,7 @@ export function Restore(props: RestoreProps) {
     if (!file) return;
     setBusy(true);
     try {
-      const result = await restoreWith(deps, file.bytes, s, replace);
+      const result = await restoreWith(deps, file.bytes, s, replace, unopened);
       if (result.kind === 'Ask') {
         secret.current = s;
         setOther(result.otherRecord);
@@ -136,7 +141,7 @@ export function Restore(props: RestoreProps) {
         {/* nothing stops a replace once it runs, so leaving is closed until it ends, like "Leave it" */}
         <Back label={backLabel} disabled={busy} onClick={() => close('back')} />
         <h1 className="t-l" style={{ marginTop: 14 }}>Replace everything on this phone?</h1>
-        <p className="body" style={{ margin: '12px 0 0' }}>This phone already holds a record. Restoring replaces all of it with the backup made on {made}. There is no merging.</p>
+        <p className="body" style={{ margin: '12px 0 0' }}>{unopened ? "The record on this phone can't be opened." : 'This phone already holds a record.'} Restoring replaces all of it with the backup made on {made}. There is no merging.</p>
         {other && <div style={{ marginTop: 14 }}><Note {...RESTORE_WORDS.other} /></div>}
         <p className="meta" style={{ margin: '16px 0 22px' }}>A copy of what's here now is kept on this phone for 7 days, in case.</p>
         <div className="two">

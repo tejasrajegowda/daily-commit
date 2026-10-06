@@ -27,7 +27,9 @@ export function readBackupFile(bytes: Uint8Array): FileRead {
   }
 }
 
-export type RestoreMessage = 'wrong' | 'newer' | 'damaged' | 'full' | 'not-backup' | 'other-record' | 'not-finished';
+export type RestoreMessage = 'wrong' | 'newer' | 'damaged' | 'full' | 'not-backup' | 'other-record' | 'not-finished'
+  /** a replace of a record that can't be opened didn't happen: it is as it was, and can be tried again */
+  | 'not-replaced';
 
 /** Why a "Replace everything" stopped after the keys were dropped for its safety copy. */
 export type StopMessage = 'full' | 'not-saved' | 'not-finished';
@@ -43,13 +45,18 @@ export type RestoreStep =
   /** the keys were already gone when the replace began: only the lock screen opens it now */
   | { readonly kind: 'Locked' };
 
-/** One attempt. `replace` is true only after the person chose "Replace everything". */
-export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secret, replace: boolean): Promise<RestoreStep> {
+/**
+ * One attempt. `replace` is true only after the person chose "Replace everything". `unopened` is
+ * true only when restore was reached from the lock screen of a record that refused to open: that
+ * record is replaced without being opened, so no keys are dropped and a failure can be tried again.
+ */
+export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secret, replace: boolean, unopened = false): Promise<RestoreStep> {
+  const wasOpen = deps.core.session !== undefined;
   let result: RestoreResult | undefined;
   try {
     result = await restoreBackup({ core: deps.core, plugin: deps.device.plugin, machine: deps.machine }, {
       file: bytes, secret, backupCipher: backupCipher(),
-      replace: replace ? { files: deps.device.files, appVersion: deps.appVersion } : undefined,
+      replace: replace ? { files: deps.device.files, appVersion: deps.appVersion, unopened } : undefined,
     });
   } catch {
     result = undefined;                                  // a failure with no name of its own still gets words
@@ -58,13 +65,15 @@ export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secr
   }
   // a replace drops the keys before its safety copy, and they never come back on their own: whatever
   // went wrong after that, asking again can only find them gone, so the flow ends at the lock
-  const dropped = replace && deps.core.session === undefined;
-  if (!result) return dropped ? { kind: 'Stopped', message: 'not-finished' } : { kind: 'Message', message: 'not-finished' };
+  const dropped = replace && wasOpen && deps.core.session === undefined;
+  // a record that couldn't be opened was never touched by a replace that failed: it says so
+  const notReplaced = replace && !wasOpen;
+  if (!result) return dropped ? { kind: 'Stopped', message: 'not-finished' } : { kind: 'Message', message: notReplaced ? 'not-replaced' : 'not-finished' };
   switch (result.kind) {
     case 'Restored': return { kind: 'Restored' };
     case 'HasData': return { kind: 'Ask', otherRecord: result.otherVault };
     case 'QuotaFull': return dropped ? { kind: 'Stopped', message: 'full' } : { kind: 'Message', message: 'full' };
-    case 'CopyFailed': return { kind: 'Stopped', message: 'not-saved' };
+    case 'CopyFailed': return dropped ? { kind: 'Stopped', message: 'not-saved' } : { kind: 'Message', message: 'not-replaced' };
     case 'Locked': return { kind: 'Locked' };
     case 'Refused':
       if (result.reason === 'wrong-secret') return { kind: 'Message', message: (await isOtherRecord(deps, bytes).catch(() => false)) ? 'other-record' : 'wrong' };

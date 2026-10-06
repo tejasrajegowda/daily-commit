@@ -267,6 +267,54 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
     if (await shows(p, '[data-a="open"]', 2000)) await p.tap('[data-a="open"]');
     check(`... (${why}) and Open leads to the lock screen`, await shows(p, '.lk-finger, .lk-pass') && (await p.locator('[data-a="restore-stopped"]').count()) === 0);
   }
+
+  // R1-2: a record that can't be opened offers Restore from its note; a replace ends at its lock screen.
+  // Every step taps only what is there, so a missing way on fails the checks rather than the run.
+  const tapIf = async sel => { if (!(await shows(p, sel, 3000))) return false; await p.tap(sel); return true; };
+  const noteOf = async () => (await shows(p, '[data-a="restore-note"]', 20000) ? (await p.locator('[data-a="restore-note"]').innerText()).toLowerCase() : '');
+  const askFromLock = async () => {
+    if (!(await tapIf('[data-a="lockrestore"]')) || !(await shows(p, '[data-a="choose"]'))) return '';
+    await setFile('mine');
+    await p.fill('input.pass', PASSPHRASE);
+    await p.tap('[data-a="restore-go"]');
+    return await shows(p, '[data-a="replace"]', 20000) ? (await p.locator('.center-col').innerText()) : '';
+  };
+  const unlockWith = async secret => {
+    if (!(await shows(p, '.lk-pass'))) return;
+    await p.fill('input.pass', secret);
+    await p.tap('[data-a="unlock"]');
+  };
+  await h.open(p, 's=lock&v=damaged');
+  check("a record that can't be opened says so, and its note offers Restore", await shows(p, '[data-a="lockrestore"]', 15000)
+    && (await p.locator('.lk-note').innerText()).toLowerCase().includes("can't be opened"));
+  await tapIf('[data-a="lockrestore"]');
+  check('... Restore opens from it, and its Back says Back, not Settings', await shows(p, '[data-a="choose"]', 3000)
+    && (await p.locator('[data-a="back"]').innerText()).includes('Back') && !(await p.locator('[data-a="back"]').innerText()).includes('Settings'));
+  await tapIf('[data-a="back"]');
+  check('... Back returns to the lock screen, its note still there', await shows(p, '.lk-pass') && await shows(p, '[data-a="lockrestore"]', 3000)
+    && (await p.locator('[data-a="choose"]').count()) === 0);
+  const asked = await askFromLock();
+  check("... the file and passphrase are checked first, then it asks, saying the record on this phone can't be opened and is replaced",
+    asked.includes("can't be opened") && asked.includes('replaces all of it'));
+  await tapIf('[data-a="replace"]');
+  check('... Replace everything ends Restored', await shows(p, '[data-a="open"]', 20000));
+  await tapIf('[data-a="open"]');
+  check('... then Open shows the lock screen with no note, never the record', await shows(p, '.lk-pass')
+    && (await p.locator('.lk-note').count()) === 0 && (await p.locator('.today').count()) === 0);
+  await unlockWith(PASSPHRASE);
+  check('... and the passphrase opens the restored record', await shows(p, '.today', 15000));
+
+  await h.open(p, 's=lock&v=damaged');
+  await shows(p, '.lk-note', 15000);
+  await askFromLock();
+  await p.evaluate(() => window.harness.failCopy('other'));
+  await tapIf('[data-a="replace"]');
+  const failed = await noteOf();
+  check("a replace of it that fails says 'Not replaced' and that the record is as it was", failed.includes('not replaced') && failed.includes('as it was'));
+  await tapIf('[data-a="back"]');
+  await unlockWith(PASSPHRASE);
+  check("... and the record is the one that was there: it still says it can't be opened, with Restore", await shows(p, '[data-a="lockrestore"]', 15000)
+    && (await p.locator('.today').count()) === 0);
 }
 
 // Today

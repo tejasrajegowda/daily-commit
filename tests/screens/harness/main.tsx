@@ -122,7 +122,7 @@ function harnessDevice(plugin: DevicePort['plugin']) {
 /** The device copies a lock state starts with. */
 async function enrolFor(state: HarnessState, core: RecordCore, phone: ReturnType<typeof fakePlugin>): Promise<void> {
   const rows = await vaultRows(core);
-  if (!rows || state.variant === 'pass') return;
+  if (!rows || state.variant === 'pass' || state.variant === 'damaged') return;
   if (['own', 'five', 'newfinger'].includes(state.variant)) {
     await enrolMode(rows, PASS, phone.plugin, 'own-code', HARNESS_CODE);
     await enrolMode(rows, PASS, phone.plugin, 'fingerprint');
@@ -139,6 +139,7 @@ async function prelude(state: HarnessState, deps: AppDeps, phone: ReturnType<typ
   }
   if (state.variant === 'paused') await deps.store.run(core => setSetting(core, 'paused', true));
   if (state.screen !== 'lock') return;
+  if (state.variant === 'damaged') await deps.lock.unlock(PASS);   // refused: the record's lock is damaged
   if (state.variant === 'five') for (let i = 0; i < 5; i++) await deps.lock.unlock({ mode: 'own-code', code: '000000' });
   if (state.variant === 'newfinger') {
     phone.invalidate('fingerprint');
@@ -161,10 +162,14 @@ async function start(): Promise<void> {
   } else {
     ({ core, recoveryCode } = fixture ? await seedFixture(db, state, fixture) : await seedRecord(db, state));
   }
+  // a record whose lock is damaged: its own backup and the phone's last copy were made while it still opened
+  const damaged = state.screen === 'lock' && state.variant === 'damaged';
+  const mineBefore = damaged ? await backupOf(core) : undefined;
   if (state.screen === 'lock') {
     await enrolFor(state, core, phone);
     await core.lock();
   }
+  if (damaged) await db.vault.update('main', { kid: 'CANARY-damaged' });
   if (state.screen === 'settings' || state.screen === 'secret') {
     const rows = await vaultRows(core);
     if (rows) await enrolMode(rows, PASS, phone.plugin, 'phone-lock');   // the first day's default on a phone
@@ -177,12 +182,13 @@ async function start(): Promise<void> {
   let source: Promise<Uint8Array> | undefined;
   const sourceFile = () => (source ??= sourceBackup(state));
   if (state.screen === 'first' && state.variant === 'found') await device.files.write(LATEST, await sourceFile());
+  if (mineBefore) await device.files.write(LATEST, mineBefore);
   window.harness = {
     leave: async () => { leave(); await deps.machine.leave(); },
     resume: async () => { resume(); await deps.machine.resume(); },
     unlock: async how => (await deps.lock.unlock(how)).kind,
     backup: async kind => {
-      const file = kind === 'mine' ? await backupOf(core) : await sourceFile();
+      const file = kind === 'mine' ? (mineBefore ?? await backupOf(core)) : await sourceFile();
       return toBase64url(kind === 'newer' ? newerOf(file) : kind === 'damaged' ? damagedOf(file) : file);
     },
     refuseEnrol: () => { refusing = true; },

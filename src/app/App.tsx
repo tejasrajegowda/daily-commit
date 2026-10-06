@@ -38,8 +38,11 @@ const SECTION: Partial<Record<ScreenId, Section>> = {
 /** Screens drawn without the bars. */
 const BARE: ReadonlySet<ScreenId> = new Set(['secret']);
 
-/** Restore runs as a flow of its own: it stays on screen through the lock it causes, and a leave ends it. */
-type Flow = { readonly kind: 'restore'; readonly preset?: FoundCopy } | undefined;
+/**
+ * Restore runs as a flow of its own: it stays on screen through the lock it causes, and a leave ends it.
+ * `unopened`: it was opened from the lock screen of a record that can't be opened, and Back returns there.
+ */
+type Flow = { readonly kind: 'restore'; readonly preset?: FoundCopy; readonly unopened?: boolean } | undefined;
 
 const TITLES: Record<ScreenId, string> = {
   today: 'Today', look: 'Look back', habit: 'Habit', week: 'This week', month: 'This month', diary: 'Diary', notyet: 'Not yet',
@@ -163,6 +166,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   const closeRestore = (outcome: 'back' | 'restored') => {
     setFlow(undefined);
     if (outcome === 'restored') {
+      lock.clear();                                      // the restored record's lock screen starts with no note
       setHasVault(true);
       void machine.resume();                             // the lock screen, asking the phone afresh
     }
@@ -175,10 +179,10 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   let body: ReactNode = null;
   let bare = true;
   if (hasVault === undefined) body = null;
-  else if (flow?.kind === 'restore') body = <Restore replacing={hasVault} preset={flow.preset} onClose={closeRestore} />;
+  else if (flow?.kind === 'restore') body = <Restore replacing={hasVault} unopened={flow.unopened} preset={flow.preset} onClose={closeRestore} />;
   else if (hasVault === false) body = <FirstRun found={found} onRestore={preset => setFlow({ kind: 'restore', preset })} onDone={() => setHasVault(true)} />;
   else if (screen === 'blank') body = null;
-  else if (screen === 'lock') body = <LockScreen offered={offered.current} busy={state.kind === 'Unlocking'} passphraseOnly={passphraseOnly} setPassphraseOnly={setPassphraseOnly} byCode={byCode} setByCode={setByCode} />;
+  else if (screen === 'lock') body = <LockScreen offered={offered.current} busy={state.kind === 'Unlocking'} passphraseOnly={passphraseOnly} setPassphraseOnly={setPassphraseOnly} byCode={byCode} setByCode={setByCode} onRestore={() => setFlow({ kind: 'restore', unopened: true })} />;
   else {
     body = recordScreen(nav);
     bare = BARE.has(nav.screen);
