@@ -601,6 +601,13 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Look back, day 120: the months field and the trend are there', await shows(p, '.fld') && (await p.locator('svg.trend').count()) === 1);
   check('Look back: no score words, no internal flags', !/[!%]|is_backfill|edited_after_close|reopened_count/.test(await p.locator('#view').innerText()));
 
+  // R3-12: a time habit asked at night keeps its after-midnight times near its before-midnight ones
+  await h.open(p, 's=habit&v=h-bed&t=12:30&age=40');
+  await shows(p, 'svg.trend');
+  const bedCy = await p.locator('svg.trend circle').evaluateAll(els => els.map(e => Number(e.getAttribute('cy'))));
+  check("R3-12: In bed's recorded times sit close together on one night axis, not split to opposite ends of a clock",
+    bedCy.length > 5 && Math.max(...bedCy) - Math.min(...bedCy) < 40);
+
   const q = await h.page(LAPTOP, errors);
   await h.open(q, 's=look&t=12:30');
   await shows(q, '.evi .c');

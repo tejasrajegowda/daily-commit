@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { cellClass, cells, monthsField, opensLater, sentence, tiers, trend, valueWords, weekSpans, window } from '../../src/look-back/lookView.ts';
 import { rulesInput } from '../../src/record/read.ts';
 import { addDays } from '../../src/rules/dates.ts';
+import { toDayMinute } from '../../src/rules/clock.ts';
 import { indexObservations, lookup, stateOf } from '../../src/rules/state.ts';
 import { freshDb } from '../record/helpers.ts';
-import { history, tri, walk } from '../rules/fixtures.ts';
+import { habit, history, scheduled, tri, walk } from '../rules/fixtures.ts';
 import { dateOfDay, readState, START } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
 
@@ -83,6 +84,20 @@ test('the views still to come are named in advance, with no causal claim', () =>
 
 test('R3-10: the wake-time trend is named only when a time habit exists', () => {
   assert.deepEqual(opensLater(17, false).map(o => o.what), ['Am I improving?', 'The shape of months', 'What seems to go well together']);
+});
+
+test('R3-12: a night-asked time habit plots DayMinutes, not clock times, so an after-midnight time stays near an evening one', () => {
+  const night = { ...habit({ id: 'night', kind: 'time', schedule: scheduled([0, 1, 2, 3, 4, 5, 6], START, 'evening') }), name: 'In bed', order: 0 };
+  const cells = [
+    { value: toDayMinute(23 * 60 + 40, 'evening') },  // 23:40
+    { value: toDayMinute(15, 'evening') },             // 00:15, the next night
+    { value: toDayMinute(23 * 60 + 50, 'evening') },   // 23:50
+  ];
+  const idx = indexObservations(history('night', cells));
+  const input = { index: idx, habits: [], cues: [], cueSettings: {} as never };
+  const t = trend(input, night, START, addDays(START, 2));
+  assert.deepEqual(t.dots.map(d => d.minute), [1420, 1455, 1430]);     // DayMinutes, not wrapped back to 15
+  assert.ok(Math.max(...t.dots.map(d => d.minute)) - Math.min(...t.dots.map(d => d.minute)) < 60, 'all three sit within an hour of each other on the night axis');
 });
 
 test('R3-8: a logged "not today" and a day never answered read the same, a faint dash', () => {

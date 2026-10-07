@@ -1,4 +1,4 @@
-// The harness's record: nine invented habits and their history, made the same way every time.
+// The harness's record: ten invented habits and their history, made the same way every time.
 // First run and the habits go through the record's own operations; the history is sealed by the
 // real cipher and stored directly, as the timing script does, because a past day can't be logged
 // once it is closed.
@@ -10,6 +10,7 @@ import { storedRow } from '../../../src/record/ops/common.ts';
 import { firstRun } from '../../../src/record/ops/firstRun.ts';
 import { createHabit, type NewHabit } from '../../../src/record/ops/habits.ts';
 import { openSession } from '../../../src/record/ops/session.ts';
+import { DEFAULT_BOUNDARY, toDayMinute } from '../../../src/rules/clock.ts';
 import type { TriValue, Weekday } from '../../../src/rules/types.ts';
 import { createVault } from '../../../src/vault/keys.ts';
 import { systemRandom } from '../../../src/vault/random.ts';
@@ -37,6 +38,8 @@ const HABITS: readonly FixtureHabit[] = [
   { id: 'h-water', name: 'Water', sub: 'a glass with each meal', kind: 'tri', tier: 'log', asked: 'evening', days: EVERY_DAY, target: {}, startDay: 1 },
   { id: 'h-stretch', name: 'Stretch', sub: 'five minutes', kind: 'tri', tier: 'log', asked: 'morning', days: EVERY_DAY, target: {}, startDay: 30 },
   { id: 'h-mood', name: 'Mood', kind: 'mood', tier: 'log', asked: 'evening', days: EVERY_DAY, target: {}, startDay: 1 },
+  // a time habit asked at night (R3-12): its recorded times straddle midnight
+  { id: 'h-bed', name: 'In bed', sub: 'aim by 00:30', kind: 'time', tier: 'log', asked: 'evening', days: EVERY_DAY, target: { band: toDayMinute(30, 'evening', DEFAULT_BOUNDARY) }, startDay: 1 },
 ];
 
 export const FIXTURE_HABITS: readonly NewHabit[] = HABITS.map(({ startDay: _, ...h }) => h);
@@ -148,6 +151,9 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
   const withoutDay = (d: number) => pairs && d >= 38 && d <= 55;               // 18 days, Walk not
   // canary=1 marks yesterday: a wake-up at 06:55, an hour and 25 minutes of practice, and a marked intent
   const marked = (d: number) => state.canary && d === state.day - 1;
+  // In bed (h-bed, R3-12): clock times either side of midnight, kept as the DayMinutes a night
+  // habit stores — 00:20 and 23:10 sit 70 minutes apart on that axis, not 1370 apart on a clock one
+  const bedValue = (d: number) => toDayMinute(d % 3 === 0 ? 20 : 23 * 60 + 10, 'evening', DEFAULT_BOUNDARY);
   for (let d = 1; d < state.day; d++) {
     const opened = next() >= 1 / 9 || steady || rest || withDay(d) || withoutDay(d) || marked(d);
     const date = dateOfDay(d, state.start);
@@ -155,11 +161,16 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
     const evening = Date.parse(`${date}T21:00:00Z`);
     for (const h of activeHabits) {
       if ((rest || withDay(d) || withoutDay(d)) && (h.id === 'h-walk' || h.id === 'h-wake')) continue; // seeded separately below
+      if (h.id === 'h-bed') continue;                    // seeded separately below, with no draw from `next` (keeps every other habit's sequence as it was)
       const drawn = valueFor(h, next);                   // drawn for every habit, so a skipped day keeps the rest the same
       const value = steady && h.id === 'h-walk' ? 'did' : marked(d) && h.id === 'h-wake' ? 415 : marked(d) && h.id === 'h-practice' ? 85 : drawn;
       if (!opened || value === undefined || d < h.startDay || !h.days.includes(weekday)) continue;
       const o: ObservationRecord = { habitId: h.id, date, kind: h.kind, value, loggedAt: evening, isBackfill: false, editedAfterClose: false };
       observations.push(await storedRow(cipher, 'observations', observationToParts(o), stamp));
+    }
+    if (opened && activeHabits.some(h => h.id === 'h-bed')) {
+      observations.push(await storedRow(cipher, 'observations', observationToParts(
+        { habitId: 'h-bed', date, kind: 'time', value: bedValue(d), loggedAt: evening, isBackfill: false, editedAfterClose: false }), stamp));
     }
     if (rest && d <= 14) {
       const wake = valueFor(HABITS[0]!, next);            // kept random; only Walk's own days matter here

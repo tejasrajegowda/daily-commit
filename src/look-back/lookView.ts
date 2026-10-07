@@ -163,13 +163,17 @@ export interface Trend {
   readonly days: number;
 }
 
-/** A time habit's recorded clock times as dots, and the weekly middle once the trend has opened. */
+/**
+ * A time habit's recorded times as dots, and the weekly middle once the trend has opened. Plotted
+ * as DayMinutes, not clock times: a habit asked at night keeps its after-midnight values past 1440,
+ * so the axis runs evening through 04:00 instead of wrapping a late night back to the top.
+ */
 export function trend(input: RulesInput, habit: HabitRecord, start: LocalDate, today: LocalDate): Trend {
   const days = dayNumber(start, today);
   const dots: { day: number; minute: number }[] = [];
   for (const [i, date] of datesFrom(start, today).entries()) {
     const v = lookup(input.index, habit.id, date)?.value;
-    if (typeof v === 'number') dots.push({ day: i, minute: clockOfDay(v) });
+    if (typeof v === 'number') dots.push({ day: i, minute: v });
   }
   const line: { day: number; minute: number }[] = [];
   if (hasOpened('timeTrend', days)) {

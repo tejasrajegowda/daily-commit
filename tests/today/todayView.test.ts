@@ -42,7 +42,7 @@ test('the evening lists tonight\'s Log, then Focus still open; answered Focus mo
   const { core, today, view } = await viewAt('#age=17&t=21:30');
   let v = view();
   assert.equal(v.part, 'evening');
-  assert.deepEqual(names(v.eveningRows), ['Read', 'Tidy up', 'Water', 'Mood']);
+  assert.deepEqual(names(v.eveningRows), ['Read', 'Tidy up', 'Water', 'Mood', 'In bed']);
   assert.deepEqual(names(v.openFocus), ['Wake up', 'Walk', 'Practice']);
   assert.equal(v.restOffer, true);
   assert.equal((await logObservation(core, { habitId: 'h-walk', date: today, value: 'did' })).kind, 'Saved');
@@ -56,7 +56,7 @@ test('evening chips carry the laptop keys after the open Focus, in drawn order',
   assert.equal((await logObservation(core, { habitId: 'h-walk', date: today, value: 'partly' })).kind, 'Saved');
   const v = view();
   assert.deepEqual([...v.eveningRows, ...v.openFocus, ...v.earlier].map(r => [r.habit.name, r.key]),
-    [['Read', 1], ['Tidy up', 2], ['Water', 3], ['Mood', 4], ['Wake up', 5], ['Practice', 6], ['Walk', 7]]);
+    [['Read', 1], ['Tidy up', 2], ['Water', 3], ['Mood', 4], ['In bed', 5], ['Wake up', 6], ['Practice', 7], ['Walk', 8]]);
 });
 
 test('B-2: a habit planned "not today" in the morning and done in the evening is "did", and stays a chip', async () => {
