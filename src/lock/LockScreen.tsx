@@ -88,7 +88,7 @@ function PassphraseLock(p: { readonly wide: boolean; readonly note: LockNote | u
           autoComplete="off" autoCapitalize={code ? 'characters' : 'off'} autoCorrect="off" spellCheck={false} disabled={p.busy} />
         <button type="submit" className="btn btn--primary wide" data-a="unlock" disabled={p.busy}>{p.busy ? 'Opening…' : 'Open'}</button>
       </form>
-      <p className="lk-hint">{code ? "The code from the first day, as written on paper. Spaces don't matter." : p.wide ? 'This computer never remembers it, and the app locks again when you leave the tab.' : 'Five words. Your phone never stores them.'}</p>
+      <p className="lk-hint">{code ? "The code from the first day, as written on paper. Spaces don't matter." : p.wide ? 'This computer never remembers it, and the app locks again when you leave the tab.' : 'Your passphrase. Your phone never stores it.'}</p>
       <button type="button" className="btn btn--text lk-alt" data-a="usecode" disabled={p.busy} onClick={() => switchTo(!code)}>{code ? 'Use the passphrase instead' : 'Use the recovery code instead'}</button>
       {p.back && <button type="button" className="btn btn--text lk-alt" data-a="lockbio" onClick={p.onBack}>{p.back}</button>}
     </div>

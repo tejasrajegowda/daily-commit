@@ -78,12 +78,12 @@ test('the sentence counts up in words, starts the record on day 1, and never say
 });
 
 test('the views still to come are named in advance, with no causal claim', () => {
-  assert.deepEqual(opensLater(17, true).map(o => o.what), ['Wake-time trend', 'Am I improving?', 'The shape of months', 'What seems to go well together']);
+  assert.deepEqual(opensLater(17, true).map(o => o.what), ['Wake-time trend', "How it's going", 'The shape of months', 'What seems to go well together']);
   assert.deepEqual(opensLater(60, true), []);
 });
 
 test('R3-10: the wake-time trend is named only when a time habit exists', () => {
-  assert.deepEqual(opensLater(17, false).map(o => o.what), ['Am I improving?', 'The shape of months', 'What seems to go well together']);
+  assert.deepEqual(opensLater(17, false).map(o => o.what), ["How it's going", 'The shape of months', 'What seems to go well together']);
 });
 
 test('R3-12: a night-asked time habit plots DayMinutes, not clock times, so an after-midnight time stays near an evening one', () => {

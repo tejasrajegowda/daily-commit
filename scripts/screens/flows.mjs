@@ -17,6 +17,20 @@ const shows = (p, sel, timeout = 8000) => p.waitForSelector(sel, { state: 'attac
 const gone = (p, sel, timeout = 8000) => p.waitForSelector(sel, { state: 'detached', timeout }).then(() => true, () => false);
 const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a="pin"][data-x="${k}"]`); };
 
+// R4-9: WCAG2 contrast of a computed `color` against black, through the 15% black night veil
+// when it is on (the veil sits above everything, so it darkens the ink and the black it sits on alike).
+function contrastOnBlackThroughVeil(cssColor, veiled) {
+  const m = cssColor.match(/-?[\d.]+/g);
+  const [r, g, b, a = 1] = m.map(Number);
+  let [cr, cg, cb] = [r * a, g * a, b * a]; // composited over black
+  if (veiled) { cr *= 0.85; cg *= 0.85; cb *= 0.85; }
+  const L = ([vr, vg, vb]) => {
+    const s = [vr, vg, vb].map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    return 0.2126 * s[0] + 0.7152 * s[1] + 0.0722 * s[2];
+  };
+  return (L([cr, cg, cb]) + 0.05) / 0.05;
+}
+
 // the wellbeing-rules check itself, on three pages made for it
 {
   const p = await h.page(PHONE, errors);
@@ -106,6 +120,8 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
 
   await h.open(p, 's=lock&v=pass');
   check('no device copy: the passphrase only, and no way back to a device', await shows(p, '.lk-pass') && (await p.locator('[data-a="lockbio"]').count()) === 0);
+  check('R4-11: the phone hint names the passphrase, not "five words" (the rule is 15 characters)',
+    (await p.locator('.lk-hint').innerText()) === 'Your passphrase. Your phone never stores it.');
   await p.fill('.lk-pass input', 'CANARY not the passphrase');
   await p.press('.lk-pass input', 'Enter');
   const noted = await shows(p, '.lk-note', 15000);
@@ -148,6 +164,8 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await h.open(p, 's=first');
   check('first day: step 1 shows, with Restore offered', await shows(p, '.first .steps') && (await p.locator('[data-a="restore"]').count()) === 1);
   check('first day: the welcome names no condition and no therapy', !/\bOCD\b|\bERP\b/.test(await p.locator('.first').innerText()));
+  check('R4-13: "Begin" promises only once, here (About repeats one fact, so "and never again" was dropped)',
+    (await p.locator('[data-a="fstep"] + p.meta').innerText()) === 'This is said once, here.');
   await p.tap('[data-a="fstep"]');
   await p.fill('input.pass', 'short one');
   check('first day: the meter says the minimum under 15 characters', (await p.locator('[data-a="meter"]').innerText()).includes('At least 15'));
@@ -611,6 +629,8 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   const q = await h.page(LAPTOP, errors);
   await h.open(q, 's=look&t=12:30');
   await shows(q, '.evi .c');
+  check('R4-12: the day panel says to click a column, and no longer claims nothing is shown (today already is)',
+    (await q.locator('.side .panel').first().locator('.meta').innerText()) === 'Click any column to see that day.');
   const before = await q.locator('.side .panel .eb').first().innerText();
   await q.locator('.evi .cells').first().locator('.c[data-a="sel"]').nth(2).click();
   check('Look back, laptop: clicking a column shows that day', (await q.locator('.side .panel .eb').first().innerText()) !== before
@@ -781,8 +801,12 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.fill('[data-a="ny-text"]', 'CANARY-TEST something later');
   await p.press('[data-a="ny-text"]', 'Enter');
   check('Not yet: writing something down keeps it', await until(() => [...document.querySelectorAll('[data-a="ny-item"]')].some(e => e.textContent?.includes('CANARY-TEST something later'))));
+  const awayBox = await p.locator('[data-a="ny-away"]').first().boundingBox();
+  check('R4-10: "put it away" is at least 44 tall on a phone', awayBox !== null && awayBox.height >= 44);
   await p.locator('[data-a="ny-away"]').first().tap();
   check('Not yet: putting it away keeps it for seven days', await shows(p, '[data-a="ny-trashed"]'));
+  const backBox = await p.locator('[data-a="ny-back"]').boundingBox();
+  check('R4-10: "bring it back" is at least 44 tall on a phone', backBox !== null && backBox.height >= 44);
   await p.tap('[data-a="ny-back"]');
   check('Not yet: bringing it back', await gone(p, '[data-a="ny-trashed"]'));
 }
@@ -1032,9 +1056,20 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   await p.tap('.slot[data-x="h-wake"]');
   check('Plan: a row opens the edit sheet on a phone', await shows(p, '.sheet[role="dialog"] [data-a="editor"]') && (await p.locator('.sheet h2').innerText()) === 'Wake up');
   check("Plan: an existing habit's kind can't be changed", await p.locator('.sheet .seg button:not(.on)').first().isDisabled());
+  // R4-10: segment, weekday, reminder-time and retire/return hit areas reach 44x44 on a phone
+  const segBox = await p.locator('.sheet .seg button').first().boundingBox();
+  check('R4-10: a kind/asked/tier segment button is at least 44 tall on a phone', segBox !== null && segBox.height >= 44);
+  const dayBox = await p.locator('.sheet .days button').first().boundingBox();
+  check('R4-10: a weekday button is at least 44 tall on a phone', dayBox !== null && dayBox.height >= 44);
+  const holdBox = await p.locator('.sheet [data-a="retire"]').boundingBox();
+  check('R4-10: the Retire button is at least 44 tall on a phone', holdBox !== null && holdBox.height >= 44);
   await p.fill('.sheet input[type="time"][aria-label="Reminder time"]', '06:45');
+  const cueTimeBox = await p.locator('.sheet input[type="time"][aria-label="Reminder time"]').boundingBox();
+  check('R4-10: the reminder time field is at least 44 tall on a phone', cueTimeBox !== null && cueTimeBox.height >= 44);
   await p.tap('.sheet [data-a="cue-add"]');
   check('Plan: a reminder is added, with its words', await until(() => document.querySelector('.sheet [data-a="cue"] .sub')?.textContent?.includes('Wake up')));
+  const toggleBox = await p.locator('.sheet [data-a="keep"]').boundingBox();
+  check('R4-10: the private-reminder switch is a 44x44 hit area on a phone', toggleBox !== null && toggleBox.width >= 44 && toggleBox.height >= 44);
   await p.tap('.sheet [data-a="keep"]');
   check('Plan: keep private hides the reminder words', await until(() => document.querySelector('.sheet [data-a="cue"] .sub')?.textContent?.includes('shows only "Daily Commit"')));
   await p.tap('.sheet [data-a="plan-x"]');
@@ -1225,6 +1260,21 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Settings, laptop: Display is open first', (await q.locator('main[data-cat="display"]').count()) === 1);
   await q.click('[data-a="setcat"][data-x="about"]');
   check('Settings, laptop: a category switches the panel', await shows(q, 'main[data-cat="about"]') && (await q.locator('main[data-cat="about"]').textContent()).includes("What the lock can't do"));
+}
+
+// R4-9: with Dim at night on, small ink-4 text stays at 4.5:1 through the night veil
+{
+  const p = await h.page(PHONE, errors);
+  await h.open(p, 's=settings&t=20:30');
+  await shows(p, '[data-a="dim"]');
+  await p.tap('[data-a="dim"]');
+  await p.tap('.dock button[data-x="today"]');
+  await shows(p, '.hz-lbl');
+  const phase = await p.evaluate(() => ({ dim: 'dim' in document.documentElement.dataset, phase: document.documentElement.dataset.phase }));
+  const labelColor = await p.locator('.hz-lbl:not(.is-now)').first().evaluate(e => getComputedStyle(e).color);
+  const contrast = contrastOnBlackThroughVeil(labelColor, phase.dim && phase.phase === 'night');
+  check('R4-9: dim at night turns on, and the phase is night', phase.dim && phase.phase === 'night');
+  check('R4-9: an ink-4 label stays at 4.5:1 against the dimmed night veil', contrast >= 4.5);
 }
 
 // R3-11: Pause, the reminder switch, the fingerprint switch, display and export show the not-saved

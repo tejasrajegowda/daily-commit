@@ -220,7 +220,7 @@ function Editor(p: {
               </div>
             ))}
             <div className="li"><span><span className="nm">{cues.length ? 'Add another' : 'Add a reminder'}</span><span className="sub">a time of day</span></span>
-              <span style={{ display: 'flex', gap: 4 }}><input className="inp" type="time" aria-label="Reminder time" value={cueAt} onChange={e => setCueAt(e.currentTarget.value)} style={{ minHeight: 36 }} />
+              <span style={{ display: 'flex', gap: 4 }}><input className="inp cue-time" type="time" aria-label="Reminder time" value={cueAt} onChange={e => setCueAt(e.currentTarget.value)} />
                 <button type="button" className="btn btn--text" data-a="cue-add" onClick={() => {
                   const at = fromHm(cueAt);
                   if (at === undefined) return;
@@ -239,7 +239,7 @@ function Editor(p: {
       {habit && (
         <div className="fgrp"><div className="hold">
           <span><span className="body" style={{ display: 'block', color: 'var(--ink-1)' }}>{retired ? `Bring back ${habit.name.toLowerCase()}` : `Retire ${habit.name.toLowerCase()}`}</span><span className="meta">{PLAN_WORDS.retire}</span></span>
-          <button type="button" className="btn btn--secondary" data-a={retired ? 'return' : 'retire'} style={{ minHeight: 40 }}
+          <button type="button" className="btn btn--secondary hold-btn" data-a={retired ? 'return' : 'retire'}
             onClick={() => { if (retired) void bringBack(); else void run(c => retireHabit(c, { id: habit.id })); }}>{retired ? 'Bring back' : 'Retire'}</button>
         </div></div>
       )}

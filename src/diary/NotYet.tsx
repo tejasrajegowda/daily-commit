@@ -52,7 +52,7 @@ export function NotYet() {
         return (
           <div key={n.id} className="ny-item" data-a="ny-item">
             <div className="serif">{n.text}</div>
-            <small>{at !== undefined ? `written ${dayOf(at, tz)} · ` : ''}<button type="button" className="btn btn--text" data-a="ny-away" style={{ padding: 0, minHeight: 0, fontSize: 13 }} onClick={() => void run(c => trashNotYet(c, { id: n.id }))}>put it away</button></small>
+            <small>{at !== undefined ? `written ${dayOf(at, tz)} · ` : ''}<button type="button" className="btn btn--text" data-a="ny-away" style={{ paddingLeft: 0, paddingRight: 0, fontSize: 13 }} onClick={() => void run(c => trashNotYet(c, { id: n.id }))}>put it away</button></small>
           </div>
         );
       })}
@@ -67,7 +67,7 @@ export function NotYet() {
           {trashed.map(({ item, goneAt }) => (
             <div key={item.id} className="ny-item" data-a="ny-trashed">
               <div className="serif" style={{ color: 'var(--ink-4)' }}>{item.text}</div>
-              <small>gone on {dayOf(goneAt, tz)} · <button type="button" className="btn btn--text" data-a="ny-back" style={{ padding: 0, minHeight: 0, fontSize: 13 }} onClick={() => void run(c => restoreNotYet(c, { id: item.id }))}>bring it back</button></small>
+              <small>gone on {dayOf(goneAt, tz)} · <button type="button" className="btn btn--text" data-a="ny-back" style={{ paddingLeft: 0, paddingRight: 0, fontSize: 13 }} onClick={() => void run(c => restoreNotYet(c, { id: item.id }))}>bring it back</button></small>
             </div>
           ))}
         </>

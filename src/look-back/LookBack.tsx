@@ -86,7 +86,7 @@ export function LookBack() {
             <button type="button" className="btn btn--text" data-a="nav" data-x="diary" style={{ paddingRight: 0, minHeight: 32 }} onClick={() => go('diary')}>{countWord(pagesOn)} {pagesOn === 1 ? 'entry' : 'entries'} · open</button></div>
         )}
       </div>
-      <p className="meta" style={{ margin: '10px 0 0' }}>Click any column to see that day. Nothing here is shown unless you ask for it.</p>
+      <p className="meta" style={{ margin: '10px 0 0' }}>Click any column to see that day.</p>
     </div>
   );
   const runs = (

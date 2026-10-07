@@ -10,7 +10,7 @@ export function dayNumber(start: LocalDate, today: LocalDate): number {
 export const OPENS_ON = {
   /** the weekly line through a clock-time habit */
   timeTrend: 21,
-  /** "am I improving?" */
+  /** "how it's going" */
   improving: 30,
   /** the months view */
   months: 35,

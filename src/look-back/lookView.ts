@@ -189,7 +189,7 @@ export function trend(input: RulesInput, habit: HabitRecord, start: LocalDate, t
 export function opensLater(day: number, hasTimeHabit: boolean): { readonly what: string; readonly when: string }[] {
   const out: { what: string; when: string }[] = [];
   if (hasTimeHabit && day < OPENS_ON.timeTrend) out.push({ what: 'Wake-time trend', when: `day 21 · in ${OPENS_ON.timeTrend - day} days` });
-  if (day < OPENS_ON.improving) out.push({ what: 'Am I improving?', when: `day 30 · in ${OPENS_ON.improving - day} days` });
+  if (day < OPENS_ON.improving) out.push({ what: "How it's going", when: `day 30 · in ${OPENS_ON.improving - day} days` });
   if (day < OPENS_ON.months) out.push({ what: 'The shape of months', when: `day 35 · in ${OPENS_ON.months - day} days` });
   if (day < OPENS_ON.monthlyReview) out.push({ what: 'What seems to go well together', when: 'day 60 · monthly review' });
   return out;

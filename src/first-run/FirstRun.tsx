@@ -83,7 +83,7 @@ export function FirstRun(props: FirstRunProps) {
           <div><p className="eb">If it stops helping</p><p className="body">This is a notebook, not a treatment. If the habits stop feeling like a choice and start feeling compulsory, a person will help more than an app.</p></div>
         </div>
         <div style={{ marginTop: 28 }}>
-          {next('Begin', () => setStep(2), 'This is said once, here, and never again.')}
+          {next('Begin', () => setStep(2), 'This is said once, here.')}
           <button type="button" className="btn btn--text wide" data-a="restore" style={{ marginTop: 6 }} onClick={() => props.onRestore()}>Restore from a backup instead</button>
         </div>
       </div>
