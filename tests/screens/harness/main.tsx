@@ -49,6 +49,12 @@ export interface HarnessControls {
   failWrite(): void;
   /** from now on (or no longer) every write is refused as a full phone refuses it, the refusal coming back after `after` ms */
   fullPhone(on: boolean, after?: number): void;
+  /** the next export throws partway through sealing the backup, before the save picker is ever reached */
+  failExport(): void;
+  /** the next save of the display (contrast, dim) throws, as a storage fault would */
+  failDisplay(): void;
+  /** the next attempt to switch the fingerprint off is refused by the phone's key store */
+  failRemove(): void;
   /** the invented record's diary pages: their day, their words, and whether they are in the trash */
   pages(): readonly { readonly date: string; readonly body: string; readonly trashed: boolean }[];
   /** the invented record's reviews: their key, their answers, and whether they are closed */
@@ -108,8 +114,9 @@ async function deleteDb(name: string): Promise<void> {
 
 /** Wraps a record core so a flow can make its next write throw something other than quota-full,
  * the way an aborted transaction or a closed connection would, or refuse every write as a full phone does. */
-function failableCore(core: RecordCore): { readonly core: RecordCore; failNext(): void; full(on: boolean, after?: number): void } {
+function failableCore(core: RecordCore): { readonly core: RecordCore; failNext(): void; failNextSerial(): void; full(on: boolean, after?: number): void } {
   let failing = false;
+  let failingSerial = false;
   let full = false;
   let refusedAfter = 50;
   return {
@@ -127,10 +134,15 @@ function failableCore(core: RecordCore): { readonly core: RecordCore; failNext()
         if (full) return new Promise<Result<T>>(done => setTimeout(() => done(quotaFull<T>()), refusedAfter));
         return core.write(spec);
       },
-      serial: core.serial,
+      // the export's sealing runs through serial, not write, so its own failure needs its own flag
+      serial<T>(job: () => Promise<T>) {
+        if (failingSerial) { failingSerial = false; return Promise.reject(new Error('CANARY-TEST injected export failure')); }
+        return core.serial(job);
+      },
       commit: core.commit,
     },
     failNext: () => { failing = true; },
+    failNextSerial: () => { failingSerial = true; },
     full: (on, after = 50) => { full = on; refusedAfter = after; },
   };
 }
@@ -223,9 +235,21 @@ async function start(): Promise<void> {
     if (rows) await enrolMode(rows, PASS, phone.plugin, 'phone-lock');   // the first day's default on a phone
   }
   let refusing = false;
-  const plugin: DevicePort['plugin'] = { ...phone.plugin, enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)) };
+  let refusingRemove = false;
+  const plugin: DevicePort['plugin'] = {
+    ...phone.plugin,
+    enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)),
+    remove: (...a) => (refusingRemove ? Promise.reject(new Error('key store refused')) : phone.plugin.remove(...a)),
+  };
   const { device, leave, resume, failCopy } = harnessDevice(plugin);
-  const { core: writable, failNext: failWrite, full: fullPhone } = failableCore(core);
+  const { core: writable, failNext: failWrite, failNextSerial: failExport, full: fullPhone } = failableCore(core);
+  // the display is read and written straight on the db, outside write()/serial(), so it gets its own flag
+  let failingDisplay = false;
+  const originalBulkPut = db.device.bulkPut.bind(db.device);
+  db.device.bulkPut = ((rows: Parameters<typeof originalBulkPut>[0]) => {
+    if (failingDisplay) { failingDisplay = false; return Promise.reject(new Error('CANARY-TEST injected display failure')); }
+    return originalBulkPut(rows);
+  }) as typeof db.device.bulkPut;
   // the harness's time stands still, so its minute clock ticks only when a flow moves the clock on
   let tick = () => {};
   const assembled = assemble(writable, device);
@@ -250,6 +274,9 @@ async function start(): Promise<void> {
     failCheck: () => phone.lieNext('not-a-key'),
     failWrite,
     fullPhone,
+    failExport,
+    failDisplay: () => { failingDisplay = true; },
+    failRemove: () => { refusingRemove = true; },
     pages: () => [...(core.session?.model.entries.values() ?? [])].map(e => ({ date: e.date, body: e.body, trashed: e.trashedAt !== undefined })),
     reviews: () => [...(core.session?.model.reviews.values() ?? [])].map(r => ({ key: r.key, answers: { ...r.answers }, closed: r.closedAt !== undefined })),
     moveClock: minutes => {

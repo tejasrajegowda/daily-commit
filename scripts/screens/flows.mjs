@@ -1220,6 +1220,50 @@ const typeCode = async (p, code) => { for (const k of code) await p.tap(`[data-a
   check('Settings, laptop: a category switches the panel', await shows(q, 'main[data-cat="about"]') && (await q.locator('main[data-cat="about"]').textContent()).includes("What the lock can't do"));
 }
 
+// R3-11: Pause, the reminder switch, the fingerprint switch, display and export show the not-saved
+// words (or revert, or stay usable) instead of failing with nothing said
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  await h.open(p, 's=settings&t=13:00');
+  await shows(p, '[data-a="pause"]');
+  await p.evaluate(() => window.harness.failWrite());
+  await p.tap('[data-a="pause"]');
+  check('R3-11: a refused Pause switch shows the not-saved words, and the switch stays off',
+    await shows(p, '[data-a="save-note"]') && (await p.locator('[data-a="save-note"]').innerText()).toLowerCase().includes('not saved')
+    && !(await p.locator('[data-a="pause"] .toggle.on').count()));
+
+  await p.evaluate(() => window.harness.failWrite());
+  await p.tap('[data-a="cues"]');
+  check('R3-11: a refused reminders switch does the same, and keeps its own state',
+    await shows(p, '[data-a="save-note"]') && !!(await p.locator('[data-a="cues"] .toggle.on').count()));
+
+  await p.evaluate(() => window.harness.failDisplay());
+  await p.tap('[data-a="dim"]');
+  check('R3-11: a display change that fails to save reverts on screen, with the not-saved words',
+    await shows(p, '[data-a="save-note"]') && !(await p.locator('[data-a="dim"] .toggle.on').count()));
+
+  await p.evaluate(() => window.harness.failExport());
+  await p.tap('[data-a="export"]');
+  check('R3-11: an export that throws says the copy could not be made, not nothing',
+    await until(() => document.querySelector('[data-a="exported"]')?.textContent === "The copy couldn't be made. Nothing was changed."));
+  await p.tap('[data-a="export"]');
+  check('R3-11: the busy state cleared, so Export answers the very next tap',
+    await until(() => document.querySelector('[data-a="exported"]')?.textContent === 'Saved where you chose.'));
+
+  // the fingerprint switch, inside own-code mode: harness sets up both modes directly, a round trip
+  // through Plan and back remounts Settings so it reads them
+  await p.evaluate(() => window.harness.ownCode());
+  await p.tap('[data-a="done"]');
+  await shows(p, '.slots');
+  await p.tap('.phone-only[data-a="nav"][data-x="settings"]');
+  await shows(p, '[data-a="biotoggle"] .toggle.on');
+  await p.evaluate(() => window.harness.failRemove());
+  await p.tap('[data-a="biotoggle"]');
+  check('R3-11: a fingerprint switch refused by the phone shows the not-saved words, and the switch stays on',
+    await shows(p, '[data-a="save-note"]') && await shows(p, '[data-a="biotoggle"] .toggle.on'));
+}
+
 // Privacy and the keys to the record
 {
   const p = await h.page(PHONE, errors);

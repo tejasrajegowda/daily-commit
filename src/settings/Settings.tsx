@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { displayOf, exportCopy, fingerprintOff, lastCopyAt, modesNow, saveDisplay, spaceUsed, useApp, useModel, useNav, type DeviceMode, type Display, type ExportOutcome } from '../app/context.ts';
+import { displayOf, exportCopy, fingerprintOff, lastCopyAt, modesNow, resultWords, saveDisplay, spaceUsed, useApp, useModel, useNav, type DeviceMode, type Display, type ExportOutcome } from '../app/context.ts';
 import { setSetting } from '../record/ops/settings.ts';
 import { applyDisplay } from '../ui/display.ts';
 import { I } from '../ui/icons.tsx';
@@ -19,6 +19,14 @@ const Toggle = ({ on }: { readonly on: boolean }) => <span className={`toggle${o
 const Chev = () => <span className="end">{I.chev()}</span>;
 const Note = ({ children }: { readonly children: ReactNode }) => <p className="meta" style={{ margin: '10px 4px 0' }}>{children}</p>;
 
+// A write that fails outright (not a refusal the record itself returned) gets the same shape of
+// words as a refusal, so a switch, the display or an export never goes silent on it.
+const NOT_SAVED = { title: 'Not saved', text: "That couldn't be saved. What you wrote is still here." };
+
+function SaveNote({ title, text }: { readonly title: string; readonly text: string }) {
+  return <div className="panel note" data-a="save-note"><p className="eb">{title}</p><p className="body" style={{ margin: '8px 0 0' }}>{text}</p></div>;
+}
+
 export function Settings() {
   const deps = useApp();
   const { core, store } = deps;
@@ -33,6 +41,7 @@ export function Settings() {
   const [space, setSpace] = useState<number | undefined>(undefined);
   const [exported, setExported] = useState<ExportOutcome | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
 
   useEffect(() => {
     let live = true;
@@ -49,16 +58,40 @@ export function Settings() {
   if (!model) return null;
   const s = model.settings;
   const tz = s.tz;
-  const flip = (name: 'cuesOn' | 'paused', on: boolean) => void store.run(c => setSetting(c, name, on));
+  const flip = async (name: 'cuesOn' | 'paused', on: boolean) => {
+    try {
+      setNote(resultWords(await store.run(c => setSetting(c, name, on))));
+    } catch {
+      setNote(NOT_SAVED);
+    }
+  };
   const changeDisplay = (next: Display) => {
+    const prev = display;
     setDisplay(next);
     applyDisplay(next);
-    void saveDisplay(deps, next);
+    void saveDisplay(deps, next).catch(() => {
+      setDisplay(prev);
+      if (prev) applyDisplay(prev);
+      setNote(NOT_SAVED);
+    });
   };
   const exportNow = async () => {
     setBusy(true);
-    setExported(await exportCopy(deps));
-    setBusy(false);
+    try {
+      setExported(await exportCopy(deps));
+    } catch {
+      setExported('Failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const turnFingerprintOff = async () => {
+    try {
+      await fingerprintOff(deps);
+      setModes(await modesNow(deps));
+    } catch {
+      setNote(NOT_SAVED);
+    }
   };
 
   const panels: Record<Category, () => ReactNode> = {
@@ -70,7 +103,7 @@ export function Settings() {
           <p className="eb" style={{ margin: '22px 4px 10px' }}>Check-ins</p>
           <div className="list">
             {checkins.map(l => <Row key={l.nm} line={l} />)}
-            <Row line={W.cues} a="cues" end={<Toggle on={s.cuesOn} />} onClick={() => flip('cuesOn', !s.cuesOn)} />
+            <Row line={W.cues} a="cues" end={<Toggle on={s.cuesOn} />} onClick={() => void flip('cuesOn', !s.cuesOn)} />
           </div>
           <Note>{checkins.length ? W.cuesNote : W.noCheckins}</Note>
         </>
@@ -109,7 +142,7 @@ export function Settings() {
                 {choice('phone', phone, W.phoneLock)}
                 {choice('own', own, W.ownCode)}
                 {own && <Row line={W.finger} a="biotoggle" end={<Toggle on={finger} />}
-                  onClick={() => (finger ? void fingerprintOff(deps).then(() => modesNow(deps)).then(setModes) : go('secret', 'finger'))} />}
+                  onClick={() => (finger ? void turnFingerprintOff() : go('secret', 'finger'))} />}
                 {own && <Row line={W.changeCode} a="changecode" end={<Chev />} onClick={() => go('secret', 'changecode')} />}
               </div>
               {unconfirmed && <div className="panel note" data-a="notverified" data-x={notVerified} style={{ marginTop: 12 }}><p className="eb">{unconfirmed.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{unconfirmed.text}</p></div>}
@@ -140,7 +173,7 @@ export function Settings() {
     ),
     pause: () => (
       <>
-        <div className="list"><Row line={W.pause} a="pause" end={<Toggle on={s.paused === true} />} onClick={() => flip('paused', s.paused !== true)} /></div>
+        <div className="list"><Row line={W.pause} a="pause" end={<Toggle on={s.paused === true} />} onClick={() => void flip('paused', s.paused !== true)} /></div>
         <Note>{W.pauseNote}</Note>
       </>
     ),
@@ -163,6 +196,7 @@ export function Settings() {
           <div style={{ marginTop: 18 }}>
             {CATEGORIES.map(([k, label]) => <div key={k} className="set-grp" data-cat={k}><span className="eb">{label}</span>{panels[k]()}</div>)}
           </div>
+          {note && <div style={{ marginTop: 16 }}><SaveNote {...note} /></div>}
         </main>
       </div>
     );
@@ -179,6 +213,7 @@ export function Settings() {
       <main className="col" style={{ paddingTop: 56 }} data-cat={cat}>
         <p className="eb" style={{ margin: '0 4px 12px' }}>{CATEGORIES.find(c => c[0] === cat)?.[1]}</p>
         {panels[cat]()}
+        {note && <div style={{ marginTop: 16 }}><SaveNote {...note} /></div>}
       </main>
     </div>
   );
