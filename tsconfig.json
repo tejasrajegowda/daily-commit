@@ -19,5 +19,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "tests", "scripts/**/*.ts", "vite.config.ts", "vite.harness.config.ts"]
+  "include": ["src", "tests", "scripts/**/*.ts", "vite.config.ts", "vite.harness.config.ts", "capacitor.config.ts"]
 }

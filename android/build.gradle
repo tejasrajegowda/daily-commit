@@ -1,0 +1,35 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
+buildscript {
+    
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.13.0'
+
+        // NOTE: Do not place your application dependencies here; they belong
+        // in the individual module build.gradle files
+    }
+}
+
+apply from: "variables.gradle"
+
+// Every Android module builds with the build tools already on this PC (36.0.0), never AGP's
+// default (35.0.0), so a build never needs an SDK download.
+subprojects {
+    plugins.withId('com.android.application') { android { buildToolsVersion = '36.0.0' } }
+    plugins.withId('com.android.library') { android { buildToolsVersion = '36.0.0' } }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}

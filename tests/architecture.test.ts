@@ -64,6 +64,30 @@ describe('dependency rule', () => {
     }
   });
 
+  // device/ is the one boundary to the phone: Capacitor, itself, and only the types it serves
+  const DEVICE_MAY_IMPORT = new Set(['app/context.ts', 'record/files.ts', 'vault/plugin.ts']);
+  function deviceBreaks(file: string, src: string): string[] {
+    return specsIn(src).filter(spec => {
+      if (spec.startsWith('@capacitor/')) return false;
+      if (!spec.startsWith('.')) return true;
+      const to = relative(SRC, join(file, '..', spec)).split(sep).join('/');
+      return !(to.startsWith('device/') || DEVICE_MAY_IMPORT.has(to));
+    }).map(spec => `imports ${spec}`);
+  }
+
+  it('device/ imports only Capacitor, itself, and the types it serves', () => {
+    const sample = join(SRC, 'device', 'sample.ts');
+    assert.deepEqual(deviceBreaks(sample, "import { openModel } from '../record/read.ts';\nimport x from 'left-pad';\nimport type { DevicePort } from '../app/context.ts';"),
+      ['imports ../record/read.ts', 'imports left-pad']);
+    for (const f of all.filter(f => area(f) === 'device')) assert.deepEqual(deviceBreaks(f, readFileSync(f, 'utf8')), [], relative(SRC, f));
+  });
+
+  it('capacitor.config.ts names Capacitor only as a type', () => {
+    const src = readFileSync(join(SRC, '..', 'capacitor.config.ts'), 'utf8');
+    const lines = src.split('\n').filter(l => /^\s*import\b/.test(l));
+    assert.deepEqual(lines, ["import type { CapacitorConfig } from '@capacitor/cli';"]);
+  });
+
   it('vault/ sits below the record: it imports only itself, and no library', () => {
     for (const f of all.filter(f => area(f) === 'vault')) {
       for (const spec of imports(f)) {

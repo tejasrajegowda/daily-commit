@@ -15,17 +15,25 @@
     "screens": "npm run screens:build && node scripts/screens/flows.mjs",
     "screens:shots": "npm run screens:build && node scripts/screens/shots.mjs",
     "screens:gate": "npm run screens:build && node scripts/screens/gate.mjs",
-    "screens:compare": "npm run screens:build && node scripts/screens/compare.mjs"
+    "screens:compare": "npm run screens:build && node scripts/screens/compare.mjs",
+    "android:build": "node scripts/android/build.ts release",
+    "android:test": "node scripts/android/build.ts test",
+    "android:check": "node scripts/android/apk-check.ts"
   },
   "engines": {
     "node": ">=24"
   },
   "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/local-notifications": "8.3.1",
     "dexie": "^4.4.6",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.5.2",
     "@types/node": "^26.6.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
