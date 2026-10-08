@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Replaces Capacitor's own layout of the same name: the same web view id, but our web view,
+     with autofill and content capture off for everything in it. -->
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@android:color/black">
+
+    <app.dailycommit.PrivateWebView
+        android:id="@+id/webview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:importantForAutofill="noExcludeDescendants"
+        android:importantForContentCapture="noExcludeDescendants" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

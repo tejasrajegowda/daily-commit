@@ -21,3 +21,7 @@ test('the app is Daily Commit and ships the release build in dist/', () => {
   assert.equal(config.appName, 'Daily Commit');
   assert.equal(config.webDir, 'dist');
 });
+
+test('the status bar is dark with light icons, and the insets reach the CSS', () => {
+  assert.deepEqual(config.plugins?.SystemBars, { style: 'DARK', insetsHandling: 'css' });
+});

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Only the locked snapshot ever leaves the phone. An include means nothing else is backed up,
+     and every section is written out, because a missing section backs up everything. -->
+<data-extraction-rules>
+    <cloud-backup disableIfNoEncryptionCapabilities="true">
+        <include domain="file" path="backup/latest.dcbak" />
+    </cloud-backup>
+    <device-transfer>
+        <include domain="file" path="backup/latest.dcbak" />
+    </device-transfer>
+    <!-- Android 16 QPR2 and newer: nothing goes to another platform. -->
+    <cross-platform-transfer platform="ios">
+        <exclude domain="root" path="." />
+        <exclude domain="file" path="." />
+        <exclude domain="database" path="." />
+        <exclude domain="sharedpref" path="." />
+        <exclude domain="external" path="." />
+        <exclude domain="device_root" path="." />
+        <exclude domain="device_file" path="." />
+        <exclude domain="device_database" path="." />
+        <exclude domain="device_sharedpref" path="." />
+    </cross-platform-transfer>
+</data-extraction-rules>

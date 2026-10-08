@@ -1,5 +1,20 @@
 package app.dailycommit;
 
+import android.os.Bundle;
+import android.view.WindowManager;
 import com.getcapacitor.BridgeActivity;
 
-public class MainActivity extends BridgeActivity {}
+public class MainActivity extends BridgeActivity {
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        // No screenshots, no recording, and a blank picture in recent apps, from the first frame.
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE);
+        setRecentsScreenshotEnabled(false);
+        // Before the notification plugin starts and makes the same channel its own way.
+        ReminderChannel.ensure(this);
+        super.onCreate(savedInstanceState);
+        // The plugin renamed the channel; a second create puts the name back and changes nothing else.
+        ReminderChannel.ensure(this);
+    }
+}
