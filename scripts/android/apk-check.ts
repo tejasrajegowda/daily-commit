@@ -23,8 +23,9 @@ export interface ApkView {
   readonly resources?: ReadonlyMap<string, string>;   // Task 2a: res/xml/…, res/layout/… as decoded XML
 }
 
-/** Task 2b decides whether the web view needs INTERNET; until then the permission is allowed. */
-export const INTERNET_ALLOWED = true;
+/** The app has no internet: its pages load from https://localhost through Capacitor's own request handling,
+ *  proven on the emulator without the permission, so a build that asks for it is refused. */
+export const INTERNET_ALLOWED = false;
 export const RULES_PATH = 'res/xml/data_extraction_rules.xml';
 export const LAYOUT_PATH = 'res/layout/capacitor_bridge_layout_main.xml';
 const ALLOWED_PERMISSIONS = new Set([

@@ -7,7 +7,7 @@ const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'se
 // permission, and the notification plugin's receivers and providers closed to other apps.
 const MANIFEST = `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.dailycommit">`
   + `<uses-permission android:name="android.permission.USE_EXACT_ALARM"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>`
-  + `<uses-permission android:name="android.permission.INTERNET"/><uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>`
+  + `<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>`
   + `<uses-permission android:name="android.permission.WAKE_LOCK"/>`
   + `<permission android:name="app.dailycommit.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" android:protectionLevel="0x2"/>`
   + `<uses-permission android:name="app.dailycommit.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"/>`
@@ -78,8 +78,9 @@ test('backup carries only backup/latest.dcbak, in both modes, only to a phone th
   ]) assert.notDeepEqual(apkProblems(withResource('res/xml/data_extraction_rules.xml', bad)), [], bad);
 });
 
-test('the old backup rules, cleartext, the exact-alarm request, a file provider, a stray permission or backup switched off are refused', () => {
+test('the old backup rules, cleartext, the exact-alarm request, internet, a file provider, a stray permission or backup switched off are refused', () => {
   for (const bad of [
+    withManifest(m => m.replace('<application', '<uses-permission android:name="android.permission.INTERNET"/><application')),
     withManifest(m => m.replace('<application ', '<application android:fullBackupContent="@xml/backup_rules" ')),
     withManifest(m => m.replace('<application ', '<application android:usesCleartextTraffic="true" ')),
     withManifest(m => m.replace('<application', '<uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/><application')),
