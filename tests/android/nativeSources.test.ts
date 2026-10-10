@@ -5,7 +5,7 @@ import { join } from 'node:path';
 
 const JAVA = join(import.meta.dirname, '..', '..', 'android', 'app', 'src', 'main', 'java', 'app', 'dailycommit');
 const read = (f: string) => readFileSync(join(JAVA, f), 'utf8');
-export const PLAIN = ['vault/VaultCore.java', 'vault/KeyStoreLike.java', 'vault/CopyFile.java', 'vault/Hkdf.java', 'vault/Codec.java', 'shell/HandOff.java'];
+export const PLAIN = ['vault/VaultCore.java', 'vault/KeyStoreLike.java', 'vault/CopyFile.java', 'vault/Hkdf.java', 'vault/Codec.java', 'shell/HandOff.java', 'shell/LockWatch.java', 'shell/ShellFiles.java'];
 export const VAULT = [...PLAIN.filter(f => f.startsWith('vault/')), 'vault/AndroidKeys.java', 'vault/VaultPlugin.java'];
 
 test('the native cores are plain Java, so the JVM tests run them as they are', () => {
