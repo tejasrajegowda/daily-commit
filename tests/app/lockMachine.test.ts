@@ -341,3 +341,20 @@ test('R1-9: a snapshot abandoned at its 3 seconds can\'t start using the backup 
   await new Promise(resolve => setTimeout(resolve, 200));           // the abandoned seal runs on, and is refused
   assert.equal(sealedAfterLock, false);
 });
+
+test('U4 follow-up: the phone failing twice to say which ways exist offers the passphrase, never a blank screen', async () => {
+  let refusals = 2;
+  const t = await setup({ plugin: p => ({ ...p, status: async () => { if (refusals-- > 0) throw new Error('refused'); return p.status(); } }) });
+  await t.machine.leave();
+  await t.machine.resume();
+  assert.deepEqual(t.machine.state, { kind: 'Locked', offered: [] });
+});
+
+test('U4 follow-up: one refusal is asked again, and the answer is used', async () => {
+  let refusals = 1;
+  const t = await setup({ plugin: p => ({ ...p, status: async () => { if (refusals-- > 0) throw new Error('refused'); return p.status(); } }) });
+  await enrolMode(await rowsOf(t.core), PASS, t.f.plugin, 'phone-lock');
+  refusals = 1;
+  await lockAndResume(t.machine);
+  assert.deepEqual(t.machine.state, { kind: 'Locked', offered: ['phone-lock'] });
+});

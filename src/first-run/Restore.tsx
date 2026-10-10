@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { readBackupFile, restoreWith, useApp, type RestoreMessage, type Secret, type StopMessage } from '../app/context.ts';
+import { pickBackup, readBackupFile, restoreWith, useApp, useBackLayer, type FileRead, type RestoreMessage, type Secret, type StopMessage } from '../app/context.ts';
 import { I } from '../ui/icons.tsx';
 import type { FoundCopy } from './FirstRun.tsx';
 import { madeAtWords, RESTORE_WORDS, STOP_WORDS } from './restoreWords.ts';
@@ -57,6 +57,7 @@ export function Restore(props: RestoreProps) {
     secret.current = undefined;
     props.onClose(outcome);
   };
+  useBackLayer(true, () => { if (!busy) close('back'); });                   // Back is the screen's own Back; nothing while a replace runs
 
   const attempt = async (s: Secret, replace: boolean) => {
     if (!file) return;
@@ -95,9 +96,7 @@ export function Restore(props: RestoreProps) {
     if (text.trim()) void attempt({ method, text }, false);
   };
 
-  const onFile = async (chosen: File | undefined) => {
-    if (!chosen) return;
-    const read = readBackupFile(new Uint8Array(await chosen.arrayBuffer()));
+  const takeFile = (read: FileRead) => {
     if (read.kind === 'File') {
       setFile({ bytes: read.bytes, madeAt: read.madeAt });
       setMessage(undefined);
@@ -105,6 +104,21 @@ export function Restore(props: RestoreProps) {
       setFile(undefined);
       setMessage(read.kind === 'Newer' ? 'newer' : read.kind === 'NotBackup' ? 'not-backup' : 'damaged');
     }
+  };
+
+  const choose = async () => {
+    if (busy) return;
+    const picked = await pickBackup(deps);
+    if (picked === undefined) { picker.current?.click(); return; }          // a browser: the page's own file input
+    if (picked.kind === 'Cancelled') return;
+    if (picked.kind === 'TooLarge') { setFile(undefined); setMessage('not-backup'); return; }
+    if (picked.kind === 'NotRead') { setMessage('not-finished'); return; }
+    takeFile(picked);
+  };
+
+  const onFile = async (chosen: File | undefined) => {
+    if (!chosen) return;
+    takeFile(readBackupFile(new Uint8Array(await chosen.arrayBuffer())));
   };
 
   const made = file ? madeAtWords(file.madeAt, tz()) : '';
@@ -161,7 +175,7 @@ export function Restore(props: RestoreProps) {
       <div className="panel file-row">
         <p className="eb">Backup</p>
         <p className="body" style={{ margin: '6px 0 0' }}>{file ? `Made ${made}` : 'No file chosen yet'}</p>
-        <button type="button" className="btn btn--text" data-a="choose" style={{ paddingLeft: 0, marginTop: 4 }} onClick={() => picker.current?.click()}>{file ? 'Choose another file' : 'Choose a file'}</button>
+        <button type="button" className="btn btn--text" data-a="choose" style={{ paddingLeft: 0, marginTop: 4 }} onClick={() => { void choose(); }}>{file ? 'Choose another file' : 'Choose a file'}</button>
         <input ref={picker} type="file" hidden onChange={e => { void onFile(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
       </div>
       <form onSubmit={e => { e.preventDefault(); onRestore(); }}>
@@ -171,7 +185,7 @@ export function Restore(props: RestoreProps) {
       </form>
       {message && <div style={{ margin: '14px 0 0' }}><Note {...RESTORE_WORDS[message]} /></div>}
       <button type="button" className="btn btn--primary wide" data-a="restore-go" style={{ marginTop: 18 }} disabled={busy}
-        onClick={file ? onRestore : () => picker.current?.click()}>{busy ? 'Checking…' : 'Restore'}</button>
+        onClick={file ? onRestore : () => { void choose(); }}>{busy ? 'Checking…' : 'Restore'}</button>
       <button type="button" className="btn btn--text wide" data-a="method" style={{ marginTop: 6 }}
         onClick={() => setMethod(method === 'passphrase' ? 'recovery' : 'passphrase')}>{method === 'passphrase' ? 'Use the recovery code instead' : 'Use the passphrase instead'}</button>
     </div>

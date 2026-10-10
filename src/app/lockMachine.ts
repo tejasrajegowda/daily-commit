@@ -92,9 +92,18 @@ export function lockMachine(deps: LockDeps): LockMachine {
     }
   }
 
-  /** Asks the phone which device copies exist; the answer is drawn only if nothing happened meanwhile. */
+  /** Asks the phone which device copies exist; asked once more if it refuses, then the passphrase is offered. */
   async function askPhone(mine: number): Promise<void> {
-    const offered = await offeredModes(plugin);
+    let offered: readonly DeviceMode[];
+    try {
+      offered = await offeredModes(plugin);
+    } catch {
+      try {
+        offered = await offeredModes(plugin);
+      } catch {
+        offered = [];                                    // the phone didn't say twice: the passphrase opens it (U4 follow-up)
+      }
+    }
     if (mine === turn && inFront && state.kind === 'Locked') set({ kind: 'Locked', offered });
   }
 

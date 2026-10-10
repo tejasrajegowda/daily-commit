@@ -207,3 +207,57 @@ test('R3-5: a phone that refuses to delete a copy from another vault still gets 
   const restored = await goldenVault();
   assert.deepEqual(await unlockWithDevice(rowsOf(restored), plugin, { mode: 'fingerprint' }), { kind: 'CopyGone', offered: ['own-code'] });
 });
+
+// ── U5 (Ruling 8): the phone keeps a mode's copy until the new one opens back.
+
+test('U5: a new copy is offered only once it has opened back', async () => {
+  const made = await goldenVault();
+  const f = fakePlugin();
+  await enrolMode(rowsOf(made), PASS, f.plugin, 'own-code', CODE);
+  await f.plugin.enrol('fingerprint', 'A'.repeat(43));
+  assert.deepEqual(await offeredModes(f.plugin), ['own-code']);          // waiting, not offered
+  assert.deepEqual(f.waiting(), ['fingerprint']);
+});
+
+test('U5: a code change the phone can\'t confirm keeps the old code, and the fingerprint with it', async () => {
+  const made = await goldenVault();
+  const f = fakePlugin();
+  await enrolMode(rowsOf(made), PASS, f.plugin, 'own-code', CODE);
+  await enrolMode(rowsOf(made), PASS, f.plugin, 'fingerprint');
+  f.missNext();
+  assert.deepEqual(await enrolMode(rowsOf(made), PASS, f.plugin, 'own-code', '13572468'), { kind: 'NotVerified' });
+  assert.deepEqual(await offeredModes(f.plugin), ['own-code', 'fingerprint']);
+  assert.equal((await unlockWithDevice(rowsOf(made), f.plugin, { mode: 'own-code', code: CODE })).kind, 'Unlocked');
+  assert.equal((await unlockWithDevice(rowsOf(made), f.plugin, { mode: 'fingerprint' })).kind, 'Unlocked');
+  assert.equal((await unlockWithDevice(rowsOf(made), f.plugin, { mode: 'own-code', code: '13572468' })).kind, 'WrongCode');
+});
+
+test('U5: setting the phone\'s lock up again and backing out of the second prompt leaves it as it was', async () => {
+  const made = await goldenVault();
+  const f = fakePlugin();
+  await enrolMode(rowsOf(made), PASS, f.plugin, 'phone-lock');
+  f.cancelNext();
+  assert.deepEqual(await enrolMode(rowsOf(made), PASS, f.plugin, 'phone-lock'), { kind: 'NotVerified' });
+  assert.deepEqual(await offeredModes(f.plugin), ['phone-lock']);
+  assert.equal((await unlockWithDevice(rowsOf(made), f.plugin, { mode: 'phone-lock' })).kind, 'Unlocked');
+});
+
+test('U4 follow-up: a code whose copy opens to some other key is removed, and the fingerprint with it', async () => {
+  const made = await goldenVault();
+  const f = fakePlugin();
+  await enrolMode(rowsOf(made), PASS, f.plugin, 'own-code', CODE);
+  await enrolMode(rowsOf(made), PASS, f.plugin, 'fingerprint');
+  f.lieNext('A'.repeat(43));
+  assert.deepEqual(await enrolMode(rowsOf(made), PASS, f.plugin, 'own-code', '13572468'), { kind: 'NotVerified' });
+  assert.deepEqual(await offeredModes(f.plugin), []);                    // no fingerprint left without its code
+});
+
+test('U5: the app ending between the new copy and its check keeps the old copy', async () => {
+  const made = await goldenVault();
+  const f = fakePlugin();
+  await enrolMode(rowsOf(made), PASS, f.plugin, 'own-code', CODE);
+  await f.plugin.enrol('own-code', 'A'.repeat(43), '13572468');           // made, never opened back
+  const after = f.restart();
+  assert.deepEqual(await offeredModes(after), ['own-code']);
+  assert.equal((await unlockWithDevice(rowsOf(made), after, { mode: 'own-code', code: CODE })).kind, 'Unlocked');
+});

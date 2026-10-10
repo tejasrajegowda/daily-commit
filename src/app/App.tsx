@@ -17,7 +17,8 @@ import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
-import { AppContext, HeldContext, LeaveContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
+import { AppContext, BackContext, HeldContext, LeaveContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
+import { backLayers, backStep } from './back.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
 import { heldWords } from './heldWords.ts';
 import { leaveSaves } from './leaveSaves.ts';
@@ -92,6 +93,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   const [writing, setWriting] = useState(false);
   const [held] = useState(heldWords);                    // words whose save didn't go through, for this visit only
   const [saves] = useState(leaveSaves);                  // the saves of fields still being written in, run at a leave
+  const [layers] = useState(backLayers);
   const offered = useRef<readonly DeviceMode[]>([]);
   if (state.kind === 'Locked' && state.offered !== undefined) offered.current = state.offered;
 
@@ -152,6 +154,15 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     return () => { stopLeave(); stopResume(); };
   }, [device, machine, lock, saves]);
 
+  const place = useRef<{ nav: Nav; open: boolean }>({ nav, open: false });
+  place.current = { nav, open: flow === undefined && hasVault === true && state.kind === 'Open' };
+  useEffect(() => device.onBack?.(() => {
+    const step = backStep({ layers: layers.size(), recordOpen: place.current.open, nav: place.current.nav });
+    if (step.kind === 'layer') layers.closeTop();
+    else if (step.kind === 'go') setNav({ screen: step.screen, variant: step.variant });
+    else device.leaveApp?.();
+  }), [device, layers]);
+
   useEffect(() => {
     if (hasVault) void machine.resume();                 // asks the phone which ways to open it are there
   }, [hasVault, machine]);
@@ -199,16 +210,18 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   }
 
   return (
-    <AppContext.Provider value={deps}>
-      <NavContext.Provider value={navValue}>
-        <HeldContext.Provider value={held}>
-          <LeaveContext.Provider value={saves}>
-            <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
-              {body}
-            </Frame>
-          </LeaveContext.Provider>
-        </HeldContext.Provider>
-      </NavContext.Provider>
-    </AppContext.Provider>
+    <BackContext.Provider value={layers}>
+      <AppContext.Provider value={deps}>
+        <NavContext.Provider value={navValue}>
+          <HeldContext.Provider value={held}>
+            <LeaveContext.Provider value={saves}>
+              <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
+                {body}
+              </Frame>
+            </LeaveContext.Provider>
+          </HeldContext.Provider>
+        </NavContext.Provider>
+      </AppContext.Provider>
+    </BackContext.Provider>
   );
 }

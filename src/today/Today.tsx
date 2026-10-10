@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { resultWords, shapesOf, useApp, useClockMinute, useModel, useNav, useSaveAtLeave, useToday } from '../app/context.ts';
+import { resultWords, shapesOf, useApp, useBackLayer, useClockMinute, useModel, useNav, useSaveAtLeave, useToday } from '../app/context.ts';
 import type { Result } from '../record/results.ts';
 import type { RecordCore } from '../record/core.ts';
 import { sheetNow } from '../record/ops/common.ts';
@@ -94,6 +94,7 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, []);
+  useBackLayer(sheetOpen, () => { setSheetOpen(false); setNote(undefined); });
 
   const revision = store.revision();
   const input = useMemo(() => (model ? rulesInput(model) : undefined), [model, revision]);

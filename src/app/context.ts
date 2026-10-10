@@ -26,13 +26,28 @@ export { NOTE_WORDS } from './lockNotes.ts';
 export { resultWords } from './resultWords.ts';
 export type { Held, HeldWords } from './heldWords.ts';
 export { finishFirstRun, firstSettings, MIN_PASSPHRASE_CHARS, passphraseLongEnough, prepareVault, sameRecoveryCode, type Prepared } from './firstRunFlow.ts';
-export { readBackupFile, restoreWith, type FileRead, type RestoreMessage, type RestoreStep, type StopMessage } from './restoreSteps.ts';
+export { pickBackup, readBackupFile, restoreWith, type FileRead, type Pick, type RestoreMessage, type RestoreStep, type StopMessage } from './restoreSteps.ts';
 export { DEFAULT_SHAPES, shapesOf } from './dayShapes.ts';
 export { monthDue } from './reviewsDue.ts';
 export { meter, type Bars } from './meter.ts';
 export { displayOf, exportCopy, lastCopyAt, saveDisplay, spaceUsed, type ExportOutcome } from './yourData.ts';
-export type { Display } from '../record/ops/device.ts';
+export type { Display, HandOffKind } from '../record/ops/device.ts';
+export { duringHandOff, takeHandOff } from './handOff.ts';
 export { checkCode, finishNewCode, fingerprintOff, modesNow, newPassphrase, secretOpens, setMode, startNewCode, type PendingCode, type SecretOutcome } from './secretFlows.ts';
+
+/** A file the person picked through the phone's own picker: its bytes, never a path (§3.7). */
+export type Picked =
+  | { readonly kind: 'Picked'; readonly bytes: Uint8Array }
+  | { readonly kind: 'Cancelled' }
+  /** more than 32 MB: no backup is that large */
+  | { readonly kind: 'TooLarge' };
+
+/** What the phone says about itself: its maker (the Samsung step), its Android version, whether it has a screen lock (C21). */
+export interface DeviceInfo {
+  readonly manufacturer: string;
+  readonly sdk: number;
+  readonly screenLock: boolean;
+}
 
 /** The phone, or the browser standing in for it. */
 export interface DevicePort {
@@ -49,6 +64,27 @@ export interface DevicePort {
   saveFile?(name: string, bytes: Uint8Array): Promise<boolean>;
   /** bytes the app's storage holds on this device, if the device can say */
   spaceUsed?(): Promise<number | undefined>;
+  /** the phone's file picker, a hand-off the phone marks; absent where the page's own file input is used */
+  pickFile?(): Promise<Picked>;
+  /** asks the device to keep the app's storage from clean-up when space runs low; true if it agreed (C11) */
+  persist?(): Promise<boolean>;
+  /** resolves after `ms` on the phone's uptime clock; absent: a JavaScript timer (C15) */
+  sleep?(ms: number): Promise<void>;
+  /** one timing line, numbers only, written only while the phone's log switch is on (C17) */
+  timing?(label: 'unlock' | 'lookback' | 'restore', ms: number): void;
+  info?(): Promise<DeviceInfo>;
+  /** the phone's Back gesture or button; returns the way to stop */
+  onBack?(cb: () => void): () => void;
+  /** leaves the app as Home does, so it locks */
+  leaveApp?(): void;
+}
+
+/** What Back closes first: an open sheet, or the restore flow. */
+export interface BackLayers {
+  /** while open; returns the way to take it off */
+  push(close: () => void): () => void;
+  readonly size: () => number;
+  closeTop(): void;
 }
 
 export interface AppDeps {
@@ -74,6 +110,7 @@ export const AppContext = createContext<AppDeps | undefined>(undefined);
 export const NavContext = createContext<{ readonly nav: Nav; go(screen: ScreenId, variant?: string): void } | undefined>(undefined);
 export const HeldContext = createContext<HeldWords | undefined>(undefined);
 export const LeaveContext = createContext<LeaveSaves | undefined>(undefined);
+export const BackContext = createContext<BackLayers | undefined>(undefined);
 
 export function useApp(): AppDeps {
   const deps = useContext(AppContext);
@@ -107,6 +144,14 @@ export function useSaveAtLeave(field: RefObject<HTMLElement | null>, save: () =>
   useEffect(() => saves.add(() => {
     if (field.current && field.current === document.activeElement) latest.current();
   }), [saves, field]);
+}
+
+/** While `open`, Back closes this before anything else. */
+export function useBackLayer(open: boolean, close: () => void): void {
+  const layers = useContext(BackContext);
+  const latest = useRef(close);
+  latest.current = close;
+  useEffect(() => (open && layers ? layers.push(() => latest.current()) : undefined), [open, layers]);
 }
 
 /** The open record's model, or undefined while locked; the screen draws again after every change. */

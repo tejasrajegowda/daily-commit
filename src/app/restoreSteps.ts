@@ -3,6 +3,7 @@ import { backupCipher } from '../vault/backupCipher.ts';
 import { BackupError, type Secret } from '../vault/cipher.ts';
 import type { AppDeps } from './context.ts';
 import type { RestoreResult } from '../record/backup/restore.ts';
+import { duringHandOff } from './handOff.ts';
 import { restoreBackup } from './restoreFlow.ts';
 
 // One restore attempt, as the screen words it. The file and the secret are checked first; only
@@ -16,6 +17,20 @@ export type FileRead =
   | { readonly kind: 'NotBackup' }
   /** a backup whose header can't be read */
   | { readonly kind: 'Unreadable' };
+
+export type Pick = FileRead | { readonly kind: 'Cancelled' } | { readonly kind: 'TooLarge' } | { readonly kind: 'NotRead' };
+
+/** The phone's picker, as a marked hand-off; the file is read like the page's own file input. Undefined where there is no picker. */
+export async function pickBackup(deps: AppDeps): Promise<Pick | undefined> {
+  const pick = deps.device.pickFile;
+  if (!pick) return undefined;
+  try {
+    const got = await duringHandOff(deps, 'restore', () => pick());
+    return got.kind === 'Picked' ? readBackupFile(got.bytes) : got;
+  } catch {
+    return { kind: 'NotRead' };
+  }
+}
 
 /** Reads the plain header only (no secret needed): when the backup was made. */
 export function readBackupFile(bytes: Uint8Array): FileRead {

@@ -2,6 +2,7 @@ import { exportBackup } from '../record/backup/export.ts';
 import { LATEST } from '../record/backup/snapshot.ts';
 import { readDisplay, writeDisplay, type Display } from '../record/ops/device.ts';
 import type { AppDeps } from './context.ts';
+import { duringHandOff } from './handOff.ts';
 import { readBackupFile } from './restoreSteps.ts';
 
 // What Settings → Your data and Display read and do: when the last automatic copy was made, the
@@ -22,7 +23,7 @@ export async function exportCopy(deps: AppDeps): Promise<ExportOutcome> {
   if (!save) return 'NoSave';
   const made = await exportBackup(deps.core, { appVersion: deps.appVersion });
   if (made.kind !== 'Saved') return 'Failed';
-  return (await save(made.value.name, made.value.bytes).catch(() => false)) ? 'Saved' : 'Cancelled';
+  return (await duringHandOff(deps, 'export', () => save(made.value.name, made.value.bytes)).catch(() => false)) ? 'Saved' : 'Cancelled';
 }
 
 export const spaceUsed = (deps: AppDeps): Promise<number | undefined> =>

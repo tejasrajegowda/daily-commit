@@ -26,3 +26,28 @@ export async function readDisplay(db: RecordDb): Promise<Display> {
 export async function writeDisplay(db: RecordDb, display: Display): Promise<void> {
   await db.device.bulkPut([{ key: 'contrast', value: clampContrast(display.contrast) }, { key: 'dim', value: display.dim }]);
 }
+
+/** A system screen the app opened and was waiting on when the process last ended (R-3): the kind only. */
+export type HandOffKind = 'export' | 'restore' | 'fingerprint';
+const HAND_OFFS: readonly HandOffKind[] = ['export', 'restore', 'fingerprint'];
+
+export async function readHandOff(db: RecordDb): Promise<HandOffKind | undefined> {
+  const v = (await db.device.get('handoff'))?.value;
+  return HAND_OFFS.find(k => k === v);
+}
+
+/** `undefined` removes the mark. */
+export async function writeHandOff(db: RecordDb, kind: HandOffKind | undefined): Promise<void> {
+  if (kind === undefined) await db.device.delete('handoff');
+  else await db.device.put({ key: 'handoff', value: kind });
+}
+
+/** Whether the phone agreed to keep the app's storage from clean-up, as it last answered (C11). */
+export async function readPersisted(db: RecordDb): Promise<boolean | undefined> {
+  const v = (await db.device.get('persisted'))?.value;
+  return typeof v === 'boolean' ? v : undefined;
+}
+
+export async function writePersisted(db: RecordDb, kept: boolean): Promise<void> {
+  await db.device.put({ key: 'persisted', value: kept });
+}

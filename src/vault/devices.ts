@@ -32,9 +32,9 @@ export type EnrolResult =
   /** a fingerprint can be added only within own-code mode */
   | { readonly kind: 'NeedsOwnCode' }
   /**
-   * the new copy didn't open back to the same key, and it was deleted. The other modes are as they
-   * were; but the phone keeps one copy per mode, so a mode that was being set up again (a code
-   * being changed) is now off, and is set up again with the passphrase
+   * the new copy didn't open back to the same key. A mode set up for the first time is left off; a
+   * mode set up again keeps working as before, because the phone keeps its copy until the new one
+   * opens back. A copy that opened to some other key is never kept, and a fingerprint goes with its code.
    */
   | { readonly kind: 'NotVerified' };
 
@@ -48,17 +48,22 @@ export async function enrolMode(rows: VaultRowsIn, auth: Secret, plugin: VaultPl
   if (mode === 'own-code' && !codeOk(code)) return { kind: 'CodeTooShort' };
   const before = await offeredModes(plugin);
   if (mode === 'fingerprint' && !before.includes('own-code')) return { kind: 'NeedsOwnCode' };
+  const again = before.includes(mode);                   // set up again: the phone keeps the old copy until the new one opens back
   const done = await withRawMasterKey(rows, auth, async (raw): Promise<EnrolResult> => {
     await plugin.enrol(mode, toBase64url(raw), mode === 'own-code' ? code : undefined);
     const back = mode === 'own-code' ? await plugin.verifyCode(code ?? '') : await plugin.unwrap(mode);
-    let same = false;
-    const bytes = back.kind === 'Key' ? masterBytes(back.masterKey) : undefined;
-    if (bytes) {
-      same = sameBytes(bytes, raw);
-      bytes.fill(0);
+    if (back.kind !== 'Key') {
+      // backed out of, or the new copy never took: the phone dropped it, and a mode set up again still opens as before
+      if (!again) await plugin.remove(mode);
+      return { kind: 'NotVerified' };
     }
+    const bytes = masterBytes(back.masterKey);
+    const same = bytes !== undefined && sameBytes(bytes, raw);
+    bytes?.fill(0);
     if (!same) {
+      // a copy that opens to some other key is never kept, and the fingerprint can't stay without its code
       await plugin.remove(mode);
+      if (mode === 'own-code') await plugin.remove('fingerprint');
       return { kind: 'NotVerified' };
     }
     for (const other of before) if (other !== mode && !keepsBeside(mode, other)) await plugin.remove(other);

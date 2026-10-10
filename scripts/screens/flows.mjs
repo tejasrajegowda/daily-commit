@@ -1425,7 +1425,7 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
     await unconfirmed('s=secret&v=phone&t=13:00', async () => { await window.harness.ownCode(); window.harness.cancelPrompt(); }, 'phone-lock',
       ["The phone's lock wasn't set up", 'Your code, the fingerprint and your passphrase still open Daily Commit']) && await on('own') && !(await on('phone')));
   check('Privacy: the fingerprint prompt backed out of says the fingerprint is still off and the code still opens it',
-    await unconfirmed('s=secret&v=finger&t=13:00', async () => { await window.harness.ownCode(); window.harness.cancelPrompt(); }, 'fingerprint',
+    await unconfirmed('s=secret&v=finger&t=13:00', async () => { await window.harness.codeOnly(); window.harness.cancelPrompt(); }, 'fingerprint',
       ['Fingerprint is still off', 'Your code and your passphrase still open Daily Commit']) && await on('own')
       && !(await p.locator('[data-a="biotoggle"] .toggle.on').count()));
 

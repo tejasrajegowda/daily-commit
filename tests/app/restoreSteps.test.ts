@@ -1,14 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readBackupFile, restoreWith } from '../../src/app/restoreSteps.ts';
+import { pickBackup, readBackupFile, restoreWith } from '../../src/app/restoreSteps.ts';
 import { assemble } from '../../src/app/compose.ts';
-import type { AppDeps, DevicePort } from '../../src/app/context.ts';
+import type { AppDeps, DevicePort, Picked } from '../../src/app/context.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../src/record/backup/format.ts';
 import { gunzip, readRaw } from '../../src/record/backup/body.ts';
 import { SAFETY } from '../../src/record/backup/copies.ts';
 import { RAW_FORMAT } from '../../src/record/backup/restore.ts';
 import { LATEST } from '../../src/record/backup/snapshot.ts';
+import { readHandOff } from '../../src/record/ops/device.ts';
 import { jsonBytes, parseJsonBytes } from '../../src/record/bytes.ts';
 import type { RecordCore } from '../../src/record/core.ts';
 import { fillRecord } from '../record/helpers.ts';
@@ -289,4 +290,20 @@ test('R1-2: without being told the record refused to open, a locked record is ne
   assert.deepEqual(await restoreWith(deps, file, PASS, true), { kind: 'Locked' });
   assert.deepEqual(await rowsIn(core), before);
   assert.equal((await m.files.list(SAFETY)).length, 0);
+});
+
+test('the phone\'s picker hands back bytes, read like the page\'s file input; the hand-off is marked while it is open', async () => {
+  const r = await realRecord();
+  const { deps } = testDeps(r.core);
+  const made = await exportBackup(r.core, { appVersion: '0.1.0' });
+  if (made.kind !== 'Saved') throw new Error('no backup');
+  const marks: unknown[] = [];
+  const picking = (answer: () => Promise<Picked>) => ({ ...deps, device: { ...deps.device, pickFile: async () => { marks.push(await readHandOff(r.core.db)); return answer(); } } });
+  assert.equal((await pickBackup(picking(async () => ({ kind: 'Picked', bytes: made.value.bytes }))))?.kind, 'File');
+  assert.deepEqual(await pickBackup(picking(async () => ({ kind: 'TooLarge' }))), { kind: 'TooLarge' });
+  assert.deepEqual(await pickBackup(picking(async () => ({ kind: 'Cancelled' }))), { kind: 'Cancelled' });
+  assert.deepEqual(await pickBackup(picking(async () => { throw new Error('the provider failed'); })), { kind: 'NotRead' });
+  assert.deepEqual(marks, ['restore', 'restore', 'restore', 'restore']);
+  assert.equal(await readHandOff(r.core.db), undefined);
+  assert.equal(await pickBackup(deps), undefined);                         // no picker: the page's own file input
 });

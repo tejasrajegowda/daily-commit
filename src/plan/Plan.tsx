@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { resultWords, shapesOf, useApp, useModel, useNav, useToday } from '../app/context.ts';
+import { resultWords, shapesOf, useApp, useBackLayer, useModel, useNav, useToday } from '../app/context.ts';
 import type { HabitRecord } from '../record/model.ts';
 import { deleteCue, saveCue } from '../record/ops/cues.ts';
 import { createHabit, editHabit, retireHabit, returnHabit, swapFocus } from '../record/ops/habits.ts';
@@ -47,6 +47,7 @@ export function Plan() {
   const [editing, setEditing] = useState<string | 'new' | undefined>(undefined);
   const [newId, setNewId] = useState(() => core.newId());
   const [resetAt, setResetAt] = useState(0);
+  useBackLayer(!wide && editing !== undefined, () => { setEditing(undefined); setResetAt(n => n + 1); });
   if (!model || !today) return null;
   const lists = planLists(model, today);
   const shapes = shapesOf(model.settings);

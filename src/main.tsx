@@ -7,8 +7,6 @@ import './ui/app.css';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('daily-commit: #root is missing from index.html');
-createRoot(root).render(
-  <StrictMode>
-    <App deps={compose()} />
-  </StrictMode>,
-);
+void compose().then(made => {
+  createRoot(root).render(<StrictMode>{made.kind === 'Ready' ? <App deps={made.deps} /> : null}</StrictMode>);
+});

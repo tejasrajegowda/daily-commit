@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  finishNewCode, checkCode, meter, newPassphrase, secretOpens, setMode, startNewCode, useApp, useNav,
+  duringHandOff, finishNewCode, checkCode, meter, newPassphrase, secretOpens, setMode, startNewCode, useApp, useNav,
   type Bars, type PendingCode, type Secret as Typed,
 } from '../app/context.ts';
 import { CodePad, MAX_DIGITS } from '../ui/CodePad.tsx';
@@ -287,7 +287,7 @@ function SwitchMode({ mode }: { readonly mode: 'phone-lock' | 'fingerprint' }) {
   const why = mode === 'phone-lock' ? "Switching to your phone's lock needs it once." : 'Letting the fingerprint open it needs it once.';
   return (
     <AskPassphrase why={why} failed={NOT_SET} onRight={async auth => {
-      const r = await setMode(deps, auth, mode);
+      const r = await (mode === 'fingerprint' ? duringHandOff(deps, 'fingerprint', () => setMode(deps, auth, mode)) : setMode(deps, auth, mode));
       if (r.kind === 'Enrolled') go('settings', 'privacy');
       else if (r.kind === 'NotVerified') go('settings', notVerifiedVariant(mode));
       else throw new Error('not set');

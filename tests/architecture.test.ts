@@ -64,8 +64,9 @@ describe('dependency rule', () => {
     }
   });
 
-  // device/ is the one boundary to the phone: Capacitor, itself, and only the types it serves
-  const DEVICE_MAY_IMPORT = new Set(['app/context.ts', 'record/files.ts', 'vault/plugin.ts']);
+  // device/ is the one boundary to the phone: Capacitor, itself, and only the types it serves.
+  // and the base64url the bridge carries bytes in (pure, no secret)
+  const DEVICE_MAY_IMPORT = new Set(['app/context.ts', 'record/files.ts', 'vault/plugin.ts', 'vault/encoding.ts']);
   function deviceBreaks(file: string, src: string): string[] {
     return specsIn(src).filter(spec => {
       if (spec.startsWith('@capacitor/')) return false;
