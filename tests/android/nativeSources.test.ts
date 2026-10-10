@@ -25,12 +25,41 @@ test('the Vault plugin answers exactly the five calls of src/vault/plugin.ts', (
 
 test('both plugins are registered before the bridge is built', () => {
   const src = read('MainActivity.java');
-  const register = src.indexOf('registerPlugin(VaultPlugin.class)');
-  assert.ok(register > 0 && register < src.indexOf('super.onCreate('));
+  const bridge = src.indexOf('super.onCreate(');
+  for (const name of ['registerPlugin(VaultPlugin.class)', 'registerPlugin(ShellPlugin.class)']) {
+    const register = src.indexOf(name);
+    assert.ok(register > 0 && register < bridge, name);
+  }
 });
 
 test('the phone\'s prompt is marked as a hand-off our own code started, and the mark always ends', () => {
   const src = read('vault/VaultPlugin.java');
   assert.match(src, /HandOff\.begin\(SystemClock\.elapsedRealtime\(\)\)/);
   assert.match(src, /HandOff\.end\(\)/);
+});
+
+test('the Shell plugin keeps nothing of a pending call in Android\'s saved state', () => {
+  assert.match(read('shell/ShellPlugin.java'), /protected Bundle saveInstanceState\(\)\s*\{\s*return null;\s*\}/);
+});
+
+test('a result that arrives after Android ended the app is dropped', () => {
+  const src = read('shell/ShellPlugin.java');
+  assert.equal([...src.matchAll(/CALLBACK_ID_DANGLING/g)].length >= 2, true);     // both "save as" and the picker
+});
+
+test('the only log line in the app is the timing line, behind isLoggable, numbers only', () => {
+  const src = read('shell/ShellPlugin.java');
+  const uses = [...src.matchAll(/\bLog\.(\w+)\(/g)].map(m => m[1]);
+  assert.deepEqual(uses.sort(), ['isLoggable', 'v']);
+  assert.match(src, /Log\.v\(TAG, label \+ " " \+ ms \+ " ms"\)/);
+});
+
+test('every system screen the Shell opens is marked as a hand-off first', () => {
+  const src = read('shell/ShellPlugin.java');
+  for (const opener of ['startActivityForResult(', 'requestPermissionForAlias(']) {
+    for (const m of src.matchAll(new RegExp(opener.replace('(', '\\('), 'g'))) {
+      const before = src.slice(Math.max(0, (m.index ?? 0) - 200), m.index);
+      assert.match(before, /HandOff\.begin\(/, opener);
+    }
+  }
 });

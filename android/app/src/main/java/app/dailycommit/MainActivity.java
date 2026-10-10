@@ -2,6 +2,7 @@ package app.dailycommit;
 
 import android.os.Bundle;
 import android.view.WindowManager;
+import app.dailycommit.shell.ShellPlugin;
 import app.dailycommit.vault.VaultPlugin;
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
@@ -19,8 +20,9 @@ public class MainActivity extends BridgeActivity {
         Logger.init(CapConfig.loadDefault(this));
         // Before the notification plugin starts and makes the same channel its own way.
         ReminderChannel.ensure(this);
-        // The vault's plugin, before the bridge is built.
+        // The vault and the shell, before the bridge is built.
         registerPlugin(VaultPlugin.class);
+        registerPlugin(ShellPlugin.class);
         super.onCreate(savedInstanceState);
         // The plugin renamed the channel; a second create puts the name back and changes nothing else.
         ReminderChannel.ensure(this);

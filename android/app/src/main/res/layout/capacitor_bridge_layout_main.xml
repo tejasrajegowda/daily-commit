@@ -13,4 +13,17 @@
         android:importantForAutofill="noExcludeDescendants"
         android:importantForContentCapture="noExcludeDescendants" />
 
+    <!-- Laid over the web view when the app is left, and taken away only once the app has drawn
+         its blank or lock screen, so the last frame of the record is never shown on return. -->
+    <View
+        android:id="@+id/dc_cover"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@android:color/black"
+        android:clickable="true"
+        android:focusable="true"
+        android:elevation="100dp"
+        android:importantForAccessibility="no"
+        android:visibility="gone" />
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
