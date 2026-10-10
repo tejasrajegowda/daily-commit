@@ -235,6 +235,31 @@ public class VaultCoreTest {
         assertEquals(CodeCheck.Kind.WRONG_CODE, core.verifyCode(NEW_CODE).kind);
     }
 
+    // RF3: a rejected code change must not hand the counted guesses back
+    @Test public void aRejectedCodeChangeLeavesTheWrongCodeCount() throws Exception {
+        enrolCode(KEY, CODE);
+        assertEquals(4, wrong());
+        assertEquals(3, wrong());                       // two counted, three tries left
+        core.enrolCode(OTHER, NEW_CODE);
+        assertEquals(CodeCheck.Kind.MISSING, core.verifyCode("99999999").kind);
+        assertEquals(2, CopyFile.read(dir).wrongTries);
+        restart();
+        assertEquals(2, wrong());                       // a new core, same folder, same two guesses
+    }
+
+    // a waiting copy that opens to some other key is dropped; the working copy stays
+    @Test public void anOpenBackToADifferentKeyIsMissing_andTheOldCopyStays() throws Exception {
+        enrol(Mode.PHONE_LOCK, KEY);
+        String oldAlias = core.aliasOf(Mode.PHONE_LOCK);
+        Step step = core.beginEnrol(Mode.PHONE_LOCK, KEY);
+        core.finishEnrol(step);
+        keys.lieDecrypt.put(step.alias, OTHER.clone());
+        assertEquals(Opened.Kind.MISSING, open(Mode.PHONE_LOCK).kind);
+        assertFalse(keys.aliases().contains(step.alias));
+        assertArrayEquals(KEY, open(Mode.PHONE_LOCK).key());
+        assertEquals(oldAlias, core.aliasOf(Mode.PHONE_LOCK));
+    }
+
     // native-only: a swap replaces the copy and deletes the old key; a code change resets the count
     @Test public void aSwapReplacesTheCopyAndDeletesTheOldKey() throws Exception {
         enrol(Mode.PHONE_LOCK, KEY);

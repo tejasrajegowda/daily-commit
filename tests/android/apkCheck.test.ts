@@ -6,6 +6,7 @@ const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'se
 // The merged manifest as `apkanalyzer manifest print` shows it: the allowed permissions, AndroidX's own
 // permission, and the notification plugin's receivers and providers closed to other apps.
 const MANIFEST = `<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="app.dailycommit">`
+  + `<uses-permission android:name="android.permission.USE_BIOMETRIC"/>`
   + `<uses-permission android:name="android.permission.USE_EXACT_ALARM"/><uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>`
   + `<uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>`
   + `<uses-permission android:name="android.permission.WAKE_LOCK"/>`
@@ -39,6 +40,12 @@ const withResource = (path: string, xml: string): ApkView => ({ ...cleanApk(), r
 const withManifest = (f: (m: string) => string): ApkView => ({ ...cleanApk(), manifest: f(cleanApk().manifest) });
 
 test('the clean APK has no problems', () => {
+  assert.deepEqual(apkProblems(cleanApk()), []);
+});
+
+test('USE_BIOMETRIC is required and allowed', () => {
+  const without = withManifest(m => m.replace('<uses-permission android:name="android.permission.USE_BIOMETRIC"/>', ''));
+  assert.notDeepEqual(apkProblems(without), []);
   assert.deepEqual(apkProblems(cleanApk()), []);
 });
 

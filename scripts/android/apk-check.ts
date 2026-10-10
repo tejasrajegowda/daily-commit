@@ -31,6 +31,7 @@ export const LAYOUT_PATH = 'res/layout/capacitor_bridge_layout_main.xml';
 const ALLOWED_PERMISSIONS = new Set([
   'android.permission.POST_NOTIFICATIONS',
   'android.permission.USE_EXACT_ALARM',
+  'android.permission.USE_BIOMETRIC',            // the phone's own fingerprint or PIN prompt
   'android.permission.RECEIVE_BOOT_COMPLETED',   // the notification plugin's: reminders after a restart
   'android.permission.WAKE_LOCK',
   'app.dailycommit.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION',   // AndroidX's own
@@ -79,7 +80,7 @@ function leakManifestProblems(manifest: string): string[] {
     if (p === 'android.permission.SCHEDULE_EXACT_ALARM') problems.push('manifest: SCHEDULE_EXACT_ALARM is requested (the plugin would open the alarms screen)');
     else if (!ALLOWED_PERMISSIONS.has(p)) problems.push(`manifest: permission ${p} is not allowed`);
   }
-  for (const p of ['android.permission.USE_EXACT_ALARM', 'android.permission.POST_NOTIFICATIONS']) {
+  for (const p of ['android.permission.USE_EXACT_ALARM', 'android.permission.POST_NOTIFICATIONS', 'android.permission.USE_BIOMETRIC']) {
     if (!permissions.includes(p)) problems.push(`manifest: ${p} is missing`);
   }
   if (/androidx\.core\.content\.FileProvider/.test(manifest)) problems.push('manifest: a file provider is declared');

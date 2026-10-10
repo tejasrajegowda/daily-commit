@@ -21,6 +21,8 @@ final class FakeKeys implements KeyStoreLike {
     final Set<String> invalid = new HashSet<>();        // a new fingerprint, or the screen lock removed
     final Set<String> refuseDelete = new HashSet<>();
     boolean powerCutInHmac;                             // the app is ended between the count and the compare
+    /** This alias's decrypter succeeds and returns these bytes, whatever was sealed. */
+    final Map<String, byte[]> lieDecrypt = new HashMap<>();
     final List<String> log = new ArrayList<>();
 
     @Override public void create(String alias, Kind kind) throws GeneralSecurityException {
@@ -53,8 +55,11 @@ final class FakeKeys implements KeyStoreLike {
     }
 
     @Override public Cipher decrypter(String alias, byte[] iv) throws GeneralSecurityException {
+        SecretKey k = key(alias);
+        byte[] lie = lieDecrypt.get(alias);
+        if (lie != null) return FixedDecrypt.cipher(lie, k, iv);
         Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
-        c.init(Cipher.DECRYPT_MODE, key(alias), new GCMParameterSpec(128, iv));
+        c.init(Cipher.DECRYPT_MODE, k, new GCMParameterSpec(128, iv));
         return c;
     }
 
