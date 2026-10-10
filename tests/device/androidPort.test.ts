@@ -80,6 +80,46 @@ test('the private files go as base64url and come back as bytes; a full phone is 
   await assert.rejects(files.rename('tmp/none', 'tmp/other'), e => !isQuotaFull(e));
 });
 
+test('the cover stays up until resume has finished and a frame has been drawn', async () => {
+  const f = fakeBridges();
+  const port = androidPortWith(f.bridges);
+  let release: () => void = () => {};
+  const pending = new Promise<void>(done => { release = done; });
+  port.onResume(() => pending);
+  await tick();
+  f.listeners.get('resume')?.();
+  f.paint();
+  await tick();
+  assert.equal(f.calls.includes('drawn'), false);             // the resume work is still going: the cover stays
+  release();
+  await pending;
+  await tick();
+  assert.equal(f.calls.includes('drawn'), false);             // the work has finished, and no frame has been drawn yet
+  f.paint();
+  await tick();
+  assert.equal(f.calls.includes('drawn'), true);
+});
+
+test('a resume that fails still lifts the cover, only after that failure and a frame', async () => {
+  const f = fakeBridges();
+  const port = androidPortWith(f.bridges);
+  let reject: (e: unknown) => void = () => {};
+  const pending = new Promise<void>((_done, no) => { reject = no; });
+  port.onResume(() => pending);
+  await tick();
+  f.listeners.get('resume')?.();
+  f.paint();
+  await tick();
+  assert.equal(f.calls.includes('drawn'), false);
+  reject(new Error('CANARY-TEST resume failed'));
+  await pending.catch(() => {});
+  await tick();
+  assert.equal(f.calls.includes('drawn'), false);
+  f.paint();
+  await tick();
+  assert.equal(f.calls.includes('drawn'), true);
+});
+
 test('leave and resume come from the Shell; after resume the cover goes only once a frame has been drawn (C9)', async () => {
   const f = fakeBridges();
   const port = androidPortWith(f.bridges);

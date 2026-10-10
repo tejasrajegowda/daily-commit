@@ -58,8 +58,8 @@ export interface DevicePort {
   readonly files: SnapshotFiles;
   /** calls back when the app is left or the screen goes off; returns the way to stop */
   onLeave(cb: () => void): () => void;
-  /** calls back when the app comes to the front again */
-  onResume(cb: () => void): () => void;
+  /** calls back when the app comes to the front again; a returned promise is the work still painting the lock */
+  onResume(cb: () => void | Promise<void>): () => void;
   /** the system "save as": true once saved, false if the person backed out. Absent where there is none. */
   saveFile?(name: string, bytes: Uint8Array): Promise<boolean>;
   /** bytes the app's storage holds on this device, if the device can say */

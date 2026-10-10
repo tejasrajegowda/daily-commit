@@ -98,10 +98,12 @@ export function androidPortWith(b: Bridges): DevicePort {
     deviceModes: true,
     files,
     onLeave: cb => stopOn(shell.addListener('leave', cb)),
-    // the cover over the web view goes only once the blank or lock screen has really been drawn (C9)
+    // the cover stays until resume's work has settled and a frame of the blank or lock screen has been drawn (C9)
     onResume: cb => stopOn(shell.addListener('resume', () => {
-      cb();
-      afterPaint(() => { void shell.drawn().catch(() => {}); });
+      const finished = cb() as void | PromiseLike<void>;
+      const cover = () => { afterPaint(() => { void shell.drawn().catch(() => {}); }); };
+      if (typeof (finished as PromiseLike<void> | undefined)?.then === 'function') void Promise.resolve(finished as PromiseLike<void>).then(cover, cover);
+      else cover();
     })),
     saveFile: async (name, bytes) => (await shell.saveFile({ name, data: toBase64url(bytes) })).saved,
     async pickFile(): Promise<Picked> {

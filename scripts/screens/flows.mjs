@@ -1,6 +1,7 @@
 // The click-through test of the real app, in the screen harness. Invented data only.
 // node scripts/screens/flows.mjs (after npm run screens:build) → PASS/FAIL lists, exit 1 on any FAIL.
 import { harness } from './page.mjs';
+import { runTask5aReview } from './review5a.mjs';
 import { SIZES } from './states.mjs';
 import { screenProblems } from './rules.mjs';
 
@@ -11,6 +12,14 @@ const check = (name, cond) => (cond ? ok : errors).push(name);
 const [PHONE, LAPTOP] = SIZES;
 const CODE = '24681357';
 const PASSPHRASE = 'CANARY harness passphrase';
+
+if (process.env.DC_ONLY === '5a-review') {
+  await runTask5aReview(h, check, errors, PHONE, PASSPHRASE);
+  await h.close();
+  console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
+  console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');
+  process.exit(errors.length ? 1 : 0);
+}
 
 /** waits for a selector to be on the page; false if it never came */
 const shows = (p, sel, timeout = 8000) => p.waitForSelector(sel, { state: 'attached', timeout }).then(() => true, () => false);
@@ -1549,6 +1558,8 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   const markedTotal = await total('s=habit&v=h-practice&t=12:30&canary=1');
   check("invariant 4: yesterday's marked values are in the record", plain !== undefined && markedTotal !== undefined && plain !== markedTotal);
 }
+
+await runTask5aReview(h, check, errors, PHONE, PASSPHRASE);
 
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);

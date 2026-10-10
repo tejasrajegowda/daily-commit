@@ -57,7 +57,7 @@ export function Restore(props: RestoreProps) {
     secret.current = undefined;
     props.onClose(outcome);
   };
-  useBackLayer(true, () => { if (!busy) close('back'); });                   // Back is the screen's own Back; nothing while a replace runs
+  useBackLayer(true, () => { if (!busy) close(step === 'done' ? 'restored' : 'back'); }); // done matches Open; pick, ask and stopped stay back
 
   const attempt = async (s: Secret, replace: boolean) => {
     if (!file) return;
@@ -112,7 +112,7 @@ export function Restore(props: RestoreProps) {
     if (picked === undefined) { picker.current?.click(); return; }          // a browser: the page's own file input
     if (picked.kind === 'Cancelled') return;
     if (picked.kind === 'TooLarge') { setFile(undefined); setMessage('not-backup'); return; }
-    if (picked.kind === 'NotRead') { setMessage('not-finished'); return; }
+    if (picked.kind === 'NotRead') { setFile(undefined); setMessage('not-finished'); return; }
     takeFile(picked);
   };
 

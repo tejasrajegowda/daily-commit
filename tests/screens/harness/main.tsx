@@ -71,6 +71,15 @@ export interface HarnessControls {
   codeOnly(): Promise<void>;
   /** the invented record's recovery code, as the first day would have shown it (none for an empty record) */
   readonly recoveryCode: string | undefined;
+  /** the phone's Back button. True when that press left the app. */
+  back(): boolean;
+  /** the next Choose a file fails this way: the picker could not read it, or the file is over the limit */
+  pickerFault(kind: 'unread' | 'huge'): void;
+  /** the next time the phone is asked which ways exist, it does not answer until releaseStatus */
+  holdStatus(): void;
+  releaseStatus(): void;
+  /** what each resume handler returned, so a test can wait for the lock screen */
+  resumeHandlers(): readonly unknown[];
 }
 
 /** A backup of a second invented record, made in its own database. */
@@ -152,9 +161,12 @@ function failableCore(core: RecordCore): { readonly core: RecordCore; failNext()
 /** A device port around the stand-in plugin; leaving and coming back are driven by the flows. */
 function harnessDevice(plugin: DevicePort['plugin']) {
   const leaving = new Set<() => void>();
-  const resuming = new Set<() => void>();
+  const resuming = new Set<() => void | Promise<void>>();
+  const backing = new Set<() => void>();
   const stored = memoryFiles();
   let failing: 'full' | 'other' | undefined;
+  let leaves = 0;
+  let pickFault: 'unread' | 'huge' | undefined;
   const device: DevicePort = {
     plugin,
     deviceModes: true,
@@ -166,14 +178,30 @@ function harnessDevice(plugin: DevicePort['plugin']) {
     },
     onLeave(cb) { leaving.add(cb); return () => { leaving.delete(cb); }; },
     onResume(cb) { resuming.add(cb); return () => { resuming.delete(cb); }; },
+    onBack(cb) { backing.add(cb); return () => { backing.delete(cb); }; },
+    leaveApp() { leaves += 1; },
     // the phone's "save as": the flows read the name of what was saved
     async saveFile(name) { document.documentElement.dataset.saved = name; return true; },
     async spaceUsed() { return 2.4 * 1024 * 1024; },
+    async pickFile() {
+      const fault = pickFault;
+      pickFault = undefined;
+      if (fault === 'unread') throw new Error('CANARY-TEST the picker could not read the file');
+      if (fault === 'huge') return { kind: 'TooLarge' };
+      return { kind: 'Cancelled' };
+    },
   };
   return {
     device,
     leave: () => { for (const cb of leaving) cb(); },
-    resume: () => { for (const cb of resuming) cb(); },
+    resume: () => { for (const cb of resuming) void cb(); },
+    back: () => {
+      const before = leaves;
+      for (const cb of backing) cb();
+      return leaves > before;
+    },
+    pickerFault: (kind: 'unread' | 'huge') => { pickFault = kind; },
+    resumeHandlers: () => [...resuming].map(cb => cb()),
     failCopy: (why: 'full' | 'other') => { failing = why; },
   };
 }
@@ -238,12 +266,15 @@ async function start(): Promise<void> {
   }
   let refusing = false;
   let refusingRemove = false;
+  let statusWait: Promise<void> | undefined;
+  let releaseStatus: (() => void) | undefined;
   const plugin: DevicePort['plugin'] = {
     ...phone.plugin,
+    status: () => (statusWait ? statusWait.then(() => phone.plugin.status()) : phone.plugin.status()),
     enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)),
     remove: (...a) => (refusingRemove ? Promise.reject(new Error('key store refused')) : phone.plugin.remove(...a)),
   };
-  const { device, leave, resume, failCopy } = harnessDevice(plugin);
+  const { device, leave, resume, back, pickerFault, resumeHandlers, failCopy } = harnessDevice(plugin);
   const { core: writable, failNext: failWrite, failNextSerial: failExport, full: fullPhone } = failableCore(core);
   // the display is read and written straight on the db, outside write()/serial(), so it gets its own flag
   let failingDisplay = false;
@@ -297,6 +328,11 @@ async function start(): Promise<void> {
       if (rows) await enrolMode(rows, PASS, phone.plugin, 'own-code', HARNESS_CODE);
     },
     recoveryCode,
+    back,
+    pickerFault,
+    holdStatus: () => { statusWait = new Promise(resolve => { releaseStatus = resolve; }); },
+    releaseStatus: () => { const go = releaseStatus; statusWait = undefined; releaseStatus = undefined; go?.(); },
+    resumeHandlers,
   };
   const initial: Nav | undefined = (SCREENS as readonly string[]).includes(state.screen) ? { screen: state.screen as ScreenId, variant: state.variant } : undefined;
   const root = document.getElementById('root');

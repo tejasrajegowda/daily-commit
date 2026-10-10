@@ -150,7 +150,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
       setByCode(false);
       void machine.leave();
     });
-    const stopResume = device.onResume(() => void machine.resume());
+    const stopResume = device.onResume(() => machine.resume());
     return () => { stopLeave(); stopResume(); };
   }, [device, machine, lock, saves]);
 

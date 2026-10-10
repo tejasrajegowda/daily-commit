@@ -19,6 +19,11 @@ export const APP_VERSION = '0.1.0';
 
 export type Composed = { readonly kind: 'Ready'; readonly deps: AppDeps } | { readonly kind: 'AppTooOld' };
 
+/** The first paint. A start that failed is the same black screen as an app that is too old. */
+export function openingView(made: Composed | undefined): 'ready' | 'black' {
+  return made?.kind === 'Ready' ? 'ready' : 'black';
+}
+
 /**
  * The pieces around a record and a device. On the phone the snapshot's 3-second cap runs on the
  * Shell's uptime clock, which Android can't hold back; in a browser, on a JavaScript timer.

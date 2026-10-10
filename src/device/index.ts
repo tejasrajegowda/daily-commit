@@ -9,8 +9,10 @@ export function platformOf(g: { readonly Capacitor?: { getPlatform?(): string } 
   return g.Capacitor?.getPlatform?.() === 'android' ? 'android' : 'web';
 }
 
-export async function devicePort(): Promise<DevicePort> {
-  if (platformOf(globalThis as { Capacitor?: { getPlatform?(): string } }) !== 'android') return browserPort();
-  const { androidPort } = await import('./android.ts');
-  return androidPort();
+export async function devicePort(
+  g: { readonly Capacitor?: { getPlatform?(): string } } = globalThis as { Capacitor?: { getPlatform?(): string } },
+  loadAndroid: () => Promise<DevicePort> = () => import('./android.ts').then(m => m.androidPort()),
+): Promise<DevicePort> {
+  if (platformOf(g) !== 'android') return browserPort();
+  return loadAndroid();
 }
