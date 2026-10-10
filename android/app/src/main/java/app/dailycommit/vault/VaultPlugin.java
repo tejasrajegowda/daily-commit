@@ -6,10 +6,13 @@ import android.hardware.biometrics.BiometricPrompt;
 import android.os.CancellationSignal;
 import android.os.SystemClock;
 import app.dailycommit.shell.HandOff;
+import app.dailycommit.shell.ShellPlugin;
+import com.getcapacitor.Bridge;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
+import com.getcapacitor.PluginHandle;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
@@ -24,8 +27,9 @@ import org.json.JSONObject;
 
 /**
  * The vault's five calls (src/vault/plugin.ts). The work runs on one thread, in order; the phone's
- * own prompt runs on the main thread and is marked as a hand-off the app started itself, so it
- * doesn't count as leaving. Nothing here logs.
+ * own prompt runs on the main thread and is marked as a hand-off the app started itself.
+ * Ending that mark goes through the shell, which locks if the activity is no longer started.
+ * Nothing here logs.
  */
 @CapacitorPlugin(name = "Vault")
 public class VaultPlugin extends Plugin {
@@ -169,8 +173,19 @@ public class VaultPlugin extends Plugin {
 
     private void finished(Consumer<Boolean> done, boolean allowed) {
         prompting = false;
-        HandOff.end();
+        endHandOff();
         done.accept(allowed);
+    }
+
+    /** The shell is the one place a hand-off ends. If it is not loaded, the mark still ends. */
+    private void endHandOff() {
+        Bridge bridge = getBridge();
+        PluginHandle handle = bridge == null ? null : bridge.getPlugin("Shell");
+        if (handle != null && handle.getInstance() instanceof ShellPlugin shell) {
+            shell.endHandOff();
+            return;
+        }
+        HandOff.end();
     }
 
     private void run(PluginCall call, Body body) {

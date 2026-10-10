@@ -118,4 +118,44 @@ public class LockWatchTest {
         watch.drawn();
         assertEquals(List.of(COVER, SEND_LEAVE), on(Event.PAUSE, NONE, NOW + 10));
     }
+
+    // a hand-off that ends after pause and stop have already been delivered (RF1)
+    @Test public void aHandOffThatEndsWhileTheActivityIsStoppedLeaves_andTheCoverStaysUntilDrawn() {
+        assertEquals(List.of(COVER), on(Event.PAUSE, FRESH, NOW));
+        assertEquals(List.of(), on(Event.STOP, FRESH, NOW + 10));
+        assertEquals(List.of(END_HAND_OFF, SEND_LEAVE), watch.handOffEnded(false));
+        assertEquals(List.of(), watch.drawn());                 // still left: the cover stays
+        assertEquals(List.of(SEND_RESUME), on(Event.RESUME, NONE, NOW + 30));
+        assertEquals(List.of(UNCOVER), watch.drawn());
+        assertEquals(List.of(), watch.drawn());
+    }
+
+    @Test public void aTimerArmedAtPauseStillLeavesAfterFiveMinutes_whenTheMarkWasClearedWithoutALeave() {
+        assertEquals(List.of(COVER), on(Event.PAUSE, FRESH, NOW));
+        assertEquals(List.of(), on(Event.STOP, FRESH, NOW + 10));
+        assertEquals(List.of(SEND_LEAVE), on(Event.HAND_OFF_TIMER, NONE, FRESH + HAND_OFF_LIMIT_MS));
+    }
+
+    @Test public void aHandOffThatEndsWhileOnlyPausedStays_andComingBackDoesNotLeave() {
+        assertEquals(List.of(COVER), on(Event.PAUSE, FRESH, NOW));
+        assertEquals(List.of(END_HAND_OFF), watch.handOffEnded(true));
+        assertEquals(List.of(UNCOVER), on(Event.RESUME, NONE, NOW + 20));
+        assertEquals(List.of(), watch.drawn());
+    }
+
+    // save-as and the file picker: the activity was stopped, then started again before the screen closed
+    @Test public void aSaveOrPickThatEndsOnceTheActivityIsStartedAgainDoesNotLeave() {
+        assertEquals(List.of(COVER), on(Event.PAUSE, FRESH, NOW));
+        assertEquals(List.of(), on(Event.STOP, FRESH, NOW + 10));
+        assertEquals(List.of(END_HAND_OFF), watch.handOffEnded(true));
+        assertEquals(List.of(UNCOVER), on(Event.RESUME, NONE, NOW + 20));
+        assertEquals(List.of(), watch.drawn());
+    }
+
+    @Test public void aHandOffPastTheLimitStillLocksOnReturn_whenTheMarkWasClearedAndTheTimerNeverRan() {
+        assertEquals(List.of(COVER), on(Event.PAUSE, FRESH, NOW));
+        assertEquals(List.of(), on(Event.STOP, FRESH, NOW + 10));
+        assertEquals(List.of(END_HAND_OFF), watch.handOffEnded(true));
+        assertEquals(List.of(SEND_LEAVE, SEND_RESUME), on(Event.RESUME, NONE, FRESH + HAND_OFF_LIMIT_MS + 5));
+    }
 }

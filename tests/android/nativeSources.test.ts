@@ -54,6 +54,26 @@ test('the only log line in the app is the timing line, behind isLoggable, number
   assert.match(src, /Log\.v\(TAG, label \+ " " \+ ms \+ " ms"\)/);
 });
 
+test('every hand-off ends in one place, which locks when the activity has stopped', () => {
+  const shell = read('shell/ShellPlugin.java');
+  const vault = read('vault/VaultPlugin.java');
+  assert.match(shell, /public void endHandOff\(\)/);
+  assert.match(shell, /watch\.handOffEnded\(started\)/);
+  assert.equal([...shell.matchAll(/HandOff\.end\(\)/g)].length, 1);
+  const body = (src: string, signature: string) => {
+    const at = src.indexOf(signature);
+    assert.ok(at > 0, signature);
+    const next = src.indexOf('\n    @', at + signature.length);
+    return src.slice(at, next < 0 ? src.length : next);
+  };
+  for (const signature of ['private void saved(', 'private void picked(', 'private void notificationsAnswered(']) {
+    assert.match(body(shell, signature), /endHandOff\(\)/, signature);
+  }
+  const finished = vault.slice(vault.indexOf('private void finished('), vault.indexOf('private void endHandOff('));
+  assert.match(finished, /endHandOff\(\)/);
+  assert.doesNotMatch(finished, /HandOff\.end\(\)/);
+});
+
 test('every system screen the Shell opens is marked as a hand-off first', () => {
   const src = read('shell/ShellPlugin.java');
   for (const opener of ['startActivityForResult(', 'requestPermissionForAlias(']) {

@@ -38,11 +38,19 @@ public final class LockWatch {
     private boolean left;
     private boolean covered;
     private boolean waitingForDrawn;
+    /** Start time captured when a hand-off made pause or stop stay. Kept after the mark is cleared, until the app comes back. */
+    private long armedAt = HandOff.NONE;
 
     /** What to do for one event, in order. */
     public synchronized List<Out> on(Event event, long handOffSince, long now, boolean interactive, boolean keyguardLocked) {
+        // A timer or a return whose mark was already cleared still uses the time it was armed with.
+        long since = handOffSince;
+        if (handOffSince == HandOff.NONE && armedAt != HandOff.NONE
+                && (event == Event.HAND_OFF_TIMER || event == Event.RESUME)) {
+            since = armedAt;
+        }
         List<Out> out = new ArrayList<>();
-        Decision decision = decideLeave(event, handOffSince, now, interactive, keyguardLocked);
+        Decision decision = decideLeave(event, since, now, interactive, keyguardLocked);
         switch (event) {
             case RESUME:
                 if (decision == Decision.LEAVE_THEN_RESUME) leave(out);   // a hand-off left open past the limit counts as leaving
@@ -55,15 +63,30 @@ public final class LockWatch {
                     covered = false;                                      // a hand-off came back in time: nothing changed
                     out.add(Out.UNCOVER);
                 }
+                armedAt = HandOff.NONE;
                 return out;
             case HAND_OFF_TIMER:
                 if (decision == Decision.LEAVE) leave(out);
                 return out;
             default:                                                      // SCREEN_OFF, PAUSE, STOP
                 cover(out);
+                if (decision == Decision.STAY) armedAt = handOffSince;
                 if (decision == Decision.LEAVE) leave(out);
                 return out;
         }
+    }
+
+    /**
+     * The system screen our own code opened has closed. Ends the mark. If the activity is no
+     * longer started, that is a stop with no hand-off, so the app leaves and the cover stays
+     * until it has drawn. A dialog still on screen is only paused: the activity is still
+     * started, and this does not leave.
+     */
+    public synchronized List<Out> handOffEnded(boolean started) {
+        List<Out> out = new ArrayList<>();
+        out.add(Out.END_HAND_OFF);
+        if (!started && decideLeave(Event.STOP, HandOff.NONE, 0L, true, false) == Decision.LEAVE) leave(out);
+        return out;
     }
 
     /** The app has drawn the blank or lock screen after coming back. */

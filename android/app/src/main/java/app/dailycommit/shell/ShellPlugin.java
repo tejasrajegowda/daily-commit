@@ -19,6 +19,8 @@ import android.provider.DocumentsContract;
 import android.util.Log;
 import android.view.View;
 import androidx.activity.result.ActivityResult;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleOwner;
 import app.dailycommit.R;
 import app.dailycommit.vault.Codec;
 import com.getcapacitor.JSArray;
@@ -61,7 +63,9 @@ public class ShellPlugin extends Plugin {
     private final LockWatch watch = new LockWatch();
     private final Handler main = new Handler(Looper.getMainLooper());
     private final ExecutorService io = Executors.newSingleThreadExecutor();
-    private final Runnable handOffTimer = () -> apply(watch.on(LockWatch.Event.HAND_OFF_TIMER, HandOff.since(), SystemClock.elapsedRealtime(), interactive(), keyguardLocked()));
+    /** The start time this timer was armed with. Clearing the mark must not turn the pending leave into nothing. */
+    private long timerSince = HandOff.NONE;
+    private final Runnable handOffTimer = () -> apply(watch.on(LockWatch.Event.HAND_OFF_TIMER, timerSince, SystemClock.elapsedRealtime(), interactive(), keyguardLocked()));
     private ShellFiles files;
     private byte[] pendingSave;                          // the export, while "save as" is open; memory only
 
@@ -80,18 +84,35 @@ public class ShellPlugin extends Plugin {
     @Override protected void handleOnDestroy() { getContext().unregisterReceiver(screenOff); }
     @Override protected void handleOnPause() { event(LockWatch.Event.PAUSE); }
     @Override protected void handleOnStop() { event(LockWatch.Event.STOP); }
-    @Override protected void handleOnResume() { main.removeCallbacks(handOffTimer); event(LockWatch.Event.RESUME); }
+    @Override protected void handleOnResume() {
+        main.removeCallbacks(handOffTimer);
+        timerSince = HandOff.NONE;
+        event(LockWatch.Event.RESUME);
+    }
 
     /** Nothing of a pending call goes into Android's saved state: an export's whole file would. */
     @Override protected Bundle saveInstanceState() { return null; }
 
     private void event(LockWatch.Event event) {
+        long now = SystemClock.elapsedRealtime();
         long since = HandOff.since();
-        apply(watch.on(event, since, SystemClock.elapsedRealtime(), interactive(), keyguardLocked()));
+        apply(watch.on(event, since, now, interactive(), keyguardLocked()));
         if (event != LockWatch.Event.RESUME && HandOff.since() != HandOff.NONE) {
+            timerSince = HandOff.since();
             main.removeCallbacks(handOffTimer);
-            main.postDelayed(handOffTimer, Math.max(0, HandOff.since() + LockWatch.HAND_OFF_LIMIT_MS - SystemClock.elapsedRealtime()));
+            main.postDelayed(handOffTimer, Math.max(0, timerSince + LockWatch.HAND_OFF_LIMIT_MS - now));
         }
+    }
+
+    /**
+     * The one place a hand-off ends: the fingerprint prompt, the notification question,
+     * save-as and the file picker. If the activity is no longer started, LockWatch leaves.
+     */
+    public void endHandOff() {
+        Activity activity = getActivity();
+        boolean started = activity instanceof LifecycleOwner owner
+            && owner.getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.STARTED);
+        apply(watch.handOffEnded(started));
     }
 
     /** Runs LockWatch's outputs, in order, on the main thread. */
@@ -146,6 +167,7 @@ public class ShellPlugin extends Plugin {
 
     @ActivityCallback
     private void saved(PluginCall call, ActivityResult result) {
+        endHandOff();
         byte[] bytes = pendingSave;
         pendingSave = null;
         Uri uri = result.getResultCode() == Activity.RESULT_OK && result.getData() != null ? result.getData().getData() : null;
@@ -178,6 +200,7 @@ public class ShellPlugin extends Plugin {
 
     @ActivityCallback
     private void picked(PluginCall call, ActivityResult result) {
+        endHandOff();
         if (call == null || PluginCall.CALLBACK_ID_DANGLING.equals(call.getCallbackId())) return;   // R-3: dropped
         Uri uri = result.getResultCode() == Activity.RESULT_OK && result.getData() != null ? result.getData().getData() : null;
         if (uri == null) { call.resolve(kind("Cancelled")); return; }
@@ -207,7 +230,7 @@ public class ShellPlugin extends Plugin {
 
     @PermissionCallback
     private void notificationsAnswered(PluginCall call) {
-        HandOff.end();
+        endHandOff();
         call.resolve(allowed(getPermissionState("notifications") == PermissionState.GRANTED));
     }
 
