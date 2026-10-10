@@ -7,7 +7,7 @@
 // node scripts/android/smoke.ts → one PASS/FAIL line per check, exit 1 on any FAIL; a copy in .local/android/.
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -76,6 +76,27 @@ export function pageLoaded(uiDump: string, expected: string): boolean {
   return uiDump.includes(`text="${xmlEscape(expected)}"`);
 }
 
+/** This try wrote a new dump when uiautomator succeeded, named the file, and the read succeeded. */
+export function dumpWroteFile(dumpStatus: number, dumpOutput: string, catStatus: number): boolean {
+  return dumpStatus === 0 && catStatus === 0 && dumpOutput.toLowerCase().includes(`dumped to: ${UI_DUMP}`);
+}
+
+/** The first non-empty line from `adb emu avd name` is one of our test phones when it starts with dc-. */
+export function isDcTestPhone(avdNameOutput: string): boolean {
+  const name = avdNameOutput.split(/\r?\n/).map(line => line.trim()).find(line => line !== '') ?? '';
+  return name.startsWith('dc-');
+}
+
+/** A leftover password file is exactly pass-*.tmp. Names outside that pattern are left alone. */
+export function isLeftoverPassFile(name: string): boolean {
+  return /^pass-[^/\\]*\.tmp$/.test(name);
+}
+
+/** Smoke takes no arguments yet. Any argument is a usage error. */
+export function smokeArgsOk(args: readonly string[]): boolean {
+  return args.length === 0;
+}
+
 function stamp(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
@@ -116,8 +137,17 @@ function emulatorKey(keytool: string, env: Record<string, string>): string | und
   return password;
 }
 
+/** pass-*.tmp left in .local/android/ by a hard stop. Only that pattern, only that folder. */
+function removeLeftoverPassFiles(): void {
+  if (!existsSync(DIR)) return;
+  for (const entry of readdirSync(DIR, { withFileTypes: true })) {
+    if (entry.isFile() && isLeftoverPassFile(entry.name)) unlinkSync(join(DIR, entry.name));
+  }
+}
+
 async function main(): Promise<number> {
   mkdirSync(DIR, { recursive: true });
+  removeLeftoverPassFiles();
   const lines: string[] = [];
   const say = (line: string) => { console.log(line); lines.push(line); };
   let failed = 0;
@@ -150,6 +180,13 @@ async function main(): Promise<number> {
     const booted = await startEmulator();
     check('emulator booted', booted);
     if (!booted) return;
+    // A reinstall keeps the old reminder channel, so remove the app first, and only on a dc- phone.
+    const named = adb(['-s', SERIAL, 'emu', 'avd', 'name']);
+    const phone = named.status === 0 && isDcTestPhone(named.out);
+    const shown = named.out.split(/\r?\n/).map(line => line.trim()).find(line => line !== '') ?? 'no name';
+    check('dc- test phone', phone, phone ? '' : shown);
+    if (!phone) return;
+    adb(['-s', SERIAL, 'uninstall', APP_ID]);   // not installed yet is a normal result
     check('installed', adb(['-s', SERIAL, 'install', '-r', SIGNED], 300_000).status === 0);
 
     // 4: open it
@@ -160,9 +197,12 @@ async function main(): Promise<number> {
     const opened = Date.now();
     let loaded = false;
     while (!loaded && Date.now() - opened < TITLE_WAIT_MS) {
-      adb(['-s', SERIAL, 'shell', 'uiautomator', 'dump', UI_DUMP]);
-      loaded = pageLoaded(adb(['-s', SERIAL, 'shell', 'cat', UI_DUMP]).out, FIRST_SCREEN_TITLE);
-      adb(['-s', SERIAL, 'shell', 'rm', UI_DUMP]);
+      // Drop a dump left by a killed run before reading. A failed dump must not count as this page.
+      adb(['-s', SERIAL, 'shell', 'rm', '-f', UI_DUMP]);
+      const dump = adb(['-s', SERIAL, 'shell', 'uiautomator', 'dump', UI_DUMP]);
+      const read = adb(['-s', SERIAL, 'shell', 'cat', UI_DUMP]);
+      loaded = dumpWroteFile(dump.status, dump.out, read.status) && pageLoaded(read.out, FIRST_SCREEN_TITLE);
+      adb(['-s', SERIAL, 'shell', 'rm', '-f', UI_DUMP]);
       if (!loaded) await sleep(3_000);
     }
     const took = `${((Date.now() - opened) / 1000).toFixed(0)} s`;
@@ -184,7 +224,7 @@ async function main(): Promise<number> {
   try {
     await onPhone();
   } finally {
-    await stopEmulator();
+    check('emulator stopped', await stopEmulator());
     const after = readHeavy();
     say(`after: ${after.emulators} emulator(s), ${after.gradleBuilds} Gradle build(s) running; ${(after.freeBytes / GB).toFixed(1)} GB free`);
   }
@@ -200,5 +240,11 @@ function finish(lines: readonly string[], code: number): number {
 }
 
 if (import.meta.main) {
-  process.exitCode = await main();
+  const args = process.argv.slice(2);
+  if (!smokeArgsOk(args)) {
+    console.log('usage: node scripts/android/smoke.ts');
+    process.exitCode = 2;
+  } else {
+    process.exitCode = await main();
+  }
 }
