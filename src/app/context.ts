@@ -52,6 +52,23 @@ export interface DeviceInfo {
   readonly screenLock: boolean;
 }
 
+/** One notification handed to the phone: when (an instant), its words, and a fixed id for its date and minute. */
+export interface Alarm {
+  readonly id: number;
+  readonly atMs: number;
+  readonly body: string;
+}
+
+/** The phone's reminders. */
+export interface ReminderPort {
+  /** whether Android lets the app show notifications now */
+  allowed(): Promise<boolean>;
+  /** Android's own question, once, as a marked hand-off; true if allowed */
+  ask(): Promise<boolean>;
+  /** cancels everything handed over before, then schedules these; 'not-allowed' when Android doesn't allow notifications */
+  replace(alarms: readonly Alarm[]): Promise<'scheduled' | 'not-allowed'>;
+}
+
 /** The phone, or the browser standing in for it. */
 export interface DevicePort {
   readonly plugin: VaultPlugin;
@@ -80,6 +97,8 @@ export interface DevicePort {
   onBack?(cb: () => void): () => void;
   /** leaves the app as Home does, so it locks */
   leaveApp?(): void;
+  /** reminders handed to the phone; absent in a browser */
+  readonly reminders?: ReminderPort;
 }
 
 /** What Back closes first: an open sheet, or the restore flow. */
@@ -102,7 +121,9 @@ export interface AppDeps {
 }
 
 export type ScreenId = 'today' | 'look' | 'habit' | 'week' | 'month' | 'diary' | 'notyet' | 'plan' | 'settings' | 'support'
-  | 'restore' | 'secret';
+  | 'restore' | 'secret' | 'reminders';
+
+export { startReminders, readNotifAsked, writeNotifAsked } from './reminders.ts';
 
 export interface Nav {
   readonly screen: ScreenId;

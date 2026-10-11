@@ -43,6 +43,11 @@ export const STATES = [
   ['handoff', 's=today&ho=export'],
   ['handoffpaused', 's=today&v=paused&ho=export'],
   ['handofffirst', 's=first&ho=restore'],
+  ['reminders-ask', 's=reminders&v=ask'],
+  ['reminders-samsung', 's=reminders&v=samsung&mk=samsung'],
+  ['reminders-lock', 's=reminders&v=lockscreen'],
+  ['reminders-off', 's=settings&v=day&na=0&asked=1'],
+  ['cuesnote', 's=settings&ci=1'],
 ];
 
 /** The two sizes every screen is checked at: a small phone and a laptop. */

@@ -18,6 +18,7 @@ export interface BackPlace {
 const PARENT: Partial<Record<ScreenId, { readonly screen: ScreenId; readonly variant: string }>> = {
   secret: { screen: 'settings', variant: 'privacy' },
   support: { screen: 'settings', variant: '' },
+  reminders: { screen: 'settings', variant: 'day' },
 };
 
 export function backStep(p: BackPlace): BackStep {

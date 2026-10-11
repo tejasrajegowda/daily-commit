@@ -1674,6 +1674,114 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
 
 await runTask5aReview(h, check, errors, PHONE, PASSPHRASE);
 
+// Reminders on this phone: the row, the setup, pause, and a private reminder's empty body.
+{
+  const p = await h.page(PHONE, errors);
+  const until = (fn, arg) => p.waitForFunction(fn, arg, { timeout: 8000 }).then(() => true, () => false);
+  const stepIs = text => until(t => [...document.querySelectorAll('.eb')].some(e => e.textContent?.includes(t)), text);
+  const addReminder = async (time) => {
+    await p.tap('.slot[data-x="h-wake"]');
+    await shows(p, '.sheet [data-a="editor"]');
+    await p.fill('.sheet input[type="time"][aria-label="Reminder time"]', time);
+    await p.tap('.sheet [data-a="cue-add"]');
+  };
+
+  await h.open(p, 's=settings&ci=1&t=13:00');
+  const note = 'A reminder kept private shows only "Daily Commit", even on a locked phone.';
+  check('Reminders: Day and time shows the row and the corrected note', await until(t =>
+    document.body.textContent?.includes('Reminders on this phone') === true && document.body.textContent?.includes(t) === true, note)
+    && !(await p.locator('.settings').innerText()).includes('On a locked phone a notification shows only'));
+
+  await h.open(p, 's=plan&t=13:00');
+  await shows(p, '.slots');
+  await p.evaluate(() => window.harness.notifAllowed(false));
+  await addReminder('15:00');
+  check('Reminders: saving one while notifications are off opens the setup at step 1', await stepIs('Step 1 of 2')
+    && await shows(p, '[data-a="setup-continue"]'));
+  await p.tap('[data-a="setup-notnow"]');
+  check('Reminders: Not now returns to Day and time', await shows(p, '.settings')
+    && (await p.locator('.settings').innerText()).includes('Reminders on this phone'));
+  await p.tap('[data-a="done"]');
+  await shows(p, '.slots');
+  await addReminder('16:00');
+  await until(() => document.querySelector('.sheet [data-a="cue"] .sub')?.textContent?.includes('Wake up'));
+  check('Reminders: a later reminder does not open the setup again', (await p.locator('[data-a="setup-continue"]').count()) === 0);
+
+  await h.open(p, 's=plan&t=13:00&mk=samsung');
+  await shows(p, '.slots');
+  await p.evaluate(() => { window.harness.notifAllowed(false); window.harness.notifAnswer(true); });
+  await addReminder('15:00');
+  check('Reminders: a Samsung phone numbers the first step 1 of 3', await stepIs('Step 1 of 3'));
+  await p.tap('[data-a="setup-continue"]');
+  check('Reminders: Continue, and Android says yes, shows the battery step', await stepIs('Step 2 of 3')
+    && (await p.locator('h1').innerText()) === 'Keep reminders arriving' && (await p.locator('.how li').count()) === 4);
+  await p.tap('[data-a="setup-next"]');
+  check('Reminders: Next is what a locked phone shows, step 3 of 3', await stepIs('Step 3 of 3')
+    && (await p.locator('h1').innerText()) === 'What a locked phone shows');
+  await p.tap('[data-a="setup-done"]');
+  check('Reminders: Done returns to Day and time, and the reminder was handed over', await shows(p, '.settings')
+    && await until(() => window.harness.scheduled().length > 0));
+
+  await h.open(p, 's=plan&t=13:00');
+  await shows(p, '.slots');
+  await p.evaluate(() => { window.harness.notifAllowed(false); window.harness.notifAnswer(true); });
+  await addReminder('15:00');
+  await stepIs('Step 1 of 2');
+  await p.tap('[data-a="setup-continue"]');
+  check('Reminders: a phone that is not a Samsung goes to step 2 of 2', await stepIs('Step 2 of 2')
+    && (await p.locator('h1').innerText()) === 'What a locked phone shows' && (await p.locator('.how li').count()) === 3);
+
+  await h.open(p, 's=plan&t=13:00');
+  await shows(p, '.slots');
+  await p.evaluate(() => { window.harness.notifAllowed(false); window.harness.notifAnswer(false); });
+  await addReminder('15:00');
+  await shows(p, '[data-a="setup-continue"]');
+  await p.tap('[data-a="setup-continue"]');
+  check('Reminders: Android saying no shows that notifications are off', await until(() =>
+    document.querySelector('h1')?.textContent === 'Notifications are off'));
+  await p.tap('[data-a="setup-done"]');
+  check('Reminders: Day and time then shows the off line and no setup row', await shows(p, '.settings') && await until(() =>
+    document.body.textContent?.includes('Notifications are off for Daily Commit') === true && document.querySelector('[data-a="setup"]') === null));
+  await p.tap('[data-a="done"]');
+  await shows(p, '.slots');
+  await addReminder('16:00');
+  await until(() => document.querySelector('.sheet [data-a="cue"]'));
+  check('Reminders: after a no, saving another reminder does not ask again', (await p.locator('[data-a="setup-continue"]').count()) === 0);
+
+  await h.open(p, 's=plan&t=13:00');
+  await shows(p, '.slots');
+  await addReminder('15:00');
+  check('Reminders: an allowed reminder is handed over', await until(() => window.harness.scheduled().length > 0));
+  await p.tap('.sheet [data-a="plan-x"]');
+  await p.tap('#view [data-a="nav"][data-x="settings"]');
+  await shows(p, '[data-a="pause"]');
+  await p.tap('[data-a="pause"]');
+  check('Reminders: Pause hands over nothing', await until(() => window.harness.scheduled().length === 0));
+
+  await h.open(p, 's=plan&t=13:00');
+  await shows(p, '.slots');
+  await addReminder('15:00');
+  await until(() => window.harness.scheduled().some(a => a.body === 'Wake up'));
+  await p.tap('.sheet [data-a="keep"]');
+  check('Reminders: a private reminder is handed over with no words and no canary', await until(() => {
+    const s = window.harness.scheduled();
+    return s.length > 0 && s.every(a => a.body === '') && !JSON.stringify(s).includes('CANARY');
+  }));
+
+  for (const [hash, title] of [
+    ['s=reminders&v=ask', 'Let Daily Commit send reminders'],
+    ['s=reminders&v=samsung&mk=samsung', 'Keep reminders arriving'],
+    ['s=reminders&v=lockscreen', 'What a locked phone shows'],
+    ['s=reminders&v=denied', 'Notifications are off'],
+  ]) {
+    await h.open(p, hash);
+    await shows(p, 'h1');
+    if (hash.includes('samsung')) await stepIs('Step 2 of 3');
+    const text = await p.evaluate(() => document.body.textContent ?? '');
+    check(`Reminders: ${title} has no exclamation mark or percentage`, text.includes(title) && !/[!%]/.test(text));
+  }
+}
+
 await h.close();
 console.log(`PASS ${ok.length}\n  ${ok.join('\n  ')}`);
 console.log(errors.length ? `FAIL ${errors.length}\n  ${errors.join('\n  ')}` : 'FAIL 0');

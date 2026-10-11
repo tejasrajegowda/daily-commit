@@ -43,10 +43,35 @@ export interface AppBridge {
   minimizeApp(): Promise<void>;
 }
 
+/** The notification plugin's calls this app uses (@capacitor/local-notifications 8.3.1). */
+export interface NotifyBridge {
+  getPending(): Promise<{ readonly notifications: readonly { readonly id: number }[] }>;
+  cancel(o: { notifications: { id: number }[] }): Promise<void>;
+  checkExactNotificationSetting(): Promise<{ readonly exact_alarm: string }>;
+  schedule(o: { notifications: NotificationSpec[] }): Promise<unknown>;
+}
+
+/** What one scheduled notification carries; nothing else is ever set. */
+export interface NotificationSpec {
+  readonly id: number;
+  readonly title: string;
+  readonly body: string;
+  readonly channelId: string;
+  readonly autoCancel: boolean;
+  readonly isExactNotification: boolean;
+  readonly schedule: { readonly at: Date; readonly allowWhileIdle: boolean };
+}
+
+/** The notification title, always (C1). */
+export const TITLE = 'Daily Commit';
+/** The silent, badge-free, private channel MainActivity makes before the plugin starts (Task 2a). */
+export const CHANNEL = 'default';
+
 export interface Bridges {
   readonly vault: VaultBridge;
   readonly shell: ShellBridge;
   readonly app: AppBridge;
+  readonly notify: NotifyBridge;
   /** runs `then` once a frame has been drawn; two animation frames by default */
   readonly afterPaint?: (then: () => void) => void;
   /** navigator.storage.persist() by default */
@@ -117,5 +142,26 @@ export function androidPortWith(b: Bridges): DevicePort {
     info: () => shell.info(),
     onBack: cb => stopOn(app.addListener('backButton', cb)),
     leaveApp: () => { void app.minimizeApp().catch(() => {}); },
+    reminders: {
+      allowed: async () => (await shell.notificationsAllowed()).allowed,
+      ask: async () => (await shell.askNotifications()).allowed,
+      async replace(alarms) {
+        const pending = (await b.notify.getPending()).notifications;
+        if (pending.length) await b.notify.cancel({ notifications: pending.map(n => ({ id: n.id })) });
+        if (!alarms.length) return 'scheduled';
+        // the plugin would ask Android's permission question itself if it weren't granted (8.3.0+):
+        // an unmarked hand-off. Only the Shell asks, once, in context.
+        if (!(await shell.notificationsAllowed()).allowed) return 'not-allowed';
+        // never the "Alarms & reminders" screen: an exact alarm only where Android already allows one
+        const exact = (await b.notify.checkExactNotificationSetting()).exact_alarm === 'granted';
+        await b.notify.schedule({
+          notifications: alarms.map(a => ({
+            id: a.id, title: TITLE, body: a.body, channelId: CHANNEL, autoCancel: true, isExactNotification: exact,
+            schedule: { at: new Date(a.atMs), allowWhileIdle: true },
+          })),
+        });
+        return 'scheduled';
+      },
+    },
   };
 }

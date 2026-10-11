@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { androidPortWith, type AppBridge, type Bridges, type ShellBridge, type VaultBridge } from '../../src/device/androidPort.ts';
+import { androidPortWith, type AppBridge, type Bridges, type NotificationSpec, type NotifyBridge, type ShellBridge, type VaultBridge } from '../../src/device/androidPort.ts';
 import { isQuotaFull } from '../../src/record/core.ts';
 
 const tick = () => new Promise<void>(done => setImmediate(done));
 
 /** Plugins that record every call and answer as Tasks 3b and 4b's do. Invented data only. */
-function fakeBridges() {
+function fakeBridges(o: { readonly allowed?: boolean; readonly exact?: string } = {}) {
   const calls: string[] = [];
   const listeners = new Map<string, () => void>();
   const files = new Map<string, string>();
@@ -40,7 +40,7 @@ function fakeBridges() {
     removeFile: async o => { files.delete(o.path); },
     saveFile: async o => { calls.push(`saveFile ${o.name} ${o.data}`); return { saved: true }; },
     pickFile: async () => ({ kind: 'Picked', data: 'AQID' }),
-    notificationsAllowed: async () => ({ allowed: true }),
+    notificationsAllowed: async () => ({ allowed: o.allowed ?? true }),
     askNotifications: async () => ({ allowed: true }),
     sleep: async o => { calls.push(`sleep ${o.ms}`); },
     timing: async o => { calls.push(`timing ${o.label} ${o.ms}`); },
@@ -50,8 +50,16 @@ function fakeBridges() {
     addListener: (event, cb) => handle(event, cb),
     minimizeApp: async () => { calls.push('minimize'); },
   };
-  const bridges: Bridges = { vault, shell, app, afterPaint: then => { painted = then; }, persist: async () => true };
-  return { bridges, calls, listeners, files, paint: () => painted?.() };
+  const notifyCalls: string[] = [];
+  const scheduled: NotificationSpec[] = [];
+  const notify: NotifyBridge = {
+    getPending: async () => { notifyCalls.push('getPending'); return { notifications: [{ id: 1 }, { id: 2 }] }; },
+    cancel: async c => { notifyCalls.push(`cancel ${c.notifications.map(n => n.id).join()}`); },
+    checkExactNotificationSetting: async () => { notifyCalls.push('checkExact'); return { exact_alarm: o.exact ?? 'granted' }; },
+    schedule: async s => { notifyCalls.push('schedule'); scheduled.push(...s.notifications); return {}; },
+  };
+  const bridges: Bridges = { vault, shell, app, notify, afterPaint: then => { painted = then; }, persist: async () => true };
+  return { bridges, calls, listeners, files, paint: () => painted?.(), notifyCalls, scheduled };
 }
 
 test('the vault\'s calls cross the bridge as one object each; the master key stays text', async () => {
@@ -180,4 +188,35 @@ test('the phone holds device copies, and says what it is', async () => {
   assert.equal(port.deviceModes, true);
   assert.equal(await port.persist?.(), true);
   assert.deepEqual(await port.info?.(), { manufacturer: 'Google', sdk: 33, screenLock: true });
+});
+
+test('handing over cancels what was there, then schedules each alarm silent, titled Daily Commit, on the app\'s channel', async () => {
+  const f = fakeBridges();
+  const port = androidPortWith(f.bridges);
+  assert.equal(await port.reminders?.replace([{ id: 29460120, atMs: Date.parse('2026-01-05T10:00:00Z'), body: 'Walk' }]), 'scheduled');
+  assert.deepEqual(f.notifyCalls, ['getPending', 'cancel 1,2', 'checkExact', 'schedule']);
+  assert.deepEqual(f.scheduled, [{
+    id: 29460120, title: 'Daily Commit', body: 'Walk', channelId: 'default', autoCancel: true, isExactNotification: true,
+    schedule: { at: new Date('2026-01-05T10:00:00Z'), allowWhileIdle: true },
+  }]);
+});
+
+test('F-C1: notifications not allowed: nothing is scheduled, so the plugin never asks Android\'s question itself', async () => {
+  const f = fakeBridges({ allowed: false });
+  const port = androidPortWith(f.bridges);
+  assert.equal(await port.reminders?.replace([{ id: 1, atMs: 1, body: '' }]), 'not-allowed');
+  assert.ok(!f.notifyCalls.includes('schedule'));
+  assert.ok(f.notifyCalls.includes('cancel 1,2'));                         // what was handed before still goes
+});
+
+test('F-C2: exact alarms not allowed: inexact ones, and the settings screen is never asked for', async () => {
+  const f = fakeBridges({ exact: 'denied' });
+  await androidPortWith(f.bridges).reminders?.replace([{ id: 1, atMs: 1, body: 'Walk' }]);
+  assert.equal(f.scheduled[0]?.isExactNotification, false);
+});
+
+test('an empty schedule only cancels', async () => {
+  const f = fakeBridges();
+  assert.equal(await androidPortWith(f.bridges).reminders?.replace([]), 'scheduled');
+  assert.deepEqual(f.notifyCalls, ['getPending', 'cancel 1,2']);
 });

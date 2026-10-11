@@ -25,3 +25,7 @@ test('the app is Daily Commit and ships the release build in dist/', () => {
 test('the status bar is dark with light icons, and the insets reach the CSS', () => {
   assert.deepEqual(config.plugins?.SystemBars, { style: 'DARK', insetsHandling: 'css' });
 });
+
+test('reminders use the app\'s own status-bar icon (F-C3)', () => {
+  assert.deepEqual(config.plugins?.LocalNotifications, { smallIcon: 'ic_stat_daily_commit' });
+});

@@ -9,6 +9,7 @@ import { NotYet } from '../diary/NotYet.tsx';
 import { Habit } from '../look-back/Habit.tsx';
 import { Month } from '../reviews/Month.tsx';
 import { Plan } from '../plan/Plan.tsx';
+import { Reminders } from '../settings/Reminders.tsx';
 import { Secret } from '../settings/Secret.tsx';
 import { Settings } from '../settings/Settings.tsx';
 import { Support } from '../settings/Support.tsx';
@@ -17,7 +18,7 @@ import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
-import { AppContext, BackContext, HandOffContext, HeldContext, LeaveContext, NavContext, takeHandOff, type AppDeps, type DeviceMode, type HandOffNoteKind, type Nav, type ScreenId } from './context.ts';
+import { AppContext, BackContext, HandOffContext, HeldContext, LeaveContext, NavContext, startReminders, takeHandOff, type AppDeps, type DeviceMode, type HandOffNoteKind, type Nav, type ScreenId } from './context.ts';
 import { backLayers, backStep } from './back.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
 import { heldWords } from './heldWords.ts';
@@ -35,11 +36,11 @@ const HOME: Nav = { screen: 'today', variant: '' };
 const SECTION: Partial<Record<ScreenId, Section>> = {
   today: 'today', look: 'look', habit: 'look', week: 'look', month: 'look', diary: 'diary', notyet: 'diary', plan: 'plan',
   // Settings and Support are reached from Plan on a phone, so its tab stays lit there, as the design draws it
-  settings: 'plan', support: 'plan',
+  settings: 'plan', support: 'plan', reminders: 'plan',
 };
 
 /** Screens drawn without the bars. */
-const BARE: ReadonlySet<ScreenId> = new Set(['secret']);
+const BARE: ReadonlySet<ScreenId> = new Set(['secret', 'reminders']);
 
 /**
  * Restore runs as a flow of its own: it stays on screen through the lock it causes, and a leave ends it.
@@ -50,6 +51,7 @@ type Flow = { readonly kind: 'restore'; readonly preset?: FoundCopy; readonly un
 const TITLES: Record<ScreenId, string> = {
   today: 'Today', look: 'Look back', habit: 'Habit', week: 'This week', month: 'This month', diary: 'Diary', notyet: 'Not yet',
   plan: 'Plan', settings: 'Settings', support: 'Support', restore: 'Restore from a backup', secret: 'Settings',
+  reminders: 'Reminders on this phone',
 };
 
 /** A screen not built yet: its heading only. */
@@ -74,6 +76,7 @@ function recordScreen(nav: Nav): ReactNode {
     case 'support': return <Support />;
     case 'settings': return <Settings key={nav.variant} />;
     case 'secret': return <Secret key={nav.variant} />;
+    case 'reminders': return <Reminders key={nav.variant} />;
     default: return <Placeholder screen={nav.screen} />;
   }
 }
@@ -136,6 +139,8 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   useEffect(() => {
     void displayOf(deps).then(applyDisplay, () => {});   // this device's contrast and dimming, before unlock
   }, [deps]);
+
+  useEffect(() => { const r = startReminders(deps, () => setNav({ screen: 'reminders', variant: 'ask' })); return r.stop; }, [deps]);
 
   // A harness state, and a restore, can already be open on the first paint. Production starts locked.
   useEffect(() => {

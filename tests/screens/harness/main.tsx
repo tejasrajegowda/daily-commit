@@ -15,7 +15,8 @@ import { exportBackup } from '../../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../../src/record/backup/format.ts';
 import { LATEST } from '../../../src/record/backup/snapshot.ts';
 import { jsonBytes, toBase64url } from '../../../src/record/bytes.ts';
-import { writeHandOff, writePersisted } from '../../../src/record/ops/device.ts';
+import { saveCue } from '../../../src/record/ops/cues.ts';
+import { writeFlag, writeHandOff, writePersisted } from '../../../src/record/ops/device.ts';
 import { vaultRows } from '../../../src/record/ops/vault.ts';
 import { enrolMode } from '../../../src/vault/devices.ts';
 import { systemRandom } from '../../../src/vault/random.ts';
@@ -28,7 +29,7 @@ import { dateOfDay, nowOf, readState, type HarnessState } from './state.ts';
 import { closeDay } from '../../../src/record/ops/days.ts';
 
 const DB_NAME = 'daily-commit-harness';
-const SCREENS: readonly ScreenId[] = ['today', 'look', 'habit', 'week', 'month', 'diary', 'notyet', 'plan', 'settings', 'support', 'restore', 'secret'];
+const SCREENS: readonly ScreenId[] = ['today', 'look', 'habit', 'week', 'month', 'diary', 'notyet', 'plan', 'settings', 'support', 'restore', 'secret', 'reminders'];
 const PASS = { method: 'passphrase', text: HARNESS_PASSPHRASE } as const;
 
 /** What the flows can ask of the page. */
@@ -91,6 +92,12 @@ export interface HarnessControls {
   releaseStatus(): void;
   /** what each resume handler returned, so a test can wait for the lock screen */
   resumeHandlers(): readonly unknown[];
+  /** Android allows notifications from now on, or not. Allowed unless a flow says otherwise */
+  notifAllowed(on: boolean): void;
+  /** what Android's question answers the next time Continue asks it */
+  notifAnswer(yes: boolean): void;
+  /** what was handed over last: each alarm's id, instant and words */
+  scheduled(): readonly { readonly id: number; readonly atMs: number; readonly body: string }[];
 }
 
 /** A backup of a second invented record, made in its own database. */
@@ -170,7 +177,7 @@ function failableCore(core: RecordCore): { readonly core: RecordCore; failNext()
 }
 
 /** A device port around the stand-in plugin; leaving and coming back are driven by the flows. */
-function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo) {
+function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo, notifOff: boolean) {
   const leaving = new Set<() => void>();
   const resuming = new Set<() => void | Promise<void>>();
   const backing = new Set<() => void>();
@@ -178,6 +185,9 @@ function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo) {
   let failing: 'full' | 'other' | undefined;
   let leaves = 0;
   let pickFault: 'unread' | 'huge' | undefined;
+  let allowed = !notifOff;
+  let answer = true;
+  let last: { id: number; atMs: number; body: string }[] = [];
   const device: DevicePort = {
     plugin,
     deviceModes: true,
@@ -195,6 +205,16 @@ function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo) {
     async saveFile(name) { document.documentElement.dataset.saved = name; return true; },
     async spaceUsed() { return 2.4 * 1024 * 1024; },
     async info() { return info; },
+    reminders: {
+      allowed: async () => allowed,
+      ask: async () => { allowed = answer; return answer; },
+      async replace(alarms) {
+        if (!alarms.length) { last = []; return 'scheduled'; }
+        if (!allowed) return 'not-allowed';
+        last = alarms.map(a => ({ id: a.id, atMs: a.atMs, body: a.body }));
+        return 'scheduled';
+      },
+    },
     async pickFile() {
       const fault = pickFault;
       pickFault = undefined;
@@ -215,6 +235,9 @@ function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo) {
     pickerFault: (kind: 'unread' | 'huge') => { pickFault = kind; },
     resumeHandlers: () => [...resuming].map(cb => cb()),
     failCopy: (why: 'full' | 'other') => { failing = why; },
+    notifAllowed: (on: boolean) => { allowed = on; },
+    notifAnswer: (yes: boolean) => { answer = yes; },
+    scheduled: () => last.map(a => ({ ...a })),
   };
 }
 
@@ -314,7 +337,9 @@ async function start(): Promise<void> {
       return phone.plugin.verifyCode(code);
     },
   };
-  const { device, leave, resume, back, pickerFault, resumeHandlers, failCopy } = harnessDevice(plugin, { manufacturer: 'Google', sdk: 33, screenLock: !state.noLock });
+  const { device, leave, resume, back, pickerFault, resumeHandlers, failCopy, notifAllowed, notifAnswer, scheduled } = harnessDevice(
+    plugin, { manufacturer: state.maker, sdk: 33, screenLock: !state.noLock }, state.notifOff,
+  );
   const { core: writable, failNext: failWrite, failNextSerial: failExport, full: fullPhone } = failableCore(core);
   // the display is read and written straight on the db, outside write()/serial(), so it gets its own flag
   let failingDisplay = false;
@@ -335,6 +360,11 @@ async function start(): Promise<void> {
   if (mineBefore) await device.files.write(LATEST, mineBefore);
   if (state.handOff) await writeHandOff(db, state.handOff);
   if (state.kept !== undefined) await writePersisted(db, state.kept);
+  if (state.checkin && core.session) {
+    const saved = await saveCue(core, { id: 'c-evening', habitId: null, kind: 'checkin', text: 'Evening', times: { at: [1200] }, enabled: true, private: false });
+    if (saved.kind !== 'Saved') throw new Error(`harness check-in: ${saved.kind}`);
+  }
+  if (state.notifAsked) await writeFlag(db, 'notif_asked');
   window.harness = {
     leave: async () => { leave(); await deps.machine.leave(); },
     resume: async () => { resume(); await deps.machine.resume(); },
@@ -379,6 +409,9 @@ async function start(): Promise<void> {
     holdStatus: () => { statusWait = new Promise(resolve => { releaseStatus = resolve; }); },
     releaseStatus: () => { const go = releaseStatus; statusWait = undefined; releaseStatus = undefined; go?.(); },
     resumeHandlers,
+    notifAllowed,
+    notifAnswer,
+    scheduled,
   };
   const initial: Nav | undefined = (SCREENS as readonly string[]).includes(state.screen) ? { screen: state.screen as ScreenId, variant: state.variant } : undefined;
   const root = document.getElementById('root');

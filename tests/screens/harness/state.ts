@@ -22,6 +22,14 @@ export interface HarnessState {
   readonly handOff: 'export' | 'restore' | 'fingerprint' | undefined;
   /** oc=1: own-code is already enrolled when Settings or Secret mounts */
   readonly ownCode: boolean;
+  /** mk=, the phone's maker; default Google. mk=samsung shows the battery step */
+  readonly maker: string;
+  /** na=0: Android is not allowing notifications. Absent: it is */
+  readonly notifOff: boolean;
+  /** asked=1: Android's notification question was already asked */
+  readonly notifAsked: boolean;
+  /** ci=1: one evening check-in, so Day and time shows the reminder note */
+  readonly checkin: boolean;
 }
 
 /** The record's first day: a Monday. */
@@ -51,6 +59,10 @@ export function readState(hash: string, start: string = START): HarnessState {
     kept: q.get('kept') === '1' ? true : q.get('kept') === '0' ? false : undefined,
     handOff: ho === 'export' || ho === 'restore' || ho === 'fingerprint' ? ho : undefined,
     ownCode: q.get('oc') === '1',
+    maker: q.get('mk') || 'Google',
+    notifOff: q.get('na') === '0',
+    notifAsked: q.get('asked') === '1',
+    checkin: q.get('ci') === '1',
   };
 }
 

@@ -12,6 +12,7 @@ test('Back closes what is open on top first: a sheet, or the restore flow', () =
 test('then the screen\'s own way back, then Today', () => {
   assert.deepEqual(backStep({ layers: 0, recordOpen: true, nav: at('secret', 'pass') }), { kind: 'go', screen: 'settings', variant: 'privacy' });
   assert.deepEqual(backStep({ layers: 0, recordOpen: true, nav: at('support') }), { kind: 'go', screen: 'settings', variant: '' });
+  assert.deepEqual(backStep({ layers: 0, recordOpen: true, nav: at('reminders', 'ask') }), { kind: 'go', screen: 'settings', variant: 'day' });
   for (const s of ['look', 'habit', 'week', 'month', 'diary', 'notyet', 'plan', 'settings'] as const) {
     assert.deepEqual(backStep({ layers: 0, recordOpen: true, nav: at(s) }), { kind: 'go', screen: 'today', variant: '' }, s);
   }

@@ -65,7 +65,7 @@ export function sizeWords(bytes: number): string {
 export const SETTINGS_WORDS = {
   noCheckins: 'No check-ins are set. Nothing reminds you to log unless a habit has its own reminder.',
   cues: { nm: 'Reminders for habits', sub: 'set inside each habit, in Plan. This one switch turns every one of them off' },
-  cuesNote: 'Two check-ins a day at most, and each one only invites you to log. Nothing is ever repeated if you ignore it. On a locked phone a notification shows only "Daily Commit".',
+  cuesNote: 'Two check-ins a day at most, and each one only invites you to log. Nothing is ever repeated if you ignore it. A reminder kept private shows only "Daily Commit", even on a locked phone.',
   contrast: { nm: 'Contrast', sub: 'Lifts or lowers every panel and line at once. Try 70 at night and 110 in the morning.' },
   dim: { nm: 'Dim at night', sub: 'after 19:00 the whole app runs a little dimmer. Black stays exactly black' },
   auto: (when: string | undefined) => ({ nm: 'Saved automatically', sub: `a locked copy is made each time the app locks after a change. ${when ? `Last one: ${when}` : 'None made yet'}` }),
@@ -150,6 +150,42 @@ export function notVerifiedWords(path: NotVerifiedPath, modes: readonly DeviceMo
   const finger = path === 'code-change' && modes.includes('fingerprint') && !modes.includes('own-code') ? ' The fingerprint works only beside a code, so it is off too.' : '';
   return { title: w.title, text: `${w.what}${finger} ${stillOpens(modes)} ${w.again}` };
 }
+
+/** The setup for reminders on this phone (Task 0), and its line in Settings → Day and time. */
+export const REMINDER_WORDS = {
+  row: { nm: 'Reminders on this phone', sub: 'allowing them, keeping them arriving, and what a locked phone shows' },
+  off: { nm: 'Notifications are off for Daily Commit', sub: "so no check-in or reminder arrives. Android's Settings → Apps → Daily Commit → Notifications turns them on. The app won't ask again" },
+  step: (n: number, of: number) => `Step ${n} of ${of} · reminders on this phone`,
+  ask: {
+    title: 'Let Daily Commit send reminders',
+    text: "Android asks once whether Daily Commit may send notifications. They are only the check-ins and reminders you set. They arrive without a sound, the app's icon never shows a dot, and nothing is repeated if you ignore it.",
+    note: "If you say no, nothing else changes, and you can turn them on later in Android's settings.",
+    notNow: 'Not now', go: 'Continue',
+  },
+  denied: {
+    title: 'Notifications are off',
+    text: "Daily Commit won't send check-ins or reminders on this phone. Everything else works as before.",
+    note: "To turn them on later: Android's Settings → Apps → Daily Commit → Notifications. Daily Commit won't ask again.",
+    done: 'Done',
+  },
+  samsung: {
+    title: 'Keep reminders arriving',
+    text: "Samsung phones put apps to sleep to save battery, and a sleeping app's reminders can arrive late or not at all. On the never-sleeping list they arrive on time. Daily Commit doesn't run in the background; Android wakes it only at a reminder's time.",
+    steps: ["Open the phone's Settings.", 'Battery and device care → Battery.', 'Background usage limits → Never sleeping apps.', 'Tap +, choose Daily Commit, then Add.'],
+    note: "Daily Commit locks while you're in Settings, as it always does when you leave. These steps stay here in Settings → Day and time.",
+    leave: 'Leave it', next: 'Next',
+  },
+  lockscreen: {
+    title: 'What a locked phone shows',
+    text: 'Daily Commit asks Android to show only its name on a locked phone. The phone\'s own setting comes first, though, so a reminder\'s words, like "Walk", can still show there unless the phone hides notification content.',
+    steps: ["Open the phone's Settings.", 'Lock screen → Notifications.', 'Turn on Hide content.'],
+    note: "This hides every app's words on the locked phone, not only Daily Commit's. A reminder you keep private never shows its words anywhere, whatever this setting says.",
+    done: 'Done',
+  },
+} as const;
+
+/** Samsung's step only on a Samsung phone (from the maker's name). */
+export const isSamsung = (manufacturer: string | undefined): boolean => manufacturer?.trim().toLowerCase() === 'samsung';
 
 export const SUPPORT_WORDS = {
   intro: 'Always in this place. Never highlighted, never triggered by anything you log.',

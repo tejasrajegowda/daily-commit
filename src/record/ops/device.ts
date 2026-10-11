@@ -51,3 +51,14 @@ export async function readPersisted(db: RecordDb): Promise<boolean | undefined> 
 export async function writePersisted(db: RecordDb, kept: boolean): Promise<void> {
   await db.device.put({ key: 'persisted', value: kept });
 }
+
+/** Android's notification question was asked (once ever), and the setup opened by itself (once ever). */
+export type NotifFlag = 'notif_asked' | 'notif_offered';
+
+export async function readFlag(db: RecordDb, flag: NotifFlag): Promise<boolean> {
+  return (await db.device.get(flag))?.value === true;
+}
+
+export async function writeFlag(db: RecordDb, flag: NotifFlag): Promise<void> {
+  await db.device.put({ key: flag, value: true });
+}

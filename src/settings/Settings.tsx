@@ -1,10 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { displayOf, exportCopy, fingerprintOff, keptOf, lastCopyAt, modesNow, resultWords, saveDisplay, spaceUsed, useApp, useModel, useNav, type DeviceInfo, type DeviceMode, type Display, type ExportOutcome } from '../app/context.ts';
+import { displayOf, exportCopy, fingerprintOff, keptOf, lastCopyAt, modesNow, readNotifAsked, resultWords, saveDisplay, spaceUsed, useApp, useModel, useNav, type DeviceInfo, type DeviceMode, type Display, type ExportOutcome } from '../app/context.ts';
 import { setSetting } from '../record/ops/settings.ts';
 import { applyDisplay } from '../ui/display.ts';
 import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
-import { CATEGORIES, checkinLines, dayLines, notVerifiedPath, notVerifiedWords, SETTINGS_WORDS as W, sizeWords, whenWords, type Category, type Line } from './settingsWords.ts';
+import { CATEGORIES, checkinLines, dayLines, isSamsung, notVerifiedPath, notVerifiedWords, REMINDER_WORDS, SETTINGS_WORDS as W, sizeWords, whenWords, type Category, type Line } from './settingsWords.ts';
 
 // Settings: every group stacked on a phone, a category list beside one panel on a laptop. Support
 // is a screen of its own, reached from here, always in the same place.
@@ -41,16 +41,24 @@ export function Settings() {
   const [space, setSpace] = useState<number | undefined>(undefined);
   const [info, setInfo] = useState<DeviceInfo | undefined>(undefined);
   const [kept, setKept] = useState<boolean | undefined>(undefined);
+  const [notif, setNotif] = useState<'on' | 'off' | 'never'>('never');
+  const [samsung, setSamsung] = useState(false);
   const [exported, setExported] = useState<ExportOutcome | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
 
   useEffect(() => {
     let live = true;
+    const reminders = deps.device.reminders;
+    const notifNow = async (): Promise<'on' | 'off' | 'never'> => {
+      if (!reminders) return 'never';
+      if (await reminders.allowed()) return 'on';
+      return (await readNotifAsked(deps)) ? 'off' : 'never';
+    };
     void Promise.all([
       displayOf(deps), lastCopyAt(deps), spaceUsed(deps), modesNow(deps),
-      deps.device.info?.().catch(() => undefined) ?? Promise.resolve(undefined), keptOf(deps),
-    ]).then(([d, at, used, m, inf, k]) => {
+      deps.device.info?.().catch(() => undefined) ?? Promise.resolve(undefined), keptOf(deps), notifNow(),
+    ]).then(([d, at, used, m, inf, k, n]) => {
       if (!live) return;
       setModes(m);
       setDisplay(d);
@@ -58,6 +66,8 @@ export function Settings() {
       setSpace(used);
       setInfo(inf);
       setKept(k);
+      setNotif(n);
+      setSamsung(isSamsung(inf?.manufacturer));
     });
     return () => { live = false; };
   }, [deps]);
@@ -111,6 +121,9 @@ export function Settings() {
           <div className="list">
             {checkins.map(l => <Row key={l.nm} line={l} />)}
             <Row line={W.cues} a="cues" end={<Toggle on={s.cuesOn} />} onClick={() => void flip('cuesOn', !s.cuesOn)} />
+            {deps.device.reminders && (notif === 'off'
+              ? <Row line={REMINDER_WORDS.off} />
+              : <Row line={REMINDER_WORDS.row} a="setup" end={<Chev />} onClick={() => go('reminders', notif === 'on' ? (samsung ? 'samsung' : 'lockscreen') : 'ask')} />)}
           </div>
           <Note>{checkins.length ? W.cuesNote : W.noCheckins}</Note>
         </>

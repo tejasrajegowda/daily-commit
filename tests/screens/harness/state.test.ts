@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { dateOfDay, nowOf, readState, START } from './state.ts';
 
-const NONE = { noLock: false, kept: undefined, handOff: undefined, ownCode: false };
+const NONE = { noLock: false, kept: undefined, handOff: undefined, ownCode: false, maker: 'Google', notifOff: false, notifAsked: false, checkin: false };
 
 test('the URL hash gives the screen, the variant, the time and the day, with defaults', () => {
   assert.deepEqual(readState(''), { screen: 'today', variant: '', minute: 780, day: 17, canary: false, start: START, ...NONE });
@@ -33,6 +33,10 @@ test('nl, kept, ho and oc are read, and an unknown hand-off is ignored', () => {
   assert.equal(readState('#ho=fingerprint').handOff, 'fingerprint');
   assert.equal(readState('#ho=nope').handOff, undefined);
   assert.equal(readState('#oc=1').ownCode, true);
+  assert.equal(readState('#mk=samsung').maker, 'samsung');
+  assert.equal(readState('#na=0').notifOff, true);
+  assert.equal(readState('#asked=1').notifAsked, true);
+  assert.equal(readState('#ci=1').checkin, true);
 });
 
 test('a handed-in record moves day 1 to its own start', () => {

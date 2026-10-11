@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { EVENING_FROM } from '../../src/today/todayView.ts';
 import {
-  checkinLines, dayLines, MORNING_UNTIL, notVerifiedPath, notVerifiedVariant, notVerifiedWords, SETTINGS_WORDS, sizeWords, SUPPORT_WORDS, whenWords, type NotVerifiedPath,
+  checkinLines, dayLines, isSamsung, MORNING_UNTIL, notVerifiedPath, notVerifiedVariant, notVerifiedWords, REMINDER_WORDS, SETTINGS_WORDS, sizeWords, SUPPORT_WORDS, whenWords, type NotVerifiedPath,
 } from '../../src/settings/settingsWords.ts';
 import { PAUSED_WORDS } from '../../src/app/pausedWords.ts';
 import type { CueRecord, Settings } from '../../src/record/model.ts';
@@ -123,6 +123,23 @@ test("the fingerprint not confirmed: the code still opens it, and the phone's lo
   assert.equal(w.title, 'Fingerprint is still off');
   assert.equal(w.text, "The phone couldn't confirm the fingerprint, so nothing was changed. Your code and your passphrase still open Daily Commit. You can try again whenever you like.");
   assert.ok(!w.text.includes("phone's lock"));
+});
+
+test('Task 0 review: the lock-screen line promises only what Android always does', () => {
+  assert.equal(SETTINGS_WORDS.cuesNote, 'Two check-ins a day at most, and each one only invites you to log. Nothing is ever repeated if you ignore it. A reminder kept private shows only "Daily Commit", even on a locked phone.');
+  assert.ok(!SETTINGS_WORDS.cuesNote.includes('On a locked phone a notification shows only'));
+});
+
+test('the setup\'s words are Task 0\'s, and the Samsung step is only for a Samsung', () => {
+  assert.equal(REMINDER_WORDS.step(2, 3), 'Step 2 of 3 · reminders on this phone');
+  assert.equal(REMINDER_WORDS.samsung.steps.length, 4);
+  assert.equal(REMINDER_WORDS.lockscreen.steps.length, 3);
+  assert.equal(isSamsung('samsung'), true);
+  assert.equal(isSamsung(' Samsung '), true);
+  assert.equal(isSamsung('Google'), false);
+  assert.equal(isSamsung(undefined), false);
+  const all = JSON.stringify(REMINDER_WORDS);
+  assert.ok(!/[!%]/.test(all));
 });
 
 test('every note says the passphrase still opens it', () => {

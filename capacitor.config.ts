@@ -15,7 +15,10 @@ const config: CapacitorConfig = {
     allowMixedContent: false,
   },
   // A dark status bar with light icons; the insets reach the CSS as --safe-area-inset-* (src/ui/app.css).
-  plugins: { SystemBars: { style: 'DARK', insetsHandling: 'css' } },
+  plugins: {
+    SystemBars: { style: 'DARK', insetsHandling: 'css' },
+    LocalNotifications: { smallIcon: 'ic_stat_daily_commit' },
+  },
 };
 
 export default config;
