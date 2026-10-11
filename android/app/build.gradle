@@ -1,4 +1,22 @@
+import groovy.json.JsonSlurper
+
 apply plugin: 'com.android.application'
+
+// The version comes from package.json: versionName as it is, versionCode major*10000 + minor*100 +
+// patch (scripts/android/signing.ts, versionCodeOf; a test keeps them the same).
+def appVersion = new JsonSlurper().parse(rootProject.file('../package.json')).version as String
+def (vMajor, vMinor, vPatch) = appVersion.tokenize('.').collect { it as int }
+
+// The release key lives outside the repo. android/local.properties (ignored) names the
+// keystore.properties file beside it; without that line a release build is left unsigned.
+def signing = new Properties()
+def localProps = rootProject.file('local.properties')
+if (localProps.exists()) {
+    def local = new Properties()
+    localProps.withInputStream { local.load(it) }
+    def at = local.getProperty('dailycommit.signing')
+    if (at != null && new File(at).exists()) new File(at).withInputStream { signing.load(it) }
+}
 
 android {
     namespace = "app.dailycommit"
@@ -7,8 +25,8 @@ android {
         applicationId "app.dailycommit"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "0.1.0"
+        versionCode vMajor * 10000 + vMinor * 100 + vPatch
+        versionName appVersion
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -19,10 +37,21 @@ android {
     lint {
         checkReleaseBuilds = false
     }
+    signingConfigs {
+        if (!signing.isEmpty()) {
+            release {
+                storeFile file(signing.getProperty('storeFile'))
+                storePassword signing.getProperty('storePassword')
+                keyAlias signing.getProperty('keyAlias')
+                keyPassword signing.getProperty('keyPassword')
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (!signing.isEmpty()) signingConfig signingConfigs.release
         }
     }
 }

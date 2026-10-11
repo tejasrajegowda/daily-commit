@@ -20,7 +20,8 @@
     "android:test": "node scripts/android/build.ts test",
     "android:check": "node scripts/android/apk-check.ts",
     "android:emulator": "node scripts/android/emulator.ts",
-    "android:smoke": "node scripts/android/smoke.ts"
+    "android:smoke": "node scripts/android/smoke.ts",
+    "phone": "node scripts/android/phone.ts"
   },
   "engines": {
     "node": ">=24"

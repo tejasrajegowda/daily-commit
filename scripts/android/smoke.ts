@@ -1,7 +1,8 @@
-// The first start on a running Android: signs a copy of the release build with an emulator-only key,
-// installs it on the dc- test phone, opens it, and checks that the window is secure, the first screen
-// loads from the app's own origin, the reminder channel is silent, badge-free and private, the app is
-// alive and nothing is logged. The emulator is stopped afterwards, pass or fail.
+// The first start on a running Android. An unsigned release build is signed with an emulator-only
+// key and installed; a release build already signed with the app's key is installed as it is.
+// Then the window is secure, the first screen loads from the app's own origin, the reminder channel
+// is silent, badge-free and private, the app is alive and nothing is logged. The emulator is stopped
+// afterwards, pass or fail.
 // The emulator-only key lives in .local/android/ (ignored) and is never used for the phone.
 // Nothing from the screen is printed except whether the title matched.
 // node scripts/android/smoke.ts → one PASS/FAIL line per check, exit 1 on any FAIL; a copy in .local/android/.
@@ -11,10 +12,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { freemem } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { APP_ID, UNSIGNED_APK } from './apk-check.ts';
+import { APP_ID, newestReleaseApk, SIGNED_APK, UNSIGNED_APK } from './apk-check.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 import { adb, SERIAL, startEmulator, stopEmulator } from './emulator.ts';
 import { GB, readHeavy } from './memory.ts';
+import { installOnPhone, phoneExec } from './phone.ts';
+import { RELEASE_CERT_SHA256, SECOND_COPY } from './signing.ts';
 
 const DIR = join('.local', 'android');
 const KEYSTORE = join(DIR, 'emulator-only.jks');
@@ -159,20 +162,26 @@ async function main(): Promise<number> {
   const tc = toolchain(process.env);
   const env = childEnv(tc, process.env);
   const paths = toolPaths(tc);
-  if (!existsSync(UNSIGNED_APK)) {
+  const releaseApk = newestReleaseApk();
+  if (releaseApk === undefined) {
     say('no release APK; run npm run android:build first');
     return 1;
   }
+  // The phone gets this same APK once it is signed with the release key. Until then the newest
+  // file is the unsigned build, and the emulator-only key is used for it, as before.
+  const releaseSigned = releaseApk === SIGNED_APK;
 
-  // 1–2: the emulator-only key, then an aligned, signed copy
-  const password = emulatorKey(paths.keytool, env);
-  check('emulator-only key', password !== undefined);
-  if (password === undefined) return finish(lines, 1);
-  const signedOk = run(paths.zipalign, ['-p', '-f', '4', UNSIGNED_APK, ALIGNED], env) === 0
-    && withPassFile(password, file => runBat(paths.apksigner, ['sign', '--ks', KEYSTORE, '--ks-pass', `file:${file}`, '--out', SIGNED, ALIGNED], env)) === 0
-    && runBat(paths.apksigner, ['verify', SIGNED], env) === 0;
-  check('signed with the emulator-only key and verified', signedOk);
-  if (!signedOk) return finish(lines, 1);
+  if (!releaseSigned) {
+    // 1–2: the emulator-only key, then an aligned, signed copy
+    const password = emulatorKey(paths.keytool, env);
+    check('emulator-only key', password !== undefined);
+    if (password === undefined) return finish(lines, 1);
+    const signedOk = run(paths.zipalign, ['-p', '-f', '4', UNSIGNED_APK, ALIGNED], env) === 0
+      && withPassFile(password, file => runBat(paths.apksigner, ['sign', '--ks', KEYSTORE, '--ks-pass', `file:${file}`, '--out', SIGNED, ALIGNED], env)) === 0
+      && runBat(paths.apksigner, ['verify', SIGNED], env) === 0;
+    check('signed with the emulator-only key and verified', signedOk);
+    if (!signedOk) return finish(lines, 1);
+  }
 
   say(`free memory before the emulator: ${(freemem() / GB).toFixed(1)} GB`);
   const onPhone = async () => {
@@ -180,14 +189,28 @@ async function main(): Promise<number> {
     const booted = await startEmulator();
     check('emulator booted', booted);
     if (!booted) return;
-    // A reinstall keeps the old reminder channel, so remove the app first, and only on a dc- phone.
     const named = adb(['-s', SERIAL, 'emu', 'avd', 'name']);
     const phone = named.status === 0 && isDcTestPhone(named.out);
     const shown = named.out.split(/\r?\n/).map(line => line.trim()).find(line => line !== '') ?? 'no name';
     check('dc- test phone', phone, phone ? '' : shown);
     if (!phone) return;
-    adb(['-s', SERIAL, 'uninstall', APP_ID]);   // not installed yet is a normal result
-    check('installed', adb(['-s', SERIAL, 'install', '-r', SIGNED], 300_000).status === 0);
+    if (releaseSigned) {
+      // The copy already on the test phone was signed with the emulator-only key, so the first
+      // install is refused. Remove that copy once, here only, and install the release APK again.
+      // phone.ts itself never uninstalls.
+      const version = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
+      const opts = { apk: SIGNED_APK, serial: SERIAL, version, pinnedCert: RELEASE_CERT_SHA256, secondCopy: existsSync(SECOND_COPY) };
+      let out = installOnPhone(phoneExec(), opts);
+      if (!out.ok && /different key/.test(out.why)) {
+        adb(['-s', SERIAL, 'uninstall', APP_ID]);
+        out = installOnPhone(phoneExec(), opts);
+      }
+      check('installed', out.ok, out.ok ? '' : out.why);
+    } else {
+      // A reinstall keeps the old reminder channel, so remove the app first, and only on a dc- phone.
+      adb(['-s', SERIAL, 'uninstall', APP_ID]);   // not installed yet is a normal result
+      check('installed', adb(['-s', SERIAL, 'install', '-r', SIGNED], 300_000).status === 0);
+    }
 
     // 4: open it
     check('started', adb(['-s', SERIAL, 'shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`], 120_000).status === 0);

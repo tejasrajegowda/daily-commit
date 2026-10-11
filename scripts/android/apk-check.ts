@@ -9,9 +9,26 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, relative, sep } from 'node:path';
 import { releaseProblems } from '../release-check.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
+import { RELEASE_CERT_SHA256, signersOf } from './signing.ts';
 
 export const APP_ID = 'app.dailycommit';
 export const UNSIGNED_APK = 'android/app/build/outputs/apk/release/app-release-unsigned.apk';
+export const SIGNED_APK = 'android/app/build/outputs/apk/release/app-release.apk';
+
+/** The release APK just built: the newer of the signed and the unsigned file. A stale one is never chosen. */
+export function newestReleaseApk(): string | undefined {
+  let best: { readonly path: string; readonly mtime: number } | undefined;
+  for (const path of [SIGNED_APK, UNSIGNED_APK]) {
+    try {
+      const st = statSync(path);
+      if (!st.isFile()) continue;
+      if (!best || st.mtimeMs > best.mtime) best = { path, mtime: st.mtimeMs };
+    } catch {
+      // not built
+    }
+  }
+  return best?.path;
+}
 const PUBLIC_DIR = 'android/app/src/main/assets/public';
 const TEXT = new Set(['.html', '.js', '.mjs', '.css', '.json', '.txt', '.svg', '.map']);
 
@@ -186,39 +203,61 @@ function readPublic(dir: string): Map<string, string> {
  * One resource as decoded XML, read from the APK. A release build shortens resource paths (res/xml/x.xml
  * becomes res/8K.xml), so the short path is found through the resource table by type and name.
  */
-function readResource(path: string, env: Record<string, string>, tool: string): string | undefined {
+function readResource(path: string, env: Record<string, string>, tool: string, apk: string): string | undefined {
   const m = /^res\/([a-z]+)\/([\w]+)\.xml$/.exec(path);
   if (!m) return undefined;
   try {
-    const packed = apkanalyzer(`resources value --config default --name ${m[2]} --type ${m[1]}`, env, tool).trim();
-    return /^res\/[\w./-]+$/.test(packed) ? apkanalyzer(`resources xml --file ${packed}`, env, tool) : undefined;
+    const packed = apkanalyzer(`resources value --config default --name ${m[2]} --type ${m[1]}`, env, tool, apk).trim();
+    return /^res\/[\w./-]+$/.test(packed) ? apkanalyzer(`resources xml --file ${packed}`, env, tool, apk) : undefined;
   } catch {
     return undefined;   // reported as missing
   }
 }
 
 /** One apkanalyzer command; a .bat can't be spawned without a shell, so the command is one fixed string. */
-function apkanalyzer(args: string, env: Record<string, string>, tool: string): string {
-  const r = spawnSync(`"${tool}" ${args} "${UNSIGNED_APK}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+function apkanalyzer(args: string, env: Record<string, string>, tool: string, apk: string): string {
+  const r = spawnSync(`"${tool}" ${args} "${apk}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`apkanalyzer ${args.split(' ')[0] ?? ''} failed (exit ${r.status ?? 'none'})`);
   return r.stdout;
 }
 
+/** `apksigner verify --print-certs` for the signed release APK. */
+function printCerts(env: Record<string, string>, tool: string, apk: string): string {
+  const r = spawnSync(`"${tool}" verify --print-certs "${apk}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+  if (r.status !== 0) throw new Error(`apksigner verify failed (exit ${r.status ?? 'none'})`);
+  return `${r.stdout ?? ''}`;
+}
+
 if (import.meta.main) {
-  const tc = toolchain(process.env);
-  const env = childEnv(tc, process.env);
-  const tool = toolPaths(tc).apkanalyzer;
-  const prefix = '/assets/public/';
-  const apkPublicList = apkanalyzer('files list', env, tool).split(/\r?\n/).map(l => l.trim())
-    .filter(l => l.startsWith(prefix) && !l.endsWith('/')).map(l => l.slice(prefix.length));
-  const problems = apkProblems({
-    manifest: apkanalyzer('manifest print', env, tool),
-    config: apkanalyzer('files cat --file /assets/capacitor.config.json', env, tool),
-    publicFiles: readPublic(PUBLIC_DIR),
-    apkPublicList,
-    resources: new Map([RULES_PATH, LAYOUT_PATH].flatMap(p => { const xml = readResource(p, env, tool); return xml === undefined ? [] : [[p, xml] as const]; })),
-  });
-  for (const p of problems) console.log(p);
-  console.log(problems.length ? `apk check: ${problems.length} problem(s)` : 'apk check: clean');
-  process.exitCode = problems.length ? 1 : 0;
+  const apk = newestReleaseApk();
+  if (apk === undefined) {
+    console.log('no release APK; run npm run android:build first');
+    process.exitCode = 1;
+  } else {
+    const tc = toolchain(process.env);
+    const env = childEnv(tc, process.env);
+    const tool = toolPaths(tc).apkanalyzer;
+    const prefix = '/assets/public/';
+    const apkPublicList = apkanalyzer('files list', env, tool, apk).split(/\r?\n/).map(l => l.trim())
+      .filter(l => l.startsWith(prefix) && !l.endsWith('/')).map(l => l.slice(prefix.length));
+    const problems = apkProblems({
+      manifest: apkanalyzer('manifest print', env, tool, apk),
+      config: apkanalyzer('files cat --file /assets/capacitor.config.json', env, tool, apk),
+      publicFiles: readPublic(PUBLIC_DIR),
+      apkPublicList,
+      resources: new Map([RULES_PATH, LAYOUT_PATH].flatMap(p => { const xml = readResource(p, env, tool, apk); return xml === undefined ? [] : [[p, xml] as const]; })),
+    });
+    // When a certificate is pinned, the signed APK must carry that one signer. An empty pin is Step 0, still to come.
+    if (apk === SIGNED_APK && RELEASE_CERT_SHA256 !== '') {
+      try {
+        const signers = signersOf(printCerts(env, toolPaths(tc).apksigner, apk));
+        if (signers.length !== 1 || signers[0] !== RELEASE_CERT_SHA256) problems.push('signer: the release APK is not signed with the pinned certificate');
+      } catch {
+        problems.push('signer: the release certificate could not be read');
+      }
+    }
+    for (const p of problems) console.log(p);
+    console.log(problems.length ? `apk check: ${problems.length} problem(s)` : 'apk check: clean');
+    process.exitCode = problems.length ? 1 : 0;
+  }
 }
