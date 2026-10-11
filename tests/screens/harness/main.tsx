@@ -4,8 +4,9 @@ import { setSetting } from '../../../src/record/ops/settings.ts';
 import { createRoot } from 'react-dom/client';
 import { App } from '../../../src/app/App.tsx';
 import { minuteClock } from '../../../src/app/clock.ts';
-import { assemble } from '../../../src/app/compose.ts';
-import type { AppDeps, DevicePort, Nav, ScreenId, UnlockHow } from '../../../src/app/context.ts';
+import { APP_VERSION, assemble } from '../../../src/app/compose.ts';
+import { TooOld } from '../../../src/app/TooOld.tsx';
+import type { AppDeps, DeviceInfo, DevicePort, Nav, ScreenId, UnlockHow } from '../../../src/app/context.ts';
 import { memoryFiles } from '../../../src/device/browser.ts';
 import { openRecord, type RecordCore, type WriteSpec } from '../../../src/record/core.ts';
 import { openDb } from '../../../src/record/db.ts';
@@ -14,8 +15,10 @@ import { exportBackup } from '../../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../../src/record/backup/format.ts';
 import { LATEST } from '../../../src/record/backup/snapshot.ts';
 import { jsonBytes, toBase64url } from '../../../src/record/bytes.ts';
+import { writeHandOff, writePersisted } from '../../../src/record/ops/device.ts';
 import { vaultRows } from '../../../src/record/ops/vault.ts';
 import { enrolMode } from '../../../src/vault/devices.ts';
+import { systemRandom } from '../../../src/vault/random.ts';
 import { fakePlugin } from '../../vault/fakePlugin.ts';
 import '../../../src/ui/fonts.css';
 import '../../../src/ui/app.css';
@@ -43,8 +46,16 @@ export interface HarnessControls {
   failCopy(why: 'full' | 'other'): void;
   /** the next time the phone asks for its lock or a fingerprint, the person backs out */
   cancelPrompt(): void;
-  /** the next copy the phone opens gives back something else, so a new copy can't be confirmed */
+  /** the next copy the phone opens is missing, so a changed code keeps the old one (C-11) */
   failCheck(): void;
+  /** the next copy the phone opens gives back something else, so the old code is switched off too */
+  failCheckOther(): void;
+  /** the next unwrap or verifyCode waits this long before answering */
+  slowPhone(ms: number): void;
+  /** the next unwrap is refused by the phone */
+  refusePhone(): void;
+  /** the next verifyCode never answers */
+  silentPhone(): void;
   /** the next write to the record throws, as a storage fault other than a full phone would, so the screen must say so itself */
   failWrite(): void;
   /** from now on (or no longer) every write is refused as a full phone refuses it, the refusal coming back after `after` ms */
@@ -159,7 +170,7 @@ function failableCore(core: RecordCore): { readonly core: RecordCore; failNext()
 }
 
 /** A device port around the stand-in plugin; leaving and coming back are driven by the flows. */
-function harnessDevice(plugin: DevicePort['plugin']) {
+function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo) {
   const leaving = new Set<() => void>();
   const resuming = new Set<() => void | Promise<void>>();
   const backing = new Set<() => void>();
@@ -183,6 +194,7 @@ function harnessDevice(plugin: DevicePort['plugin']) {
     // the phone's "save as": the flows read the name of what was saved
     async saveFile(name) { document.documentElement.dataset.saved = name; return true; },
     async spaceUsed() { return 2.4 * 1024 * 1024; },
+    async info() { return info; },
     async pickFile() {
       const fault = pickFault;
       pickFault = undefined;
@@ -237,6 +249,12 @@ async function prelude(state: HarnessState, deps: AppDeps, phone: ReturnType<typ
 async function start(): Promise<void> {
   const fixture = window.harnessFixture;
   const state = readState(location.hash, fixture?.start);
+  if (state.screen === 'old') {
+    const early = document.getElementById('root');
+    if (!early) throw new Error('harness: #root is missing');
+    createRoot(early).render(<><TooOld version={APP_VERSION} /><span data-harness-ready="" hidden /></>);
+    return;
+  }
   await deleteDb(DB_NAME);
   const db = openDb({ name: DB_NAME, indexedDB, IDBKeyRange });
   const phone = fakePlugin();
@@ -262,19 +280,41 @@ async function start(): Promise<void> {
   if (damaged) await db.vault.update('main', { kid: 'CANARY-damaged' });
   if (state.screen === 'settings' || state.screen === 'secret') {
     const rows = await vaultRows(core);
-    if (rows) await enrolMode(rows, PASS, phone.plugin, 'phone-lock');   // the first day's default on a phone
+    if (rows) {
+      await enrolMode(rows, PASS, phone.plugin, 'phone-lock');   // the first day's default on a phone
+      if (state.ownCode) await enrolMode(rows, PASS, phone.plugin, 'own-code', HARNESS_CODE);
+    }
   }
   let refusing = false;
   let refusingRemove = false;
   let statusWait: Promise<void> | undefined;
   let releaseStatus: (() => void) | undefined;
+  let slowFor: number | undefined;
+  let refuseOnce = false;
+  let silentOnce = false;
+  const waitOut = async () => {
+    const ms = slowFor;
+    if (ms === undefined) return;
+    slowFor = undefined;
+    await new Promise(r => setTimeout(r, ms));
+  };
   const plugin: DevicePort['plugin'] = {
     ...phone.plugin,
     status: () => (statusWait ? statusWait.then(() => phone.plugin.status()) : phone.plugin.status()),
     enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)),
     remove: (...a) => (refusingRemove ? Promise.reject(new Error('key store refused')) : phone.plugin.remove(...a)),
+    unwrap: async mode => {
+      if (refuseOnce) { refuseOnce = false; throw Object.assign(new Error('refused'), { code: 'refused' }); }
+      await waitOut();
+      return phone.plugin.unwrap(mode);
+    },
+    verifyCode: async code => {
+      if (silentOnce) { silentOnce = false; return new Promise(() => {}); }
+      await waitOut();
+      return phone.plugin.verifyCode(code);
+    },
   };
-  const { device, leave, resume, back, pickerFault, resumeHandlers, failCopy } = harnessDevice(plugin);
+  const { device, leave, resume, back, pickerFault, resumeHandlers, failCopy } = harnessDevice(plugin, { manufacturer: 'Google', sdk: 33, screenLock: !state.noLock });
   const { core: writable, failNext: failWrite, failNextSerial: failExport, full: fullPhone } = failableCore(core);
   // the display is read and written straight on the db, outside write()/serial(), so it gets its own flag
   let failingDisplay = false;
@@ -285,7 +325,7 @@ async function start(): Promise<void> {
   }) as typeof db.device.bulkPut;
   // the harness's time stands still, so its minute clock ticks only when a flow moves the clock on
   let tick = () => {};
-  const assembled = assemble(writable, device);
+  const assembled = assemble(writable, device, systemRandom, APP_VERSION, 1500);
   assembled.clock.stop();
   const deps = { ...assembled, clock: minuteClock(writable.now, run => { tick = run; return undefined; }, () => {}) };
   await prelude(state, deps, phone);
@@ -293,6 +333,8 @@ async function start(): Promise<void> {
   const sourceFile = () => (source ??= sourceBackup(state));
   if (state.screen === 'first' && state.variant === 'found') await device.files.write(LATEST, await sourceFile());
   if (mineBefore) await device.files.write(LATEST, mineBefore);
+  if (state.handOff) await writeHandOff(db, state.handOff);
+  if (state.kept !== undefined) await writePersisted(db, state.kept);
   window.harness = {
     leave: async () => { leave(); await deps.machine.leave(); },
     resume: async () => { resume(); await deps.machine.resume(); },
@@ -304,7 +346,11 @@ async function start(): Promise<void> {
     refuseEnrol: () => { refusing = true; },
     failCopy,
     cancelPrompt: () => phone.cancelNext(),
-    failCheck: () => phone.lieNext('not-a-key'),
+    failCheck: () => phone.missNext(),
+    failCheckOther: () => phone.lieNext('not-a-key'),
+    slowPhone: ms => { slowFor = ms; },
+    refusePhone: () => { refuseOnce = true; },
+    silentPhone: () => { silentOnce = true; },
     failWrite,
     fullPhone,
     failExport,

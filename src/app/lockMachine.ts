@@ -6,6 +6,7 @@ import type { Secret } from '../vault/cipher.ts';
 import { offeredModes, unlockWithDevice, type DeviceAuth, type DeviceUnlock } from '../vault/devices.ts';
 import type { DeviceMode, VaultPlugin } from '../vault/plugin.ts';
 import { sessionCiphers, unlockWithSecret, type Unopened } from '../vault/vault.ts';
+import { answering, isSilent } from './phoneAnswer.ts';
 
 // The lock's order, as a small machine the screens follow. It never decides that the app was left:
 // the phone's own code decides that and says so. The machine keeps the order: the content blanks
@@ -36,6 +37,8 @@ export type UnlockOutcome =
   | Exclude<DeviceUnlock, { readonly kind: 'Unlocked' }>
   /** the app was left before the unlock finished; nothing stayed open */
   | { readonly kind: 'Left' }
+  /** the phone refused, or didn't answer in time: nothing opened, every way in is still there */
+  | { readonly kind: 'NoAnswer' }
   /** only a locked app can be unlocked */
   | { readonly kind: 'NotLocked' };
 
@@ -44,6 +47,8 @@ export interface LockDeps {
   readonly plugin: VaultPlugin;
   /** where the snapshot at lock goes, and the phone's uptime clock that caps it */
   readonly close: CloseDeps;
+  /** how long the phone may take to answer a call that needs no finger (15 s) */
+  readonly answerMs?: number;
 }
 
 export interface LockMachine {
@@ -61,7 +66,8 @@ export interface LockMachine {
 }
 
 export function lockMachine(deps: LockDeps): LockMachine {
-  const { core, plugin } = deps;
+  const { core } = deps;
+  const plugin = answering(deps.plugin, deps.answerMs);
   let state: LockState = core.session ? { kind: 'Open' } : { kind: 'Locked', offered: undefined };
   /** moved on by every leave, so an unlock or a phone answer started before it is never applied */
   let turn = 0;
@@ -97,11 +103,14 @@ export function lockMachine(deps: LockDeps): LockMachine {
     let offered: readonly DeviceMode[];
     try {
       offered = await offeredModes(plugin);
-    } catch {
-      try {
-        offered = await offeredModes(plugin);
-      } catch {
-        offered = [];                                    // the phone didn't say twice: the passphrase opens it (U4 follow-up)
+    } catch (e) {
+      if (isSilent(e)) offered = [];                     // a give-up is not asked again (C-6)
+      else {
+        try {
+          offered = await offeredModes(plugin);
+        } catch {
+          offered = [];                                  // the phone didn't say twice: the passphrase opens it (U4 follow-up)
+        }
       }
     }
     if (mine === turn && inFront && state.kind === 'Locked') set({ kind: 'Locked', offered });
@@ -128,7 +137,7 @@ export function lockMachine(deps: LockDeps): LockMachine {
     if (state.kind !== 'Locked' || core.session) return { kind: 'NotLocked' };
     const mine = turn;
     set({ kind: 'Unlocking' });
-    const work = (async () => {
+    const work = (async (): Promise<UnlockOutcome> => {
       try {
         return await opening(how, mine);
       } catch (e) {
@@ -136,6 +145,10 @@ export function lockMachine(deps: LockDeps): LockMachine {
           await core.lock();                             // whatever opened goes, without a snapshot
           set({ kind: 'Locked', offered: undefined });
           await askPhone(mine);
+        }
+        if (!('method' in how)) {
+          if (mine !== turn) return { kind: 'Left' };
+          return { kind: 'NoAnswer' };
         }
         throw e;
       }

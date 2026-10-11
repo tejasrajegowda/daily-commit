@@ -7,7 +7,7 @@ import { CodePad, MAX_DIGITS } from '../ui/CodePad.tsx';
 import { codeGroups } from '../ui/codeGroups.ts';
 import { I } from '../ui/icons.tsx';
 import { TypeBack } from '../ui/TypeBack.tsx';
-import { notVerifiedVariant } from './settingsWords.ts';
+import { notVerifiedVariant, SETTINGS_WORDS as W } from './settingsWords.ts';
 
 // The keys to the record: a new passphrase, a new recovery code (in use only once typed back),
 // checking the code on paper, and how the app opens on this phone. Each change that needs the raw
@@ -284,7 +284,7 @@ function OwnCode({ change }: { readonly change: boolean }) {
 function SwitchMode({ mode }: { readonly mode: 'phone-lock' | 'fingerprint' }) {
   const deps = useApp();
   const { go } = useNav();
-  const why = mode === 'phone-lock' ? "Switching to your phone's lock needs it once." : 'Letting the fingerprint open it needs it once.';
+  const why = `${mode === 'phone-lock' ? "Switching to your phone's lock needs it once." : 'Letting the fingerprint open it needs it once.'} ${W.twice}`;
   return (
     <AskPassphrase why={why} failed={NOT_SET} onRight={async auth => {
       const r = await (mode === 'fingerprint' ? duringHandOff(deps, 'fingerprint', () => setMode(deps, auth, mode)) : setMode(deps, auth, mode));

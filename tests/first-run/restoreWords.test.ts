@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { madeAtWords, RESTORE_WORDS, STOP_WORDS } from '../../src/first-run/restoreWords.ts';
+import { FIRST_TWICE, madeAtWords, RESTORE_WORDS, STOP_WORDS } from '../../src/first-run/restoreWords.ts';
+
+test('C-12: the first day says Android asks twice, and the sentence has no ! or %', () => {
+  assert.equal(FIRST_TWICE, 'When you finish, Android asks twice: once to set it up, once to check it.');
+  assert.equal(/[!%]/.test(FIRST_TWICE), false);
+});
 
 test('the eight messages are all different, and none has ! or %', () => {
   const all = Object.values(RESTORE_WORDS).map(w => `${w.title} ${w.text}`);

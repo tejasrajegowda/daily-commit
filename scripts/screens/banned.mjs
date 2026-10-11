@@ -31,5 +31,14 @@ export const FACTUAL = [
   'if this code and the passphrase are both lost',
 ];
 
+/**
+ * Hyphenated compounds the owner approved. A word boundary treats the hyphen as a break, so
+ * "clean-up" would be read as the banned word "clean". The whole compound is set aside first.
+ * "clean" on its own, or beside the compound, still fails. Ruled for the Task 0 storage line.
+ */
+export const COMPOUND = [
+  'clean-up',
+];
+
 /** Internal record flags that must never be shown (§8, the backfill and edit marks). */
 export const INTERNAL = ['is_backfill', 'edited_after_close', 'reopened_count', 'isBackfill', 'editedAfterClose', 'reopenedCount'];

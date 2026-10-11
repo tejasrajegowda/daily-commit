@@ -35,6 +35,14 @@ export const STATES = [
   ['found', 's=first&v=found&t=13:00'],
   ['restore', 's=restore&t=13:00'],
   ['restore-replace', 's=restore&v=replace&t=13:00'],
+  ['old', 's=old'],
+  ['nolock', 's=settings&v=privacy&nl=1'],
+  ['nolockown', 's=settings&v=privacy&nl=1&oc=1'],
+  ['kept', 's=settings&kept=1'],
+  ['notkept', 's=settings&kept=0'],
+  ['handoff', 's=today&ho=export'],
+  ['handoffpaused', 's=today&v=paused&ho=export'],
+  ['handofffirst', 's=first&ho=restore'],
 ];
 
 /** The two sizes every screen is checked at: a small phone and a laptop. */

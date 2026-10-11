@@ -14,6 +14,14 @@ export interface HarnessState {
   readonly canary: boolean;
   /** the date of day 1: START, or a handed-in record's own */
   readonly start: string;
+  /** nl=1: this phone has no screen lock */
+  readonly noLock: boolean;
+  /** kept=1 agreed, kept=0 refused, absent where the phone wasn't asked */
+  readonly kept: boolean | undefined;
+  /** ho=: a hand-off Android cut short, written before the app starts */
+  readonly handOff: 'export' | 'restore' | 'fingerprint' | undefined;
+  /** oc=1: own-code is already enrolled when Settings or Secret mounts */
+  readonly ownCode: boolean;
 }
 
 /** The record's first day: a Monday. */
@@ -31,6 +39,7 @@ function minuteOf(text: string | null): number | undefined {
 export function readState(hash: string, start: string = START): HarnessState {
   const q = new URLSearchParams(hash.replace(/^#/, ''));
   const age = Number(q.get('age'));
+  const ho = q.get('ho');
   return {
     screen: q.get('s') || 'today',
     variant: q.get('v') || '',
@@ -38,6 +47,10 @@ export function readState(hash: string, start: string = START): HarnessState {
     day: q.has('age') && Number.isInteger(age) ? Math.max(1, age) : 17,
     canary: q.get('canary') === '1',
     start,
+    noLock: q.get('nl') === '1',
+    kept: q.get('kept') === '1' ? true : q.get('kept') === '0' ? false : undefined,
+    handOff: ho === 'export' || ho === 'restore' || ho === 'fingerprint' ? ho : undefined,
+    ownCode: q.get('oc') === '1',
   };
 }
 

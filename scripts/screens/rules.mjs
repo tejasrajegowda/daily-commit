@@ -1,6 +1,6 @@
 // The binding wellbeing rules, checked on what the app actually draws: its text and its colours.
 // screenProblems(page) → a list of problems on the page as it is now; empty when it keeps the rules.
-import { FACTUAL, INTERNAL, MORAL, NEVER } from './banned.mjs';
+import { COMPOUND, FACTUAL, INTERNAL, MORAL, NEVER } from './banned.mjs';
 
 const escape = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const word = w => new RegExp(`(?<![\\p{L}\\p{N}])${escape(w).replace(/ /g, '\\s+')}(?![\\p{L}\\p{N}])`, 'iu');
@@ -8,7 +8,9 @@ const word = w => new RegExp(`(?<![\\p{L}\\p{N}])${escape(w).replace(/ /g, '\\s+
 /** Problems in a piece of drawn text. Exported for the check's own tests. */
 export function textProblems(text) {
   const out = [];
-  for (const [w, rule] of NEVER) if (word(w).test(text)) out.push(`the word "${w}" (${rule})`);
+  let never = text;
+  for (const phrase of COMPOUND) never = never.replace(new RegExp(escape(phrase), 'giu'), '');
+  for (const [w, rule] of NEVER) if (word(w).test(never)) out.push(`the word "${w}" (${rule})`);
   let factual = text;
   for (const phrase of FACTUAL) factual = factual.replace(new RegExp(escape(phrase).replace(/ /g, '\\s+'), 'giu'), '');
   for (const [w, rule] of MORAL) if (word(w).test(factual)) out.push(`the word "${w}" (${rule})`);

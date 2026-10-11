@@ -9,7 +9,11 @@ import static org.junit.Assert.assertThrows;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.AccessDeniedException;
 import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import org.junit.Before;
@@ -98,5 +102,52 @@ public class ShellFilesTest {
     @Test public void readAtMostRefusesAStreamLargerThanTheLimit() throws IOException {
         assertArrayEquals(b(1, 2, 3), ShellFiles.readAtMost(new ByteArrayInputStream(b(1, 2, 3)), 3));
         assertNull(ShellFiles.readAtMost(new ByteArrayInputStream(b(1, 2, 3, 4)), 3));
+    }
+
+    @Test public void renameCreatesBackupOlderWhenThatFolderIsNotThereYet() throws IOException {
+        files.write("tmp/older.dcbak", b(4, 5));
+        files.rename("tmp/older.dcbak", "backup/older/2026-01-05.dcbak");
+        assertArrayEquals(b(4, 5), files.read("backup/older/2026-01-05.dcbak"));
+        assertNull(files.read("tmp/older.dcbak"));
+        assertEquals(List.of("2026-01-05.dcbak"), files.list("backup/older"));
+    }
+
+    @Test public void aNullByteArrayIsRefused() {
+        assertThrows(IllegalArgumentException.class, () -> files.write("backup/x.dcbak", null));
+    }
+
+    /**
+     * A reader that already holds the finished file must keep seeing the bytes it opened.
+     * Replacing through a new file does that. Writing the new bytes into the same file does not,
+     * and this test fails there: on Windows the replace is refused while the file is open, and
+     * where the replace is allowed the open reader still has the old bytes.
+     */
+    @Test public void aFinishedFileStaysTheOldBytesForAReaderThatAlreadyHasIt() throws IOException {
+        files.write("backup/x.dcbak", b(4, 4));
+        File finished = new File(tmp.getRoot(), "backup/x.dcbak");
+        try (FileChannel held = FileChannel.open(finished.toPath(), StandardOpenOption.READ)) {
+            try {
+                files.write("backup/x.dcbak", b(1, 2));
+                assertArrayEquals(b(1, 2), files.read("backup/x.dcbak"));
+                assertFalse(new File(finished.getParentFile(), finished.getName() + ".part").exists());
+                assertArrayEquals(b(4, 4), readHeld(held, 2));
+            } catch (AccessDeniedException denied) {
+                assertArrayEquals(b(4, 4), files.read("backup/x.dcbak"));
+                assertArrayEquals(b(4, 4), readHeld(held, 2));
+            }
+        }
+    }
+
+    private static byte[] readHeld(FileChannel held, int n) throws IOException {
+        ByteBuffer buf = ByteBuffer.allocate(n);
+        held.position(0);
+        int got = 0;
+        while (got < n) {
+            int r = held.read(buf);
+            if (r < 0) break;
+            got += r;
+        }
+        assertEquals(n, got);
+        return buf.array();
     }
 }

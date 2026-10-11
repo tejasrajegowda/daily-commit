@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { displayOf, exportCopy, fingerprintOff, lastCopyAt, modesNow, resultWords, saveDisplay, spaceUsed, useApp, useModel, useNav, type DeviceMode, type Display, type ExportOutcome } from '../app/context.ts';
+import { displayOf, exportCopy, fingerprintOff, keptOf, lastCopyAt, modesNow, resultWords, saveDisplay, spaceUsed, useApp, useModel, useNav, type DeviceInfo, type DeviceMode, type Display, type ExportOutcome } from '../app/context.ts';
 import { setSetting } from '../record/ops/settings.ts';
 import { applyDisplay } from '../ui/display.ts';
 import { I } from '../ui/icons.tsx';
@@ -39,18 +39,25 @@ export function Settings() {
   const [display, setDisplay] = useState<Display | undefined>(undefined);
   const [copyAt, setCopyAt] = useState<number | undefined>(undefined);
   const [space, setSpace] = useState<number | undefined>(undefined);
+  const [info, setInfo] = useState<DeviceInfo | undefined>(undefined);
+  const [kept, setKept] = useState<boolean | undefined>(undefined);
   const [exported, setExported] = useState<ExportOutcome | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
 
   useEffect(() => {
     let live = true;
-    void Promise.all([displayOf(deps), lastCopyAt(deps), spaceUsed(deps), modesNow(deps)]).then(([d, at, used, m]) => {
+    void Promise.all([
+      displayOf(deps), lastCopyAt(deps), spaceUsed(deps), modesNow(deps),
+      deps.device.info?.().catch(() => undefined) ?? Promise.resolve(undefined), keptOf(deps),
+    ]).then(([d, at, used, m, inf, k]) => {
       if (!live) return;
       setModes(m);
       setDisplay(d);
       setCopyAt(at);
       setSpace(used);
+      setInfo(inf);
+      setKept(k);
     });
     return () => { live = false; };
   }, [deps]);
@@ -127,6 +134,7 @@ export function Settings() {
       const own = modes?.includes('own-code') ?? false;
       const phone = modes?.includes('phone-lock') ?? false;
       const finger = modes?.includes('fingerprint') ?? false;
+      const noLock = info?.screenLock === false;
       // said once the copies there are now are known, since what still opens it comes from them
       const unconfirmed = notVerified && modes ? notVerifiedWords(notVerified, modes) : undefined;
       const choice = (k: 'phone' | 'own', on: boolean, line: Line) => (
@@ -139,16 +147,24 @@ export function Settings() {
             <>
               <p className="eb" style={{ margin: '0 4px 10px' }}>{W.opensOn(wide)}</p>
               <div className="list">
-                {choice('phone', phone, W.phoneLock)}
+                {noLock ? (
+                  <div className="li opt-li off" aria-disabled="true" data-a="unlockmode" data-x="phone">
+                    <span><span className="nm">{W.noLock.phoneLock.nm}</span><span className="sub">{W.noLock.phoneLock.sub}</span></span><span className="radio" aria-hidden="true" /></div>
+                ) : choice('phone', phone, W.phoneLock)}
                 {choice('own', own, W.ownCode)}
-                {own && <Row line={W.finger} a="biotoggle" end={<Toggle on={finger} />}
+                {own && noLock && (
+                  <div className="li off" aria-disabled="true">
+                    <span><span className="nm">{W.noLock.finger.nm}</span><span className="sub">{W.noLock.finger.sub}</span></span>
+                  </div>
+                )}
+                {own && !noLock && <Row line={W.finger} a="biotoggle" end={<Toggle on={finger} />}
                   onClick={() => (finger ? void turnFingerprintOff() : go('secret', 'finger'))} />}
                 {own && <Row line={W.changeCode} a="changecode" end={<Chev />} onClick={() => go('secret', 'changecode')} />}
               </div>
               {unconfirmed && <div className="panel note" data-a="notverified" data-x={notVerified} style={{ marginTop: 12 }}><p className="eb">{unconfirmed.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{unconfirmed.text}</p></div>}
             </>
           )}
-          <Note>{deps.device.deviceModes ? W.passAlways : W.passOnly}</Note>
+          <Note>{noLock && !own ? W.noLock.note : deps.device.deviceModes ? W.passAlways : W.passOnly}</Note>
           <div className="list" style={{ marginTop: 22 }}>
             <Row line={W.locks} />
             <Row line={W.changePass} a="changepass" end={<Chev />} onClick={() => go('secret', 'pass')} />
@@ -165,7 +181,7 @@ export function Settings() {
           <Row line={W.android} />
           <Row line={W.export} a="export" end={<Chev />} onClick={busy ? undefined : () => void exportNow()} />
           <Row line={W.restore} a="restore" end={<Chev />} onClick={() => go('restore')} />
-          <Row line={W.space(space === undefined ? undefined : sizeWords(space))} />
+          <Row line={W.space(space === undefined ? undefined : sizeWords(space), kept)} />
         </div>
         {exported && <Note><span data-a="exported">{W.exported[exported]}</span></Note>}
         <Note>{W.dataNote}</Note>

@@ -17,7 +17,7 @@ import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
-import { AppContext, BackContext, HeldContext, LeaveContext, NavContext, type AppDeps, type DeviceMode, type Nav, type ScreenId } from './context.ts';
+import { AppContext, BackContext, HandOffContext, HeldContext, LeaveContext, NavContext, takeHandOff, type AppDeps, type DeviceMode, type HandOffNoteKind, type Nav, type ScreenId } from './context.ts';
 import { backLayers, backStep } from './back.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
 import { heldWords } from './heldWords.ts';
@@ -94,6 +94,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
   const [held] = useState(heldWords);                    // words whose save didn't go through, for this visit only
   const [saves] = useState(leaveSaves);                  // the saves of fields still being written in, run at a leave
   const [layers] = useState(backLayers);
+  const [cut, setCut] = useState<HandOffNoteKind | undefined>(undefined);
   const offered = useRef<readonly DeviceMode[]>([]);
   if (state.kind === 'Locked' && state.offered !== undefined) offered.current = state.offered;
 
@@ -104,12 +105,14 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
       // a new phone: Android may have put back a locked copy before the app first opened
       const copy = v ? undefined : await device.files.read(LATEST).catch(() => undefined);
       const read = copy ? readBackupFile(copy) : undefined;
+      const k = v ? undefined : await takeHandOff(deps);
       if (!live) return;
       if (read?.kind === 'File') setFound({ bytes: read.bytes, madeAt: read.madeAt });
+      if (k === 'restore') setCut('restore-first');
       setHasVault(v);
     })();
     return () => { live = false; };
-  }, [core, device]);
+  }, [core, device, deps]);
 
   useEffect(() => machine.listen(next => {
     store.changed();
@@ -118,6 +121,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
       lock.clear();
       setPassphraseOnly(false);
       setByCode(false);
+      void takeHandOff(deps).then(k => { if (k) setCut(k); });
     }
     if (next.kind === 'Locking') {
       lock.clear();
@@ -125,12 +129,21 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
       setByCode(false);
       setFlow(undefined);
       setNav(HOME);                                      // nothing that was open on screen survives a lock
+      setCut(undefined);
     }
-  }), [machine, store, lock, held]);
+  }), [machine, store, lock, held, deps]);
 
   useEffect(() => {
     void displayOf(deps).then(applyDisplay, () => {});   // this device's contrast and dimming, before unlock
   }, [deps]);
+
+  // A harness state, and a restore, can already be open on the first paint. Production starts locked.
+  useEffect(() => {
+    if (machine.state.kind !== 'Open') return undefined;
+    let live = true;
+    void takeHandOff(deps).then(k => { if (live && k) setCut(k); });
+    return () => { live = false; };
+  }, [deps, machine]);
 
   useEffect(() => {
     // the diary page has focus: the bars step back while it is written in
@@ -173,6 +186,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     document.documentElement.dataset.phase = isNight(clockMinuteOf(minute, tz)) ? 'night' : 'dawn';
   }, [minute, tz]);
 
+  const handOff = useMemo(() => ({ kind: cut, dismiss: () => setCut(undefined) }), [cut]);
   const navValue = useMemo(() => ({
     nav,
     go: (screen: ScreenId, variant = '') => {
@@ -213,13 +227,15 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     <BackContext.Provider value={layers}>
       <AppContext.Provider value={deps}>
         <NavContext.Provider value={navValue}>
-          <HeldContext.Provider value={held}>
-            <LeaveContext.Provider value={saves}>
-              <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
-                {body}
-              </Frame>
-            </LeaveContext.Provider>
-          </HeldContext.Provider>
+          <HandOffContext.Provider value={handOff}>
+            <HeldContext.Provider value={held}>
+              <LeaveContext.Provider value={saves}>
+                <Frame bare={bare} writing={writing && !bare} section={SECTION[nav.screen]} settingsOn={nav.screen === 'settings' || nav.screen === 'support'} onNav={onNav} onLock={leave}>
+                  {body}
+                </Frame>
+              </LeaveContext.Provider>
+            </HeldContext.Provider>
+          </HandOffContext.Provider>
         </NavContext.Provider>
       </AppContext.Provider>
     </BackContext.Provider>

@@ -6,6 +6,9 @@ import type { RestoreMessage, StopMessage } from '../app/context.ts';
 
 const OTHER_RECORD = { title: 'A different record', text: "This backup was made from a different record. It opens only with the passphrase that was in use when it was made, which may not be today's." };
 
+/** C-12, on the first day's last step, and only when the phone can have a screen lock. */
+export const FIRST_TWICE = 'When you finish, Android asks twice: once to set it up, once to check it.';
+
 export const RESTORE_WORDS: Readonly<Record<RestoreMessage | 'other', { readonly title: string; readonly text: string }>> = {
   wrong: { title: "That didn't open it", text: "Check the passphrase. If you're sure it's right, this file's copy of it may be damaged, and the recovery code opens the file instead." },
   newer: { title: 'Made by a newer version', text: 'This backup was made by a newer version of Daily Commit. Update the app, then restore it. Nothing on this phone was changed.' },

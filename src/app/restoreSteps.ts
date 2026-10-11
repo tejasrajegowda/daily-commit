@@ -66,6 +66,7 @@ export type RestoreStep =
  * record is replaced without being opened, so no keys are dropped and a failure can be tried again.
  */
 export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secret, replace: boolean, unopened = false): Promise<RestoreStep> {
+  const t0 = performance.now();
   const wasOpen = deps.core.session !== undefined;
   let result: RestoreResult | undefined;
   try {
@@ -85,7 +86,9 @@ export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secr
   const notReplaced = replace && !wasOpen;
   if (!result) return dropped ? { kind: 'Stopped', message: 'not-finished' } : { kind: 'Message', message: notReplaced ? 'not-replaced' : 'not-finished' };
   switch (result.kind) {
-    case 'Restored': return { kind: 'Restored' };
+    case 'Restored':
+      deps.device.timing?.('restore', performance.now() - t0);
+      return { kind: 'Restored' };
     case 'HasData': return { kind: 'Ask', otherRecord: result.otherVault };
     case 'QuotaFull': return dropped ? { kind: 'Stopped', message: 'full' } : { kind: 'Message', message: 'full' };
     case 'CopyFailed': return dropped ? { kind: 'Stopped', message: 'not-saved' } : { kind: 'Message', message: 'not-replaced' };

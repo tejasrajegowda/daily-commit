@@ -67,6 +67,11 @@ test('a clear (a leave) forgets the note and a wrong code before, so one wrong c
   assert.equal(actions.note(), 'mode-off');
 });
 
+test('U4 R1-8: a phone that did not answer says so', () => {
+  assert.equal(noteFor('phone-lock', { kind: 'NoAnswer' }), 'no-answer');
+  assert.equal(NOTE_WORDS['no-answer'].text, "The phone's lock didn't answer, so Daily Commit didn't open. Nothing was changed. Try again, or use your passphrase.");
+});
+
 test('an answer that lands after a clear says nothing and is not remembered', async () => {
   let answer: (o: UnlockOutcome) => void = () => {};
   const actions = lockActions({ unlock: () => new Promise<UnlockOutcome>(r => { answer = r; }) } as unknown as LockMachine);

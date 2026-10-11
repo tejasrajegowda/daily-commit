@@ -24,6 +24,11 @@ function allWords(): string[] {
     else if (v && typeof v === 'object') Object.values(v).forEach(walk);
   };
   walk(SETTINGS_WORDS);
+  const space = SETTINGS_WORDS.space as (size?: string, kept?: boolean) => { readonly nm: string; readonly sub: string };
+  for (const kept of [true, false, undefined] as const) {
+    const line = space(kept === undefined ? undefined : '2.4 MB', kept);
+    out.push(line.nm, line.sub);
+  }
   walk(SUPPORT_WORDS);
   walk(PAUSED_WORDS);
   for (const l of dayLines(SETTINGS)) out.push(l.nm, l.sub);
@@ -77,12 +82,33 @@ test("a first code not confirmed: the phone's lock, which was the way in, still 
   assert.match(notVerifiedWords('new-code', []).text, /For now only your passphrase opens Daily Commit\./);   // after a restore no copy is left
 });
 
-test('a changed code not confirmed: the old code is gone too, and only the passphrase opens it', () => {
-  const w = notVerifiedWords('code-change', ['fingerprint']);
+test('a changed code not confirmed: the old code still works, and so does the fingerprint', () => {
+  const w = notVerifiedWords('code-change', ['own-code', 'fingerprint']);
+  assert.equal(w.title, "The code wasn't changed");
+  assert.equal(w.text, "The phone couldn't confirm the new code, so it wasn't kept, and the old code is still the one in use. Your code, the fingerprint and your passphrase still open Daily Commit. Change it again whenever you like.");
+});
+
+test('a changed code whose copy opened to some other key: the code is off, and only the passphrase opens it', () => {
+  const w = notVerifiedWords('code-change', []);
   assert.equal(w.title, 'The separate code is off');
-  assert.equal(w.text, "The phone couldn't confirm the new code, so it wasn't kept. The old code had already been replaced, so it no longer opens Daily Commit. The fingerprint works only beside a code, so it is off too. For now only your passphrase opens Daily Commit. Set a code again whenever you like.");
-  assert.ok(!notVerifiedWords('code-change', []).text.includes('fingerprint'));
-  assert.ok(!notVerifiedWords('code-change', []).text.includes("phone's lock"));
+  assert.equal(w.text, "The phone couldn't confirm the new code, so it wasn't kept, and the old code was switched off with it. For now only your passphrase opens Daily Commit. Set a code again whenever you like.");
+  assert.ok(!w.text.includes("phone's lock"));
+});
+
+test('C21: a phone with no screen lock is told why its lock can\'t be chosen, and what still opens it', () => {
+  assert.equal(SETTINGS_WORDS.noLock.phoneLock.sub, "This phone has no screen lock, so this can't be chosen yet. Once the phone has a PIN, pattern or password, it can.");
+  assert.equal(SETTINGS_WORDS.noLock.finger.sub, 'needs a screen lock on the phone first');
+  assert.equal(SETTINGS_WORDS.noLock.note, 'For now your passphrase opens Daily Commit. A code of your own can open it day to day instead.');
+});
+
+test('C11: the storage line says what the phone answered, and a no is not an alarm', () => {
+  assert.match(SETTINGS_WORDS.space('2.4 MB', true).sub, /The phone agreed to keep it safe from clean-up/);
+  assert.match(SETTINGS_WORDS.space('2.4 MB', false).sub, /nothing needs doing$/);
+  assert.equal(SETTINGS_WORDS.space(undefined).sub, "kept in the app's own storage. Android may clear it only if the phone runs out of space, and the saved copies cover that");
+});
+
+test('Ruling 11: setting up a per-use key says Android asks twice', () => {
+  assert.equal(SETTINGS_WORDS.twice, 'Android asks twice: once to set it up, once to check it.');
 });
 
 test("the phone's lock not confirmed from own-code mode: the code is still on, and says so", () => {

@@ -12,6 +12,7 @@ import type { MinuteClock } from './clock.ts';
 import type { HeldWords } from './heldWords.ts';
 import type { LeaveSaves } from './leaveSaves.ts';
 import type { LockMachine } from './lockMachine.ts';
+import type { HandOffNoteKind } from './handOffWords.ts';
 import type { LockActions } from './lockNotes.ts';
 import type { RecordStore } from './store.ts';
 
@@ -30,9 +31,11 @@ export { pickBackup, readBackupFile, restoreWith, type FileRead, type Pick, type
 export { DEFAULT_SHAPES, shapesOf } from './dayShapes.ts';
 export { monthDue } from './reviewsDue.ts';
 export { meter, type Bars } from './meter.ts';
-export { displayOf, exportCopy, lastCopyAt, saveDisplay, spaceUsed, type ExportOutcome } from './yourData.ts';
+export { displayOf, exportCopy, keptOf, lastCopyAt, saveDisplay, spaceUsed, type ExportOutcome } from './yourData.ts';
 export type { Display, HandOffKind } from '../record/ops/device.ts';
 export { duringHandOff, takeHandOff } from './handOff.ts';
+export { againTo, HAND_OFF_WORDS, LEAVE_IT } from './handOffWords.ts';
+export type { HandOffNoteKind } from './handOffWords.ts';
 export { checkCode, finishNewCode, fingerprintOff, modesNow, newPassphrase, secretOpens, setMode, startNewCode, type PendingCode, type SecretOutcome } from './secretFlows.ts';
 
 /** A file the person picked through the phone's own picker: its bytes, never a path (§3.7). */
@@ -111,11 +114,25 @@ export const NavContext = createContext<{ readonly nav: Nav; go(screen: ScreenId
 export const HeldContext = createContext<HeldWords | undefined>(undefined);
 export const LeaveContext = createContext<LeaveSaves | undefined>(undefined);
 export const BackContext = createContext<BackLayers | undefined>(undefined);
+export const HandOffContext = createContext<{ readonly kind: HandOffNoteKind | undefined; dismiss(): void }>({ kind: undefined, dismiss: () => {} });
 
 export function useApp(): AppDeps {
   const deps = useContext(AppContext);
   if (!deps) throw new Error('a screen was drawn outside the app');
   return deps;
+}
+
+export const useHandOff = () => useContext(HandOffContext);
+
+/** Reports how long a screen took from its first render to its first frame, once (C17). */
+export function useDrawnTiming(label: 'lookback'): void {
+  const { device } = useApp();
+  const started = useRef(performance.now());
+  useEffect(() => {
+    const at = started.current;
+    const frame = requestAnimationFrame(() => device.timing?.(label, performance.now() - at));
+    return () => cancelAnimationFrame(frame);
+  }, [device, label]);
 }
 
 export function useNav(): { readonly nav: Nav; go(screen: ScreenId, variant?: string): void } {

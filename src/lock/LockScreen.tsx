@@ -3,7 +3,7 @@ import { NOTE_WORDS, useApp, useLockNote, type DeviceMode, type LockNote } from 
 import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
 import { CodePad, MAX_DIGITS, MIN_DIGITS } from '../ui/CodePad.tsx';
-import { fingerprintKey, lockLayout } from './lockView.ts';
+import { fingerprintKey, lockLayout, OPENING_WORDS, SLOW_MS } from './lockView.ts';
 
 // The lock screen. What it offers comes only from the device copies that exist. The passphrase is
 // read from its field once, when Open is pressed, and the field is emptied; it is never kept. An
@@ -22,12 +22,36 @@ export interface LockScreenProps {
   onRestore(): void;
 }
 
+/** True once `busy` has lasted SLOW_MS; false again the moment it ends. */
+function useSlow(busy: boolean): boolean {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    if (!busy) { setSlow(false); return undefined; }
+    const t = setTimeout(() => setSlow(true), SLOW_MS);
+    return () => clearTimeout(t);
+  }, [busy]);
+  return busy && slow;
+}
+
+function Opening() {
+  return (
+    <div className="lock" data-a="opening">
+      <div className="lk-mark">{I.brand()}</div>
+      <p className="eb lk-eb" style={{ marginBottom: 32 }}>{OPENING_WORDS.title}</p>
+      <div className="lk-wait" role="progressbar" aria-label="Opening" />
+      <p className="lk-hint" style={{ marginTop: 24 }}>{OPENING_WORDS.hint}</p>
+    </div>
+  );
+}
+
 export function LockScreen(props: LockScreenProps) {
   const { offered, busy, passphraseOnly, setPassphraseOnly, byCode, setByCode, onRestore } = props;
   const { lock } = useApp();
   const note = useLockNote();
   const wide = useWide();
+  const slow = useSlow(busy);
   const layout = passphraseOnly ? 'passphrase' : lockLayout(offered, wide);
+  if (slow) return <Opening />;
 
   if (layout === 'passphrase') {
     const back = !wide && offered.length > 0 && passphraseOnly;

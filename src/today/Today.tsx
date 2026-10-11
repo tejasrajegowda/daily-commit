@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { resultWords, shapesOf, useApp, useBackLayer, useClockMinute, useModel, useNav, useSaveAtLeave, useToday } from '../app/context.ts';
+import { againTo, HAND_OFF_WORDS, LEAVE_IT, resultWords, shapesOf, useApp, useBackLayer, useClockMinute, useHandOff, useModel, useNav, useSaveAtLeave, useToday } from '../app/context.ts';
 import type { Result } from '../record/results.ts';
 import type { RecordCore } from '../record/core.ts';
 import { sheetNow } from '../record/ops/common.ts';
@@ -12,6 +12,7 @@ import { addDays, clockMinuteOf, toUtcMs, weekdayOf } from '../rules/dates.ts';
 import { shapeFor } from '../rules/dayLine.ts';
 import { restDaysLeft } from '../rules/rest.ts';
 import type { PlannedReason } from '../rules/types.ts';
+import { HandOffNote } from '../ui/HandOffNote.tsx';
 import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
 import { draft } from './draft.ts';
@@ -55,6 +56,7 @@ function Note({ title, text }: { readonly title: string; readonly text: string }
 export function Today({ asked = '' }: { readonly asked?: string }) {
   const { core, store } = useApp();
   const { go } = useNav();
+  const cut = useHandOff();
   const model = useModel();
   const today = useToday();
   const t = useClockMinute();
@@ -387,6 +389,7 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
       <div className="scr scr-3 today">
         <aside className="col wide-only">{shapeAside}</aside>
         <main className="col">
+          {cut.kind && <HandOffNote kind={cut.kind} {...HAND_OFF_WORDS[cut.kind]} leave={LEAVE_IT} onLeave={cut.dismiss} onAgain={() => { const to = againTo(cut.kind!); cut.dismiss(); go(to.screen, to.variant); }} />}
           {top}
           <div className="sky">
             {heading}

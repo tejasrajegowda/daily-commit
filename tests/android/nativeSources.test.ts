@@ -42,9 +42,27 @@ test('the Shell plugin keeps nothing of a pending call in Android\'s saved state
   assert.match(read('shell/ShellPlugin.java'), /protected Bundle saveInstanceState\(\)\s*\{\s*return null;\s*\}/);
 });
 
+/** Code lines only: a comment that names the check does not count. */
+const liveLines = (src: string) => src
+  .replace(/\/\*[\s\S]*?\*\//g, '')
+  .split('\n')
+  .map(line => line.replace(/\/\/.*$/, ''))
+  .filter(line => line.trim() !== '')
+  .join('\n');
+
 test('a result that arrives after Android ended the app is dropped', () => {
   const src = read('shell/ShellPlugin.java');
-  assert.equal([...src.matchAll(/CALLBACK_ID_DANGLING/g)].length >= 2, true);     // both "save as" and the picker
+  const body = (signature: string) => {
+    const at = src.indexOf(signature);
+    assert.ok(at > 0, signature);
+    const next = src.indexOf('\n    @', at + signature.length);
+    return liveLines(src.slice(at, next < 0 ? src.length : next));
+  };
+  for (const signature of ['private void saved(', 'private void picked(']) {
+    const method = body(signature);
+    assert.match(method, /CALLBACK_ID_DANGLING\.equals\(call\.getCallbackId\(\)\)/, signature);
+    assert.match(method, /\breturn;/, signature);
+  }
 });
 
 test('the only log line in the app is the timing line, behind isLoggable, numbers only', () => {
@@ -67,11 +85,39 @@ test('every hand-off ends in one place, which locks when the activity has stoppe
     return src.slice(at, next < 0 ? src.length : next);
   };
   for (const signature of ['private void saved(', 'private void picked(', 'private void notificationsAnswered(']) {
-    assert.match(body(shell, signature), /endHandOff\(\)/, signature);
+    assert.match(liveLines(body(shell, signature)), /^\s*endHandOff\(\);/m, signature);
   }
-  const finished = vault.slice(vault.indexOf('private void finished('), vault.indexOf('private void endHandOff('));
-  assert.match(finished, /endHandOff\(\)/);
+  const finished = liveLines(vault.slice(vault.indexOf('private void finished('), vault.indexOf('private void endHandOff(')));
+  assert.match(finished, /^\s*endHandOff\(\);/m);
   assert.doesNotMatch(finished, /HandOff\.end\(\)/);
+});
+
+test('a write and a rename ask the folder to sync, and that sync forces the channel', () => {
+  const src = read('shell/ShellFiles.java');
+  const method = (name: string) => {
+    const at = src.indexOf(`public void ${name}(`);
+    assert.ok(at > 0, name);
+    const marks = [src.indexOf('\n    /**', at + 10), src.indexOf('\n    public ', at + 10), src.indexOf('\n    private ', at + 10)]
+      .filter(n => n > at);
+    const stop = marks.length ? Math.min(...marks) : src.length;
+    return liveLines(src.slice(at, stop));
+  };
+  for (const name of ['write', 'rename']) assert.match(method(name), /^\s*syncFolder\(/m, name);
+  const write = method('write');
+  assert.match(write, /file\.getName\(\) \+ "\.part"/);
+  assert.match(write, /getFD\(\)\.sync\(\)/);
+  assert.match(write, /ATOMIC_MOVE/);
+  const syncAt = src.indexOf('void syncFolder(');
+  assert.ok(syncAt > 0);
+  assert.match(liveLines(src.slice(syncAt)), /^\s*channel\.force\(true\);/m);
+});
+
+test('a path whose real place is outside the root is refused after the real path is resolved', () => {
+  const src = read('shell/ShellFiles.java');
+  const at = src.indexOf('private File place(');
+  assert.ok(at > 0);
+  const body = liveLines(src.slice(at));
+  assert.match(body, /if \(!file\.getCanonicalPath\(\)\.startsWith\(prefix\)\) throw new IllegalArgumentException\("path"\);/);
 });
 
 test('every system screen the Shell opens is marked as a hand-off first', () => {

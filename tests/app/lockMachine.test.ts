@@ -21,7 +21,7 @@ const kinds = (states: readonly LockState[]) => states.map(s => (s.kind === 'Loc
 const sessionOf = (core: RecordCore) => core.session;
 
 /** A real record, open after first run, with its machine, its files and a stand-in phone plugin. */
-async function setup(options: { plugin?: (p: VaultPlugin) => VaultPlugin; files?: (f: SnapshotFiles, core: RecordCore) => SnapshotFiles; sleep?: () => Promise<void>; core?: (c: RecordCore) => RecordCore } = {}) {
+async function setup(options: { plugin?: (p: VaultPlugin) => VaultPlugin; files?: (f: SnapshotFiles, core: RecordCore) => SnapshotFiles; sleep?: () => Promise<void>; core?: (c: RecordCore) => RecordCore; answerMs?: number } = {}) {
   const r = await realRecord();
   const m = memoryFiles();
   const f = fakePlugin();
@@ -30,6 +30,7 @@ async function setup(options: { plugin?: (p: VaultPlugin) => VaultPlugin; files?
     core,
     plugin: options.plugin?.(f.plugin) ?? f.plugin,
     close: { files: options.files?.(m.files, r.core) ?? m.files, sleep: options.sleep ?? never, appVersion: '0.1.0' },
+    answerMs: options.answerMs ?? 60_000,
   });
   const seen: LockState[] = [];
   machine.listen(s => seen.push(s));
@@ -357,4 +358,30 @@ test('U4 follow-up: one refusal is asked again, and the answer is used', async (
   refusals = 1;
   await lockAndResume(t.machine);
   assert.deepEqual(t.machine.state, { kind: 'Locked', offered: ['phone-lock'] });
+});
+
+test('U4 R1-8: a phone that refuses a device unlock ends with words, the lock screen and every way in', async () => {
+  const t = await setup({ plugin: p => ({ ...p, unwrap: async () => { throw Object.assign(new Error('refused'), { code: 'refused' }); } }) });
+  await enrolMode(await rowsOf(t.core), PASS, t.f.plugin, 'phone-lock');
+  await lockAndResume(t.machine);
+  assert.deepEqual(await t.machine.unlock({ mode: 'phone-lock' }), { kind: 'NoAnswer' });
+  assert.deepEqual(t.machine.state, { kind: 'Locked', offered: ['phone-lock'] });
+  assert.equal(t.core.session, undefined);
+});
+
+test('U4 R1-8: an own code the phone never answers gives up, says so, and offers the passphrase', async () => {
+  const t = await setup({ answerMs: 20, plugin: p => ({ ...p, verifyCode: () => new Promise(() => {}) }) });
+  await enrolMode(await rowsOf(t.core), PASS, t.f.plugin, 'own-code', '24681357');
+  await lockAndResume(t.machine);
+  assert.deepEqual(await t.machine.unlock({ mode: 'own-code', code: '24681357' }), { kind: 'NoAnswer' });
+  assert.equal(screenOf(t.machine.state), 'lock');
+});
+
+test('a status that never answers offers the passphrase after the give-up, without asking again', async () => {
+  let asked = 0;
+  const t = await setup({ answerMs: 20, plugin: p => ({ ...p, status: () => { asked++; return new Promise(() => {}); } }) });
+  await t.machine.leave();
+  await t.machine.resume();
+  assert.deepEqual(t.machine.state, { kind: 'Locked', offered: [] });
+  assert.equal(asked, 1);
 });

@@ -15,3 +15,7 @@ export function lockLayout(offered: readonly DeviceMode[], wide: boolean): LockL
 export function fingerprintKey(offered: readonly DeviceMode[]): boolean {
   return offered.includes('fingerprint');
 }
+
+/** Past this, an unlock still under way shows "Opening…" (U3 Task 11). */
+export const SLOW_MS = 2000;
+export const OPENING_WORDS = { title: 'Opening…', hint: 'It can take a few seconds.' } as const;

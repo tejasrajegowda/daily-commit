@@ -1,5 +1,5 @@
 import { useMemo, useState, type CSSProperties } from 'react';
-import { monthDue, useApp, useModel, useNav, useToday } from '../app/context.ts';
+import { monthDue, useApp, useDrawnTiming, useModel, useNav, useToday } from '../app/context.ts';
 import { rulesInput } from '../record/read.ts';
 import { dayNumber, hasOpened } from '../rules/journey.ts';
 import { countWord } from '../rules/words.ts';
@@ -33,6 +33,7 @@ export function Said({ words }: { readonly words: Words }) {
 const LEGEND = <div className="legend"><span><i className="d" />did it</span><span><i className="p" />partly</span><span><i className="pl" />planned rest</span><span><i />nothing recorded</span></div>;
 
 export function LookBack() {
+  useDrawnTiming('lookback');
   const { store } = useApp();
   const { go } = useNav();
   const model = useModel();

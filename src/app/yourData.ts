@@ -1,6 +1,6 @@
 import { exportBackup } from '../record/backup/export.ts';
 import { LATEST } from '../record/backup/snapshot.ts';
-import { readDisplay, writeDisplay, type Display } from '../record/ops/device.ts';
+import { readDisplay, readPersisted, writeDisplay, type Display } from '../record/ops/device.ts';
 import type { AppDeps } from './context.ts';
 import { duringHandOff } from './handOff.ts';
 import { readBackupFile } from './restoreSteps.ts';
@@ -30,5 +30,8 @@ export const spaceUsed = (deps: AppDeps): Promise<number | undefined> =>
   deps.device.spaceUsed?.().catch(() => undefined) ?? Promise.resolve(undefined);
 
 export const displayOf = (deps: AppDeps): Promise<Display> => readDisplay(deps.core.db);
+
+/** Whether the phone agreed to keep the storage, as it last answered; undefined where it wasn't asked (C11). */
+export const keptOf = (deps: AppDeps): Promise<boolean | undefined> => readPersisted(deps.core.db).catch(() => undefined);
 
 export const saveDisplay = (deps: AppDeps, display: Display): Promise<void> => writeDisplay(deps.core.db, display);

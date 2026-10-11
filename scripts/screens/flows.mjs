@@ -48,6 +48,12 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('rules check: a clean page, with the diary delete in red, passes', (await screenProblems(p)).length === 0);
   await page('<p>A 12-day streak</p>');
   check('rules check: a banned word is found', (await screenProblems(p)).some(x => x.includes('"streak"')));
+  await page('<p>The phone agreed to keep it safe from clean-up when space runs low</p>');
+  check('rules check: clean-up, the approved storage compound, is not the banned word', (await screenProblems(p)).length === 0);
+  await page('<p>a clean day</p>');
+  check('rules check: the word clean on its own is still found', (await screenProblems(p)).some(x => x.includes('"clean"')));
+  await page('<p>a clean day, safe from clean-up</p>');
+  check('rules check: clean-up does not hide the word clean beside it', (await screenProblems(p)).some(x => x.includes('"clean"')));
   await page('<p>Walk <span style="color:oklch(.6 .2 25)">not done</span></p>');
   check('rules check: red outside the delete is found', (await screenProblems(p)).some(x => x.startsWith('red outside')));
   check('rules check: every flow step is swept', typeof p.sweep === 'function');
@@ -137,6 +143,40 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   await p.evaluate(() => window.harness.leave());
   await p.evaluate(() => window.harness.resume());
   check('a wrong passphrase, then a leave: coming back shows the lock with no note from before', noted && await shows(p, '.lk-pass') && await gone(p, '.lk-note'));
+
+  await h.open(p, 's=lock');
+  await shows(p, '.lk-finger');
+  await p.evaluate(() => window.harness.slowPhone(2600));
+  await p.tap('.lk-finger');
+  // .eb paints its title in capitals, so innerText would read "OPENING…" and miss the words.
+  // One read, while the node is still up: the slow line is only on screen for the rest of the wait.
+  check('slow unlock: Opening shows the slow line and nothing to tap', await p.waitForFunction(() => {
+    const el = document.querySelector('[data-a="opening"]');
+    if (!el) return false;
+    const text = el.textContent ?? '';
+    return text.includes('Opening…') && text.includes('It can take a few seconds.') && el.querySelector('.lk-wait') !== null && el.querySelectorAll('button').length === 0;
+  }, undefined, { timeout: 8000 }).then(() => true, () => false));
+  check('slow unlock: then the record opens', await shows(p, '.today'));
+
+  await h.open(p, 's=lock');
+  await shows(p, '.lk-finger');
+  await p.evaluate(() => window.harness.refusePhone());
+  await p.tap('.lk-finger');
+  check("a refused phone lock says the phone didn't answer and keeps every way in", await shows(p, '.lk-note')
+    && (await p.locator('.lk-note').innerText()).includes("The phone's lock didn't answer")
+    && (await p.locator('.lk-finger').count()) === 1
+    && (await p.locator('[data-a="devcred"]').count()) === 1
+    && (await p.locator('[data-a="lockpass"]').count()) === 1);
+
+  await h.open(p, 's=lock&v=own');
+  await shows(p, '.pad');
+  await p.evaluate(() => window.harness.silentPhone());
+  await typeCode(p, CODE);
+  await p.tap('[data-a="pinok"]');
+  check('an own code the phone never answers ends with the note, and Opening does not stay', await shows(p, '.lk-hint', 4000)
+    && (await p.locator('.lk-hint').innerText()).includes("didn't answer")
+    && (await p.locator('[data-a="lockpass"]').count()) === 1
+    && (await p.locator('[data-a="opening"]').count()) === 0);
 
   // RF1: leaving blanks the record at once
   await h.open(p, 's=today');
@@ -1269,6 +1309,79 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('Settings, laptop: Display is open first', (await q.locator('main[data-cat="display"]').count()) === 1);
   await q.click('[data-a="setcat"][data-x="about"]');
   check('Settings, laptop: a category switches the panel', await shows(q, 'main[data-cat="about"]') && (await q.locator('main[data-cat="about"]').textContent()).includes("What the lock can't do"));
+
+  const untilText = (page, needle) => page.waitForFunction(t => document.body.innerText.includes(t), needle, { timeout: 8000 }).then(() => true, () => false);
+  await h.open(p, 's=old');
+  const tooOld = await shows(p, '[data-a="too-old"]') ? await p.locator('[data-a="too-old"]').innerText() : '';
+  check('a record from a newer version shows the four lines and no button', tooOld.includes('This app is older than your record')
+    && tooOld.includes('Nothing was opened or changed.')
+    && tooOld.includes("Uninstalling isn't needed")
+    && tooOld.includes('This phone has version 0.1.0.')
+    && (await p.locator('[data-a="too-old"] button').count()) === 0);
+
+  await h.open(p, 's=settings&v=privacy&nl=1');
+  const phoneOff = await p.waitForFunction(() => {
+    const el = document.querySelector('[data-a="unlockmode"][data-x="phone"]');
+    return el?.classList.contains('off') === true && el.getAttribute('aria-disabled') === 'true';
+  }, undefined, { timeout: 8000 }).then(() => true, () => false);
+  await p.locator('[data-a="unlockmode"][data-x="phone"]').click({ force: true, timeout: 2000 }).catch(() => {});
+  check("no screen lock: the phone's lock is shown off, and tapping it changes nothing", phoneOff && (await p.locator('[data-a="auth"]').count()) === 0
+    && (await p.locator('.settings').innerText()).includes('For now your passphrase opens Daily Commit'));
+
+  await h.open(p, 's=settings&v=privacy&nl=1&oc=1');
+  check('no screen lock: the fingerprint row is off until the phone has one', await p.waitForFunction(() => {
+    const el = [...document.querySelectorAll('.li.off')].find(e => e.textContent?.includes('needs a screen lock on the phone first'));
+    return el?.getAttribute('aria-disabled') === 'true';
+  }, undefined, { timeout: 8000 }).then(() => true, () => false));
+
+  await h.open(p, 's=settings&kept=1');
+  check('storage: the phone agreed to keep it', await untilText(p, 'The phone agreed to keep it safe from clean-up'));
+  await h.open(p, 's=settings&kept=0');
+  check('storage: a no is not an alarm', await untilText(p, 'nothing needs doing'));
+
+  await h.open(p, 's=lock&ho=export');
+  await shows(p, '.lk-finger');
+  await p.tap('.lk-finger');
+  check("hand-off: Today says the export didn't finish", await shows(p, '[data-a="handoff"][data-x="export"]')
+    && ((await p.locator('[data-a="handoff"]').textContent()) ?? '').includes("The export didn't finish"));
+  await p.tap('[data-a="handoff-x"]');
+  check('hand-off: Leave it takes the note away', await gone(p, '[data-a="handoff"]'));
+  await p.evaluate(() => window.harness.leave());
+  await p.evaluate(() => window.harness.resume());
+  await shows(p, '.lk-finger');
+  await p.tap('.lk-finger');
+  check('hand-off: a second unlock says nothing', await shows(p, '.today') && (await p.locator('[data-a="handoff"]').count()) === 0);
+
+  await h.open(p, 's=lock&ho=fingerprint');
+  await shows(p, '.lk-finger');
+  await p.tap('.lk-finger');
+  check('hand-off: fingerprint offers to set it up again', await shows(p, '[data-a="handoff"][data-x="fingerprint"]')
+    && (await p.locator('[data-a="handoff-go"]').innerText()) === 'Set it up again');
+  await p.tap('[data-a="handoff-go"]');
+  check('hand-off: Set it up again lands on Privacy', await shows(p, '[data-cat="privacy"]'));
+
+  await h.open(p, 's=first&ho=restore');
+  check('hand-off: the welcome says the restore did not finish', await shows(p, '[data-a="handoff"][data-x="restore-first"]')
+    && ((await p.locator('[data-a="handoff"]').textContent()) ?? '').includes("The restore didn't finish"));
+  await p.tap('[data-a="handoff-go"]');
+  check('hand-off: Choose again opens Restore', await shows(p, 'h1') && (await p.locator('h1').innerText()) === 'Restore from a backup');
+
+  await h.open(p, 's=today&v=paused&ho=export');
+  check('hand-off: a paused record shows the note on the paused panel', await shows(p, '[data-a="paused"]') && await shows(p, '[data-a="handoff"][data-x="export"]'));
+
+  await h.open(p, 's=secret&v=phone');
+  check('phone lock setup says Android asks twice', await shows(p, '.secret') && (await p.locator('.secret').innerText()).includes('Android asks twice: once to set it up, once to check it.'));
+  await h.open(p, 's=secret&v=finger');
+  check('fingerprint setup says Android asks twice', await shows(p, '.secret') && (await p.locator('.secret').innerText()).includes('Android asks twice: once to set it up, once to check it.'));
+
+  const clean = async hash => {
+    await h.open(p, hash);
+    await shows(p, '[data-harness-ready]');
+    return !/[!%]/.test(await p.locator('body').innerText());
+  };
+  check('no new state has ! or %', await clean('s=old') && await clean('s=settings&v=privacy&nl=1') && await clean('s=settings&v=privacy&nl=1&oc=1')
+    && await clean('s=settings&kept=1') && await clean('s=settings&kept=0') && await clean('s=today&ho=export')
+    && await clean('s=today&v=paused&ho=export') && await clean('s=first&ho=restore') && await clean('s=secret&v=phone') && await clean('s=secret&v=finger'));
 }
 
 // R4-9: with Dim at night on, small ink-4 text stays at 4.5:1 through the night veil
@@ -1427,9 +1540,9 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   const on = x => p.locator(`[data-a="unlockmode"][data-x="${x}"].on`).count().then(n => n === 1);
   check("Privacy: a first code the phone couldn't confirm says so, and that the phone's lock still opens it",
     await unconfirmed('s=secret&v=owncode&t=13:00', () => window.harness.failCheck(), 'new-code', ["The code wasn't set", "Your phone's lock and your passphrase still open Daily Commit"]) && await on('phone'));
-  check("Privacy: a changed code the phone couldn't confirm says the code is off and only the passphrase opens it",
+  check("Privacy: a changed code the phone couldn't confirm says the old code is still the one in use",
     await unconfirmed('s=secret&v=changecode&t=13:00', async () => { await window.harness.ownCode(); window.harness.failCheck(); }, 'code-change',
-      ['The separate code is off', 'The old code had already been replaced', 'For now only your passphrase opens Daily Commit']) && !(await on('own')) && !(await on('phone')));
+      ["The code wasn't changed", 'the old code is still the one in use', 'Your code, the fingerprint and your passphrase still open Daily Commit']) && await on('own'));
   check("Privacy: the phone's lock prompt backed out of, from own-code mode, says the code still opens it",
     await unconfirmed('s=secret&v=phone&t=13:00', async () => { await window.harness.ownCode(); window.harness.cancelPrompt(); }, 'phone-lock',
       ["The phone's lock wasn't set up", 'Your code, the fingerprint and your passphrase still open Daily Commit']) && await on('own') && !(await on('phone')));

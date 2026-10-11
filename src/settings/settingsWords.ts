@@ -73,7 +73,21 @@ export const SETTINGS_WORDS = {
   export: { nm: 'Export a copy', sub: 'to a place you choose' },
   exported: { Saved: 'Saved where you chose.', Cancelled: 'Nothing was saved.', NoSave: "This device can't save a file.", Failed: "The copy couldn't be made. Nothing was changed." },
   restore: { nm: 'Restore from a backup', sub: 'replaces everything on this phone, after asking' },
-  space: (size: string | undefined) => ({ nm: size ? `On this phone · ${size}` : 'On this phone', sub: "kept in the app's own storage. Android may clear it only if the phone runs out of space, and the saved copies cover that" }),
+  // C21: a phone with no screen lock can't hold a key that needs one
+  noLock: {
+    phoneLock: { nm: "Your phone's lock", sub: "This phone has no screen lock, so this can't be chosen yet. Once the phone has a PIN, pattern or password, it can." },
+    finger: { nm: 'Fingerprint opens it too', sub: 'needs a screen lock on the phone first' },
+    note: 'For now your passphrase opens Daily Commit. A code of your own can open it day to day instead.',
+  },
+  // C11: `kept` is the phone's answer to the request for persistent storage; undefined where it wasn't asked
+  space: (size: string | undefined, kept?: boolean) => ({
+    nm: size ? `On this phone · ${size}` : 'On this phone',
+    sub: kept === true ? "kept in the app's own storage. The phone agreed to keep it safe from clean-up when space runs low"
+      : kept === false ? "kept in the app's own storage. The phone may clear it if space runs very low; the saved copies cover that, and nothing needs doing"
+      : "kept in the app's own storage. Android may clear it only if the phone runs out of space, and the saved copies cover that",
+  }),
+  // piece B Ruling 11: a key bound to every use needs Android's prompt to make the copy and again to check it
+  twice: 'Android asks twice: once to set it up, once to check it.',
   dataNote: 'Every copy is locked. Without your passphrase or the recovery code, none of them can be read, by anyone.',
   pause: { nm: 'Pause tracking', sub: 'hides every habit, keeps the diary, deletes nothing, sends nothing' },
   pauseNote: 'It lives here from day one and the app never suggests it.',
@@ -99,19 +113,22 @@ export const SETTINGS_WORDS = {
 } as const;
 
 /**
- * A way of opening the phone couldn't confirm once it was made, so its copy was deleted. Each one
- * leaves the phone differently: a first code or the phone's lock or the fingerprint changes nothing
- * else, but a changed code has already replaced the old one. Settings is told which through its
- * variant, `notverified-<path>`.
+ * A way of opening the phone couldn't confirm. A first code, the phone's lock or the fingerprint
+ * changes nothing else. A changed code the phone couldn't confirm keeps the old code (C-11). A
+ * changed code whose new copy opened to some other key switched the old code off with it. Settings
+ * is told which through its variant, `notverified-<path>`.
  */
 export type NotVerifiedPath = 'new-code' | 'code-change' | 'phone-lock' | 'fingerprint';
 
 const NOT_VERIFIED: Readonly<Record<NotVerifiedPath, { readonly title: string; readonly what: string; readonly again: string }>> = {
   'new-code': { title: "The code wasn't set", what: "The phone couldn't confirm the new code, so it wasn't kept. Nothing else was changed.", again: 'Set it up again whenever you like.' },
-  'code-change': { title: 'The separate code is off', what: "The phone couldn't confirm the new code, so it wasn't kept. The old code had already been replaced, so it no longer opens Daily Commit.", again: 'Set a code again whenever you like.' },
+  'code-change': { title: "The code wasn't changed", what: "The phone couldn't confirm the new code, so it wasn't kept, and the old code is still the one in use.", again: 'Change it again whenever you like.' },
   'phone-lock': { title: "The phone's lock wasn't set up", what: "The phone couldn't confirm its lock, so nothing was changed.", again: 'You can try again whenever you like.' },
   'fingerprint': { title: 'Fingerprint is still off', what: "The phone couldn't confirm the fingerprint, so nothing was changed.", again: 'You can try again whenever you like.' },
 };
+
+/** A changed code whose new copy opened to some other key: the old code went too (C-11). */
+const CODE_OFF = { title: 'The separate code is off', what: "The phone couldn't confirm the new code, so it wasn't kept, and the old code was switched off with it.", again: 'Set a code again whenever you like.' };
 
 export const notVerifiedVariant = (path: NotVerifiedPath): string => `notverified-${path}`;
 
@@ -129,7 +146,7 @@ function stillOpens(modes: readonly DeviceMode[]): string {
 
 /** The note after a way of opening wasn't confirmed: what wasn't set, then what opens it now. */
 export function notVerifiedWords(path: NotVerifiedPath, modes: readonly DeviceMode[]): { readonly title: string; readonly text: string } {
-  const w = NOT_VERIFIED[path];
+  const w = path === 'code-change' && !modes.includes('own-code') ? CODE_OFF : NOT_VERIFIED[path];
   const finger = path === 'code-change' && modes.includes('fingerprint') && !modes.includes('own-code') ? ' The fingerprint works only beside a code, so it is off too.' : '';
   return { title: w.title, text: `${w.what}${finger} ${stillOpens(modes)} ${w.again}` };
 }

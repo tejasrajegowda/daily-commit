@@ -18,7 +18,9 @@ export type LockNote =
   /** a device copy is gone for another reason; the passphrase opens it */
   | 'mode-off'
   | 'newer-app'
-  | 'damaged';
+  | 'damaged'
+  /** the phone refused, or didn't answer in time */
+  | 'no-answer';
 
 export type UnlockWay = 'passphrase' | 'recovery' | DeviceMode;
 
@@ -36,6 +38,7 @@ export function noteFor(way: UnlockWay, outcome: UnlockOutcome, before?: UnlockO
     case 'WrongSecret': return 'wrong-secret';
     case 'WrongCode': return 'wrong-code';
     case 'Refused': return outcome.reason === 'newer-app' ? 'newer-app' : 'damaged';
+    case 'NoAnswer': return 'no-answer';
     case 'CopyGone':
       if (way === 'own-code' && before?.kind === 'WrongCode') return 'code-off';
       if (way === 'fingerprint' && outcome.offered.includes('own-code')) return 'new-fingerprint';
@@ -52,6 +55,7 @@ export const NOTE_WORDS: Readonly<Record<LockNote, { readonly title?: string; re
   'mode-off': { text: 'That way of opening is switched off now, so your passphrase opens it. You can set it up again in Settings → Privacy.' },
   'newer-app': { title: 'Made by a newer version', text: 'This record was saved by a newer version of Daily Commit. Update the app to open it.' },
   'damaged': { title: "This record can't be opened", text: 'Its lock is damaged. A backup may still open it.' },
+  'no-answer': { text: "The phone's lock didn't answer, so Daily Commit didn't open. Nothing was changed. Try again, or use your passphrase." },
 };
 
 /** The lock screen's actions: unlock, and the note it leaves. */
@@ -63,7 +67,7 @@ export interface LockActions {
   clear(): void;
 }
 
-export function lockActions(machine: LockMachine): LockActions {
+export function lockActions(machine: LockMachine, timing?: (label: 'unlock', ms: number) => void): LockActions {
   let note: LockNote | undefined;
   let before: UnlockOutcome | undefined;
   let turn = 0;                                          // a clear starts a new turn; an answer from an older one is dropped
@@ -82,8 +86,10 @@ export function lockActions(machine: LockMachine): LockActions {
     async unlock(how) {
       set(undefined);
       const mine = turn;
+      const t0 = performance.now();
       const outcome = await machine.unlock(how);
       if (mine !== turn) return outcome;
+      if (outcome.kind === 'Open') timing?.('unlock', performance.now() - t0);
       set(noteFor(wayOf(how), outcome, before));
       before = outcome;
       return outcome;

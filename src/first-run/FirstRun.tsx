@@ -1,9 +1,10 @@
-import { useRef, useState } from 'react';
-import { finishFirstRun, firstSettings, meter, prepareVault, useApp, type Bars, type Prepared } from '../app/context.ts';
+import { useEffect, useRef, useState } from 'react';
+import { finishFirstRun, firstSettings, HAND_OFF_WORDS, LEAVE_IT, meter, prepareVault, useApp, useHandOff, type Bars, type Prepared } from '../app/context.ts';
+import { HandOffNote } from '../ui/HandOffNote.tsx';
 import { I } from '../ui/icons.tsx';
 import { codeGroups } from '../ui/codeGroups.ts';
 import { TypeBack } from '../ui/TypeBack.tsx';
-import { madeAtWords } from './restoreWords.ts';
+import { FIRST_TWICE, madeAtWords } from './restoreWords.ts';
 
 // The first day: four steps, once, never repeated. The passphrase is read from its field once, at
 // Continue, and stretched into the keys; the field is emptied and nothing keeps it. The recovery
@@ -38,7 +39,9 @@ function Note({ title, text }: { readonly title: string; readonly text: string }
 
 export function FirstRun(props: FirstRunProps) {
   const deps = useApp();
+  const cut = useHandOff();
   const [step, setStep] = useState(props.found ? 0 : 1);
+  const [screenLock, setScreenLock] = useState<boolean | undefined>(undefined);
   const [strength, setStrength] = useState<{ readonly bars: Bars; readonly label: string }>(meter(''));
   const [tooShort, setTooShort] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -47,10 +50,19 @@ export function FirstRun(props: FirstRunProps) {
   const [mismatch, setMismatch] = useState(false);
   const [refused, setRefused] = useState<string | undefined>(undefined);
   const field = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    let live = true;
+    void deps.device.info?.().then(i => { if (live) setScreenLock(i.screenLock); }, () => {});
+    return () => { live = false; };
+  }, [deps]);
+  const restoreNote = cut.kind === 'restore-first'
+    ? <HandOffNote kind="restore-first" {...HAND_OFF_WORDS['restore-first']} leave={LEAVE_IT} onLeave={cut.dismiss} onAgain={() => { cut.dismiss(); props.onRestore(); }} />
+    : null;
 
   if (step === 0 && props.found) {
     return (
       <div className="center-col first">
+        {restoreNote}
         <div className="fr-mark">{I.brand()}</div>
         <h1 className="t-l" style={{ marginTop: 6 }}>Your record came back with this phone</h1>
         <p className="body" style={{ margin: '12px 0 0' }}>Android restored a locked copy made on {madeAtWords(props.found.madeAt, tz())}. Your passphrase or your recovery code opens it.</p>
@@ -73,6 +85,7 @@ export function FirstRun(props: FirstRunProps) {
   if (step === 1) {
     return (
       <div className="center-col first">
+        {restoreNote}
         <Steps step={1} />
         <div className="fr-mark">{I.brand()}</div>
         <h1 className="t-xl" style={{ marginTop: 6 }}>Daily Commit</h1>
@@ -159,7 +172,7 @@ export function FirstRun(props: FirstRunProps) {
       {mismatch && <div style={{ margin: '0 0 18px' }}><Note title="That doesn't match" text="Check each group against the paper, then finish again." /></div>}
       {refused && <div style={{ margin: '0 0 18px' }}><Note title="Not saved" text={refused} /></div>}
       <p className="meta" style={{ margin: '0 0 12px' }}>There's no skip. Once it matches, the app opens and this never appears again.</p>
-      {deps.device.deviceModes && <p className="meta" style={{ margin: '0 0 22px' }}>Day to day, Daily Commit opens with your phone's own lock. You can give it a separate code of its own any time, in Settings → Privacy.</p>}
+      {deps.device.deviceModes && <p className="meta" style={{ margin: '0 0 22px' }}>Day to day, Daily Commit opens with your phone's own lock. You can give it a separate code of its own any time, in Settings → Privacy.{screenLock !== false ? ` ${FIRST_TWICE}` : ''}</p>}
       <button type="button" className="btn btn--primary wide" data-a="finish" disabled={busy} onClick={() => void onFinish()}>{busy ? 'Opening…' : 'Finish'}</button>
     </div>
   );

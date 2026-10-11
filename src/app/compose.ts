@@ -8,6 +8,7 @@ import { minuteClock } from './clock.ts';
 import type { AppDeps, DevicePort } from './context.ts';
 import { lockMachine } from './lockMachine.ts';
 import { lockActions } from './lockNotes.ts';
+import { PHONE_ANSWER_MS } from './phoneAnswer.ts';
 import { recordStore } from './store.ts';
 
 // Builds what the app runs on: the phone's port inside the Android app, the browser's elsewhere.
@@ -28,10 +29,10 @@ export function openingView(made: Composed | undefined): 'ready' | 'black' {
  * The pieces around a record and a device. On the phone the snapshot's 3-second cap runs on the
  * Shell's uptime clock, which Android can't hold back; in a browser, on a JavaScript timer.
  */
-export function assemble(core: RecordCore, device: DevicePort, random: Random = systemRandom, appVersion = APP_VERSION): AppDeps {
+export function assemble(core: RecordCore, device: DevicePort, random: Random = systemRandom, appVersion = APP_VERSION, answerMs = PHONE_ANSWER_MS): AppDeps {
   const sleep = device.sleep ?? ((ms: number) => new Promise<void>(done => setTimeout(done, ms)));
-  const machine = lockMachine({ core, plugin: device.plugin, close: { files: device.files, sleep, appVersion } });
-  return { core, machine, lock: lockActions(machine), store: recordStore(core), clock: minuteClock(core.now), device, random, appVersion };
+  const machine = lockMachine({ core, plugin: device.plugin, close: { files: device.files, sleep, appVersion }, answerMs });
+  return { core, machine, lock: lockActions(machine, device.timing), store: recordStore(core), clock: minuteClock(core.now), device, random, appVersion };
 }
 
 /** Opens storage for this device, asks it to keep the storage safe, and assembles the app. */
