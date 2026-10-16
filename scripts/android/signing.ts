@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 
 /** The release key's certificate, SHA-256, lowercase hex, as apksigner prints it. Empty until Step 0; then pinned for good. */
-export const RELEASE_CERT_SHA256: string = '';
+export const RELEASE_CERT_SHA256: string = 'b92b6b89d794155d518ff56e4f6260709124bd7f89bc299c5d20bb4e5c49441f';
 export const KEY_ALIAS = 'daily-commit';
 export const KEY_FILE = 'daily-commit.jks';
 export const PROPS_FILE = 'keystore.properties';
