@@ -466,7 +466,8 @@ button.hm-app:active img{transform:scale(.94)}
 .steps i{width:20px;height:3px;border-radius:2px;background:rgb(var(--lift)/.16)}
 .steps i.on{background:var(--a09)}
 .code{display:grid;grid-template-columns:repeat(4,1fr);gap:10px 8px;padding:18px 16px;margin:22px 0}
-.code span{font:500 17px/1 var(--ui);letter-spacing:.12em;color:var(--ink-1);text-align:center}
+/* scales down on a narrow phone or with a larger system text size, so all five of a group always show */
+.code span{font:500 clamp(12px,3.6vw,17px)/1 var(--ui);letter-spacing:.06em;white-space:nowrap;color:var(--ink-1);text-align:center}
 /* the check symbol after the eight groups: a row of its own, centred, never a stray ninth cell */
 .code > span:nth-child(9){grid-column:1/-1}
 
