@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { availKb, credentialAction, fingerStep, focusIsCredential, pastLock, recentsPicture, recordOpened, sensorBeforePin, timingStep } from '../../scripts/android/checks/a.ts';
+import { forbiddenCanary, passphraseOnlyScreen, readSearched, recoveryCodeReady, rootStep, snapshotNames } from '../../scripts/android/checks/b.ts';
 import { isBlackRaw, secureCapture } from '../../scripts/android/checks/screen.ts';
 import { devtoolsOnImage, devtoolsSocket, ourAlarms, ourNotifications, ourTaskId, resumedActivity } from '../../scripts/android/checks/dumps.ts';
 import type { UiNode } from '../../scripts/android/drive.ts';
@@ -132,4 +136,62 @@ test('a credential prompt with Use PIN is typed; a sensor with no PIN is touched
   assert.equal(credentialAction(['Tap to cancel authentication', 'Daily Commit', 'Touch the fingerprint sensor', 'Use PIN']), 'use-pin');
   assert.equal(credentialAction(['Touch the fingerprint sensor', 'Daily Commit']), 'finger');
   assert.equal(credentialAction(['Tap to cancel authentication', 'Daily Commit']), 'type');
+});
+
+test('adb root that drops the connection is tried again; a production image is a refusal', () => {
+  assert.equal(rootStep('uid=0(root) gid=0(root)', ''), 'root');
+  assert.equal(rootStep('uid=2000(shell)', 'restarting adbd as root'), 'retry');
+  assert.equal(rootStep('', "adb.exe: device 'emulator-5556' not found"), 'retry');
+  assert.equal(rootStep('uid=2000(shell)', 'adbd cannot run as root in production builds'), 'refused');
+  assert.equal(rootStep('uid=2000(shell)', 'adbd is already running as root'), 'root');
+});
+
+test('the recovery code has replaced the passphrase when its button has, and the field is there', () => {
+  const edit: UiNode = { text: '', desc: '', id: '', cls: 'android.widget.EditText', bounds: [0, 0, 10, 10], enabled: true };
+  assert.equal(recoveryCodeReady([edit, node('Use the passphrase instead')]), true);
+  assert.equal(recoveryCodeReady([edit, node('Use the recovery code instead')]), false);
+  assert.equal(recoveryCodeReady([node('Use the passphrase instead')]), false);
+});
+
+test('only a shown reminder may be found outside the backup, and only in the notification dump, the app data, or the store', () => {
+  assert.equal(forbiddenCanary('shownCue', 'notif', 1), false);
+  assert.equal(forbiddenCanary('shownCue', 'data', 7), false);
+  assert.equal(forbiddenCanary('shownCue', 'xml', 7), false);
+  assert.equal(forbiddenCanary('shownCue', 'backup', 1), true);
+  assert.equal(forbiddenCanary('shownCue', 'log', 1), true);
+  assert.equal(forbiddenCanary('privateCue', 'xml', 1), true);
+  assert.equal(forbiddenCanary('privateCue', 'notif', 1), true);
+  assert.equal(forbiddenCanary('diary', 'data', 1), true);
+  assert.equal(forbiddenCanary('privateCue', 'xml', 0), false);
+});
+
+test('a backup is only the snapshot, judged on the full path, and a bare name does not pass', () => {
+  const manifest = '/data/data/com.android.localtransport/files/1/_full/apps/app.dailycommit/_manifest';
+  const snapshot = '/data/data/com.android.localtransport/files/1/_full/apps/app.dailycommit/f/backup/latest.dcbak';
+  assert.equal(snapshotNames([manifest, snapshot]), undefined);
+  assert.match(snapshotNames([manifest, snapshot, '/data/data/app.dailycommit/shared_prefs/NOTIFICATION_STORE.xml']) ?? '', /shared_prefs/);
+  assert.match(snapshotNames(['_manifest', 'latest.dcbak']) ?? '', /latest\.dcbak/);
+});
+
+test('a missing or empty capture is a failed read, not a search that found nothing', () => {
+  assert.throws(() => readSearched(join(tmpdir(), 'dc-8b-no-such-capture'), 'the backup'), /not read/);
+  const dir = mkdtempSync(join(tmpdir(), 'dc-8b-'));
+  const empty = join(dir, 'logcat.txt');
+  writeFileSync(empty, new Uint8Array());
+  try {
+    assert.throws(() => readSearched(empty, 'the log'), /not read/);
+  } finally {
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('the passphrase-only lock is Locked and Open with the phone hint, and no device way', () => {
+  const edit: UiNode = { text: '', desc: '', id: '', cls: 'android.widget.EditText', bounds: [0, 0, 10, 10], enabled: true };
+  const screen = [node('LOCKED'), edit, node('Open'), node('Your passphrase. Your phone never stores it.'), node('Use the recovery code instead')];
+  assert.equal(passphraseOnlyScreen(screen), undefined);
+  assert.match(passphraseOnlyScreen([...screen, node('Use your passphrase')]) ?? '', /another way/);
+  assert.match(passphraseOnlyScreen([...screen, node("Use your phone's PIN or pattern")]) ?? '', /another way/);
+  assert.match(passphraseOnlyScreen([...screen, node('Unlock with fingerprint')]) ?? '', /another way/);
+  assert.match(passphraseOnlyScreen([...screen, node('Use your code')]) ?? '', /another way/);
+  assert.match(passphraseOnlyScreen([node('LOCKED'), node('Open')]) ?? '', /not up/);
 });

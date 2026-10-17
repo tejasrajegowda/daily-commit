@@ -1,5 +1,5 @@
-// Task 8a on the test phone. One process holds the emulator for the whole run.
-// 8b is a later task. adb is only ever aimed at emulator-5556.
+// Task 8a and 8b on the test phone. One process holds the emulator for the whole run.
+// adb is only ever aimed at emulator-5556.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
@@ -10,10 +10,14 @@ import { startEmulator, stopEmulator } from '../emulator.ts';
 import { GB } from '../memory.ts';
 import { isDcTestPhone } from '../smoke.ts';
 import { checksA, Platform, type RunCtx } from './a.ts';
-import { seed, type Seed } from './seed.ts';
+import { checksB, loadTransport, putTransportBack, type BCtx } from './b.ts';
+import { seed, SEED_CANARIES, type Seed } from './seed.ts';
 
 const NAMES = ['A0', 'A1', 'A2', 'A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'A10', 'A11', 'A12', 'A13', 'A14', 'A15', 'A16', 'A17', 'A18', 'A19'] as const;
+const BNAMES = ['B0', 'B1', 'B2', 'B3', 'B4', 'B5', 'B6', 'B7', 'B8'] as const;
 const CUE_FILE = join('.local', 'android', '8a-cues.json');
+const SEED_FILE = join('.local', 'android', '8b-seed.dcbak');
+const SEED_META = join('.local', 'android', '8b-seed.json');
 
 function stamp(d: Date): string {
   const p = (n: number) => String(n).padStart(2, '0');
@@ -104,6 +108,40 @@ function resetPhone(): void {
   sh('rm -f /data/local/tmp/dc-fill /data/user/0/app.dailycommit/dc-fill');
 }
 
+function saveSeed(made: Seed, cues: { shown: number; private: number }, seededAtSec: number): void {
+  mkdirSync(join('.local', 'android'), { recursive: true });
+  writeFileSync(SEED_FILE, made.file);
+  writeFileSync(SEED_META, `${JSON.stringify({
+    passphrase: made.passphrase,
+    recoveryCode: made.recoveryCode,
+    habit: made.habit,
+    shown: cues.shown,
+    private: cues.private,
+    seededAtSec,
+  })}\n`);
+}
+
+function loadSeed(): { seed: Seed; cues: { shown: number; private: number }; seededAtSec: number } | undefined {
+  if (!existsSync(SEED_FILE) || !existsSync(SEED_META)) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(SEED_META, 'utf8'));
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return undefined;
+  const row = parsed as { passphrase?: unknown; recoveryCode?: unknown; habit?: unknown; shown?: unknown; private?: unknown; seededAtSec?: unknown };
+  if (typeof row.passphrase !== 'string' || typeof row.recoveryCode !== 'string' || typeof row.habit !== 'string') return undefined;
+  if (typeof row.shown !== 'number' || typeof row.private !== 'number' || typeof row.seededAtSec !== 'number') return undefined;
+  const file = new Uint8Array(readFileSync(SEED_FILE));
+  if (file.byteLength === 0) return undefined;
+  return {
+    seed: { file, passphrase: row.passphrase, recoveryCode: row.recoveryCode, canaries: SEED_CANARIES, habit: row.habit },
+    cues: { shown: row.shown, private: row.private },
+    seededAtSec: row.seededAtSec,
+  };
+}
+
 /** Shown is six minutes ahead and the private cue eight. Past 23:51 UTC, wait until 00:02. */
 async function cueClock(phone: Emu, say: (line: string) => void): Promise<number> {
   let sec = deviceSec(phone);
@@ -116,18 +154,142 @@ async function cueClock(phone: Emu, say: (line: string) => void): Promise<number
   return sec;
 }
 
+async function run8b(rest: readonly string[]): Promise<number> {
+  let from: string | undefined;
+  if (rest.length === 0) from = undefined;
+  else if (rest.length === 2 && rest[0] === '--from' && rest[1] !== undefined && (BNAMES as readonly string[]).includes(rest[1])) from = rest[1];
+  else {
+    console.log('usage: node scripts/android/checks/run.ts 8b [--from B0]');
+    return 2;
+  }
+
+  const startedAt = Date.now();
+  const id = stamp(new Date());
+  const dir = join('.local', 'android', `8b-${id}`);
+  const logPath = join('.local', 'android', `8b-${id}.log`);
+  mkdirSync(dir, { recursive: true });
+  const say = (line: string) => {
+    console.log(line);
+    appendFileSync(logPath, `${line}\n`);
+  };
+
+  let failed = false;
+  let booted = false;
+  const phone = emu();
+  let made: Seed | undefined;
+  let cues = { shown: 0, private: 0 };
+  let seededAtSec = 0;
+  const transport = loadTransport();
+  const ctx: BCtx = {
+    dir,
+    get seed() {
+      if (made === undefined) throw new Error('no seed');
+      return made;
+    },
+    set seed(value: Seed) { made = value; },
+    get cues() { return cues; },
+    set cues(value: { shown: number; private: number }) { cues = value; },
+    get seededAtSec() { return seededAtSec; },
+    set seededAtSec(value: number) { seededAtSec = value; },
+    note: say,
+    save(name, data) { writeFileSync(join(dir, name), data); },
+    install: installApp,
+    reseed() { return Promise.reject(new Error('8b does not reseed')); },
+    transport,
+    backupSaved: [],
+    async prepareSeed(p) {
+      const sec = await cueClock(p, say);
+      const shown = awayFromQuiet(minuteOf(sec) + 6);
+      let priv = awayFromQuiet(minuteOf(sec) + 8);
+      if (priv === shown) priv = awayFromQuiet(shown + 2);
+      const next = await seed(sec * 1000, { shown, private: priv });
+      made = next;
+      cues = { shown, private: priv };
+      seededAtSec = sec;
+      saveSeed(next, cues, sec);
+      say(`seeded at phone minute ${minuteOf(sec)}, cues ${shown} and ${priv}`);
+    },
+  };
+
+  try {
+    say(`free memory before the emulator: ${(freemem() / GB).toFixed(1)} GB`);
+    if (transport.applied) say('a previous run left the local transport selected; it is put back at the end');
+    booted = await startEmulator();
+    if (!booted) {
+      say('FAIL boot (the emulator did not start)');
+      failed = true;
+    } else {
+      adbOnTestPhone(['root'], 60_000);
+      adbOnTestPhone(['wait-for-device'], 120_000);
+      if (transport.applied && !transport.putBack) {
+        const why = putTransportBack(phone, transport);
+        if (why !== undefined) throw new Error(`the backup transport could not be put back (${why})`);
+        say('transport put back before the checks');
+      }
+      if (from !== undefined && from !== 'B0') {
+        const saved = loadSeed();
+        if (saved === undefined) throw new Error('no saved seed for a resumed run');
+        made = saved.seed;
+        cues = saved.cues;
+        seededAtSec = saved.seededAtSec;
+        say(`resumed at phone minute ${minuteOf(seededAtSec)}, cues ${cues.shown} and ${cues.private}`);
+      }
+      let reached = from === undefined;
+      for (const check of checksB(ctx)) {
+        if (!reached) {
+          if (check.name === from) reached = true;
+          else continue;
+        }
+        const t0 = Date.now();
+        try {
+          await check.run(phone);
+          say(`PASS ${check.name} (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'failed';
+          if (err instanceof Platform) say(`PASS ${check.name} (platform: ${message})`);
+          else {
+            say(`FAIL ${check.name} (${message})`);
+            failed = true;
+            break;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    say(`FAIL setup (${err instanceof Error ? err.message : 'failed'})`);
+    failed = true;
+  } finally {
+    if (booted) {
+      try {
+        const why = putTransportBack(phone, transport);
+        if (why !== undefined) {
+          say(`FAIL transport put back (${why})`);
+          failed = true;
+        } else if (transport.applied) say('transport put back');
+      } catch (err) {
+        say(`FAIL transport put back (${err instanceof Error ? err.message : 'failed'})`);
+        failed = true;
+      }
+      const stopped = await stopEmulator();
+      say(stopped ? 'emulator stopped' : 'FAIL emulator stop');
+      if (!stopped) failed = true;
+    }
+  }
+
+  const wall = ((Date.now() - startedAt) / 60_000).toFixed(1);
+  say(failed ? `emu-checks: FAIL (${wall} min)` : `emu-checks: every check PASS (${wall} min)`);
+  return failed ? 1 : 0;
+}
+
 async function main(): Promise<number> {
   const argv = process.argv.slice(2);
   if (refused(argv)) {
     console.log('refusing: adb may address only emulator-5556');
     return 2;
   }
-  if (argv[0] === '8b') {
-    console.log('8b is written in Task 8b.');
-    return 2;
-  }
+  if (argv[0] === '8b') return run8b(argv.slice(1));
   if (argv[0] !== '8a') {
-    console.log('usage: node scripts/android/checks/run.ts 8a [--from A0]');
+    console.log('usage: node scripts/android/checks/run.ts 8a [--from A0] | 8b [--from B0]');
     return 2;
   }
   const rest = argv.slice(1);

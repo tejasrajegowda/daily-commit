@@ -144,7 +144,7 @@ function hitNode(n: UiNode, label: string | RegExp): boolean {
   return find([n], label) !== undefined;
 }
 
-function launch(phone: Emu, wait: boolean): void {
+export function launch(phone: Emu, wait: boolean): void {
   const cmd = wait ? `am start -W -n ${APP}/.MainActivity` : `am start -n ${APP}/.MainActivity`;
   let last = 'no output';
   for (let i = 0; i < 4; i++) {
@@ -156,7 +156,7 @@ function launch(phone: Emu, wait: boolean): void {
   throw new Error(`the activity did not start (${last})`);
 }
 
-function showing(phone: Emu, label: string | RegExp): boolean {
+export function showing(phone: Emu, label: string | RegExp): boolean {
   return seen(phone.dump(), label);
 }
 
@@ -164,12 +164,12 @@ function dismissOffer(phone: Emu): void {
   if (showing(phone, has('Let Daily Commit send reminders'))) phone.tap(words('Not now'), 10_000);
 }
 
-function locked(phone: Emu): boolean {
+export function locked(phone: Emu): boolean {
   const nodes = phone.dump();
   return seen(nodes, words('Locked')) || (seen(nodes, words('Passphrase')) && seen(nodes, words('Open')) && !seen(nodes, has('Restore from a backup')));
 }
 
-function focusSecret(phone: Emu, label: string): void {
+export function focusSecret(phone: Emu, label: string): void {
   const until = Date.now() + 12_000;
   let nodes = phone.dump();
   for (;;) {
@@ -193,7 +193,7 @@ function focusSecret(phone: Emu, label: string): void {
   throw new Error(`the ${label} field was not on screen (${labels.join(' | ') || 'no words'})`);
 }
 
-function unlock(phone: Emu, passphrase: string): void {
+export function unlock(phone: Emu, passphrase: string): void {
   leavePrompt(phone);
   if (showing(phone, words('Use your passphrase'))) {
     phone.tap(words('Use your passphrase'), 15_000);
@@ -222,7 +222,7 @@ function unlock(phone: Emu, passphrase: string): void {
   }
 }
 
-function appInFront(phone: Emu): boolean {
+export function appInFront(phone: Emu): boolean {
   const resumed = resumedActivity(phone.shell('dumpsys activity activities').out) ?? '';
   if (resumed.startsWith(`${APP}/`)) return true;
   const out = phone.shell('dumpsys window').out;
@@ -232,7 +232,7 @@ function appInFront(phone: Emu): boolean {
   return focus.includes(`${APP}/`);
 }
 
-function dismissKeyguard(phone: Emu): void {
+export function dismissKeyguard(phone: Emu): void {
   for (let i = 0; i < 3; i++) {
     const nodes = phone.dump();
     const system = seen(nodes, has('Wifi signal')) || seen(nodes, has('Battery charging'));
@@ -297,7 +297,7 @@ function ensureOpen(phone: Emu, ctx: RunCtx): void {
   dismissOffer(phone);
 }
 
-function openFoundCopy(phone: Emu, ctx: RunCtx): void {
+export function openFoundCopy(phone: Emu, ctx: RunCtx): void {
   phone.tap(words('Restore it'), 15_000);
   if (!phone.waitFor(has('Choose another file'), 25_000) && !phone.waitFor(words('Passphrase'), 8_000)) {
     throw new Error('the restored copy did not open the restore screen');
@@ -336,7 +336,7 @@ function openRestore(phone: Emu, ctx: RunCtx): void {
   if (!phone.waitFor(has('Choose a file'), 20_000)) throw new Error('the restore screen did not open');
 }
 
-function pushSeed(ctx: RunCtx, remote: string): void {
+export function pushSeed(ctx: RunCtx, remote: string): void {
   const path = `${ctx.dir}/${remote}`;
   writeFileSync(path, ctx.seed.file);
   const pushed = adbOnTestPhone(['push', path, `/sdcard/Download/${remote}`], 60_000);
@@ -415,7 +415,7 @@ function pickFile(phone: Emu, ctx: RunCtx, fileName: string): void {
   throw new Error(`the backup was not in the picker (${listed} seed name(s) in Download)`);
 }
 
-function restoreSeed(phone: Emu, ctx: RunCtx, remote: string, fromWelcome: boolean): void {
+export function restoreSeed(phone: Emu, ctx: RunCtx, remote: string, fromWelcome: boolean): void {
   if (fromWelcome) {
     if (showing(phone, words('Choose again'))) phone.tap(words('Choose again'), 15_000);
     else if (!showing(phone, has('Choose a file')) && !showing(phone, words('Choose another file'))) {
@@ -609,7 +609,7 @@ function assertDcPhone(why: string): void {
   if (named.code !== 0 || !isDcTestPhone(named.out)) throw new Error(`refusing ${why}: avd ${shown}`);
 }
 
-function guardUninstall(): void {
+export function guardUninstall(): void {
   assertDcPhone('uninstall');
   adbOnTestPhone(['uninstall', APP], 60_000);
 }
