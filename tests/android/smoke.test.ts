@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { channelProblems, dumpWroteFile, isDcTestPhone, isLeftoverPassFile, pageLoaded, smokeArgsOk, windowIsSecure } from '../../scripts/android/smoke.ts';
+import { channelProblems, dumpWroteFile, isDcTestPhone, isLeftoverPassFile, pageLoaded, smokeArgsOk, smokeAvd, statusBarHeight, titleClearsStatusBar, windowIsSecure } from '../../scripts/android/smoke.ts';
 
 test('the app\'s own window must carry the SECURE flag', () => {
   const ours = '  Window #3 Window{a1 u0 app.dailycommit/app.dailycommit.MainActivity}:\n    mAttrs={(0,0)(fillxfill) ty=BASE_APPLICATION fl=LAYOUT_IN_SCREEN SECURE HARDWARE_ACCELERATED}\n';
@@ -55,8 +55,22 @@ test('a leftover password file is only pass-*.tmp in this folder', () => {
   assert.equal(isLeftoverPassFile('emulator-only.jks'), false);
 });
 
-test('smoke takes no arguments yet', () => {
+test('smoke names a dc- phone only when asked', () => {
   assert.equal(smokeArgsOk([]), true);
-  assert.equal(smokeArgsOk(['--avd', 'dc-api37']), false);
+  assert.equal(smokeArgsOk(['--avd', 'dc-api37']), true);
+  assert.equal(smokeArgsOk(['--avd', 'omni-api33']), false);
   assert.equal(smokeArgsOk(['--help']), false);
+  assert.equal(smokeArgsOk(['--avd']), false);
+  assert.equal(smokeAvd([]), 'dc-api33');
+  assert.equal(smokeAvd(['--avd', 'dc-api37']), 'dc-api37');
+});
+
+test('the first title sits below the status bar', () => {
+  assert.equal(statusBarHeight('  mStatusBarHeight=84\n'), 84);
+  assert.equal(statusBarHeight('  Window #0 Window{abc u0 StatusBar}:\n    mFrame=[0,0][1080,96]\n'), 96);
+  assert.equal(statusBarHeight('no bar here'), undefined);
+  const dump = '<node text="Daily Commit" bounds="[0,96][1080,200]" />';
+  assert.equal(titleClearsStatusBar(dump, 96), true);
+  assert.equal(titleClearsStatusBar(dump, 120), false);
+  assert.equal(titleClearsStatusBar('<node text="Other" bounds="[0,200][10,210]" />', 0), false);
 });

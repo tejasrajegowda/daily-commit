@@ -72,6 +72,34 @@ test('U4 R1-8: a phone that did not answer says so', () => {
   assert.equal(NOTE_WORDS['no-answer'].text, "The phone's lock didn't answer, so Daily Commit didn't open. Nothing was changed. Try again, or use your passphrase.");
 });
 
+test('an unlock that opens is timed even when opening clears the note', async () => {
+  const timed: string[] = [];
+  let actions: ReturnType<typeof lockActions> | undefined;
+  const machine = {
+    unlock: async () => {
+      actions?.clear();
+      return { kind: 'Open' as const };
+    },
+  } as unknown as LockMachine;
+  actions = lockActions(machine, (label, ms) => { timed.push(`${label} ${ms}`); });
+  await actions.unlock({ method: 'passphrase', text: 'CANARY passphrase' });
+  assert.equal(timed.length, 1);
+  const ms = Number((timed[0] ?? '').slice('unlock '.length));
+  assert.equal((timed[0] ?? '').startsWith('unlock '), true);
+  assert.ok(ms >= 0);
+});
+
+test('a leave during an unlock is not timed', async () => {
+  const timed: string[] = [];
+  let answer: (o: UnlockOutcome) => void = () => {};
+  const actions = lockActions({ unlock: () => new Promise<UnlockOutcome>(r => { answer = r; }) } as unknown as LockMachine, label => { timed.push(label); });
+  const late = actions.unlock({ method: 'passphrase', text: 'CANARY passphrase' });
+  actions.clear();
+  answer({ kind: 'Left' });
+  await late;
+  assert.deepEqual(timed, []);
+});
+
 test('an answer that lands after a clear says nothing and is not remembered', async () => {
   let answer: (o: UnlockOutcome) => void = () => {};
   const actions = lockActions({ unlock: () => new Promise<UnlockOutcome>(r => { answer = r; }) } as unknown as LockMachine);

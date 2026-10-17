@@ -14,7 +14,8 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { APP_ID, newestReleaseApk, SIGNED_APK, UNSIGNED_APK } from './apk-check.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
-import { adb, SERIAL, startEmulator, stopEmulator } from './emulator.ts';
+import { find, nodesOf } from './drive.ts';
+import { adb, AVD, SERIAL, startEmulator, stopEmulator } from './emulator.ts';
 import { GB, readHeavy } from './memory.ts';
 import { installOnPhone, phoneExec } from './phone.ts';
 import { RELEASE_CERT_SHA256, SECOND_COPY } from './signing.ts';
@@ -95,9 +96,29 @@ export function isLeftoverPassFile(name: string): boolean {
   return /^pass-[^/\\]*\.tmp$/.test(name);
 }
 
-/** Smoke takes no arguments yet. Any argument is a usage error. */
+/** No arguments keep the default phone. `--avd` names another dc- phone and nothing else. */
 export function smokeArgsOk(args: readonly string[]): boolean {
-  return args.length === 0;
+  if (args.length === 0) return true;
+  return args.length === 2 && args[0] === '--avd' && (args[1]?.startsWith('dc-') ?? false);
+}
+
+/** The phone smoke boots: the default, or the dc- name after `--avd`. */
+export function smokeAvd(args: readonly string[]): string {
+  return args.length === 2 && args[0] === '--avd' && args[1] !== undefined ? args[1] : AVD;
+}
+
+/** The status bar's height, from `mStatusBarHeight` or the StatusBar window's frame. */
+export function statusBarHeight(dumpsysWindow: string): number | undefined {
+  const direct = /\bmStatusBarHeight=(\d+)/.exec(dumpsysWindow);
+  if (direct?.[1] !== undefined) return Number(direct[1]);
+  const frame = /StatusBar[\s\S]{0,500}?mFrame=\[\d+,\d+\]\[\d+,(\d+)\]/.exec(dumpsysWindow);
+  return frame?.[1] === undefined ? undefined : Number(frame[1]);
+}
+
+/** The first screen's title starts at or below the status bar. */
+export function titleClearsStatusBar(uiDump: string, bar: number): boolean {
+  const node = find(nodesOf(uiDump), FIRST_SCREEN_TITLE);
+  return node !== undefined && node.bounds[1] >= bar;
 }
 
 function stamp(d: Date): string {
@@ -148,7 +169,9 @@ function removeLeftoverPassFiles(): void {
   }
 }
 
-async function main(): Promise<number> {
+async function main(args: readonly string[]): Promise<number> {
+  const avd = smokeAvd(args);
+  const checkEdge = args.length > 0;
   mkdirSync(DIR, { recursive: true });
   removeLeftoverPassFiles();
   const lines: string[] = [];
@@ -186,7 +209,7 @@ async function main(): Promise<number> {
   say(`free memory before the emulator: ${(freemem() / GB).toFixed(1)} GB`);
   const onPhone = async () => {
     // 3: the test phone, then the install
-    const booted = await startEmulator();
+    const booted = await startEmulator(avd);
     check('emulator booted', booted);
     if (!booted) return;
     const named = adb(['-s', SERIAL, 'emu', 'avd', 'name']);
@@ -231,6 +254,18 @@ async function main(): Promise<number> {
     const took = `${((Date.now() - opened) / 1000).toFixed(0)} s`;
     check('first screen loaded from https://localhost (title matched)', loaded, loaded ? took : `not within ${took}`);
 
+    // Only when a phone was named. The default run keeps the same lines as before.
+    if (checkEdge) {
+      adb(['-s', SERIAL, 'shell', 'rm', '-f', UI_DUMP]);
+      const dump = adb(['-s', SERIAL, 'shell', 'uiautomator', 'dump', UI_DUMP]);
+      const read = adb(['-s', SERIAL, 'shell', 'cat', UI_DUMP]);
+      const bar = statusBarHeight(adb(['-s', SERIAL, 'shell', 'dumpsys', 'window', 'windows']).out);
+      const wrote = dumpWroteFile(dump.status, dump.out, read.status);
+      const clears = wrote && bar !== undefined && titleClearsStatusBar(read.out, bar);
+      check('title clears the status bar', clears, bar === undefined ? 'no status bar height' : `bar ${bar}`);
+      adb(['-s', SERIAL, 'shell', 'rm', '-f', UI_DUMP]);
+    }
+
     // 6: the window
     check('window is secure', windowIsSecure(adb(['-s', SERIAL, 'shell', 'dumpsys', 'window', 'windows']).out));
 
@@ -265,9 +300,9 @@ function finish(lines: readonly string[], code: number): number {
 if (import.meta.main) {
   const args = process.argv.slice(2);
   if (!smokeArgsOk(args)) {
-    console.log('usage: node scripts/android/smoke.ts');
+    console.log('usage: node scripts/android/smoke.ts [--avd dc-name]');
     process.exitCode = 2;
   } else {
-    process.exitCode = await main();
+    process.exitCode = await main(args);
   }
 }

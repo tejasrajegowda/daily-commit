@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emulatorArgs, emulatorStopped, PORT, SERIAL, shouldStopProcessTree, taskkillArgs } from '../../scripts/android/emulator.ts';
+import { emulatorArgs, emulatorStopped, mayRemoveFill, PORT, SERIAL, shouldStopProcessTree, taskkillArgs } from '../../scripts/android/emulator.ts';
 
 test('the emulator runs on its own port, with no snapshot, no window, a software GPU and 3 GB', () => {
   assert.equal(PORT, 5556);
@@ -11,6 +11,14 @@ test('the emulator runs on its own port, with no snapshot, no window, a software
 
 test('another project\'s test phones are refused', () => {
   assert.throws(() => emulatorArgs('omni-api33'));
+});
+
+test('a leftover fill file is removed only when the listed phone names itself dc-', () => {
+  assert.equal(mayRemoveFill('dc-api33\nOK\n', 0), true);
+  assert.equal(mayRemoveFill('omni-api33\nOK\n', 0), false);
+  assert.equal(mayRemoveFill('OK\n', 0), false);
+  assert.equal(mayRemoveFill('OK\ndc-api33\n', 0), false);
+  assert.equal(mayRemoveFill('dc-api33\n', 1), false);
 });
 
 test('a stop has worked only when our phone is unlisted and the process we started is gone', () => {

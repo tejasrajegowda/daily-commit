@@ -85,6 +85,16 @@ function tools(): { adb: string; emulator: string; env: Record<string, string> }
   return { adb: paths.adb, emulator: paths.emulator, env: childEnv(tc, process.env) };
 }
 
+/**
+ * The fill file may be removed only when the name command succeeded and its first line is a dc- phone.
+ * smoke.ts imports this file, so that rule is repeated here instead of imported.
+ */
+export function mayRemoveFill(avdNameOutput: string, code: number): boolean {
+  if (code !== 0) return false;
+  const name = avdNameOutput.split(/\r?\n/).map(line => line.trim()).find(line => line !== '') ?? '';
+  return name.startsWith('dc-');
+}
+
 /** One adb command on the test phone (or on adb itself with no serial); its output, never printed here. */
 export function adb(args: readonly string[], timeoutMs = 120_000): { status: number; out: string } {
   const { adb: tool, env } = tools();
@@ -125,11 +135,28 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
     return exited !== null;
   };
   let announced = false;
+  let freed = false;
   while (Date.now() - started < BOOT_WAIT_MS) {
     if (await childGone()) break;
     if (!announced && listed(POLL_MS)) {
       console.log(`emulator: listed by adb after ${seconds()} s`);
       announced = true;
+    }
+    // A full shared volume from the check's own fill file stops boot before boot_completed.
+    // An unreadable name is tried again. A phone that names itself something else is left alone.
+    if (announced && !freed) {
+      const named = adb(['-s', SERIAL, 'emu', 'avd', 'name'], 30_000);
+      const readable = named.status === 0 && named.out.trim() !== '';
+      if (readable && mayRemoveFill(named.out, named.status)) {
+        const rm = adb(['-s', SERIAL, 'shell', 'rm', '-f', '/data/local/tmp/dc-fill', '/data/user/0/app.dailycommit/dc-fill'], 60_000);
+        if (rm.status === 0) {
+          adb(['-s', SERIAL, 'shell', 'sync'], 30_000);
+          freed = true;
+          console.log('emulator: removed a leftover fill file');
+        }
+      } else if (readable) {
+        freed = true;
+      }
     }
     if (await childGone()) break;
     const polledAt = Date.now();

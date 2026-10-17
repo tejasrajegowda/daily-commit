@@ -88,8 +88,9 @@ export function lockActions(machine: LockMachine, timing?: (label: 'unlock', ms:
       const mine = turn;
       const t0 = performance.now();
       const outcome = await machine.unlock(how);
-      if (mine !== turn) return outcome;
+      // Opening itself clears the note, which moves the turn. The time was still spent opening.
       if (outcome.kind === 'Open') timing?.('unlock', performance.now() - t0);
+      if (mine !== turn) return outcome;
       set(noteFor(wayOf(how), outcome, before));
       before = outcome;
       return outcome;
