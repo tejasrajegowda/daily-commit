@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  duringHandOff, finishNewCode, checkCode, meter, newPassphrase, secretOpens, setMode, startNewCode, useApp, useNav,
+  duringHandOff, finishNewCode, checkCode, meter, MIN_PASSPHRASE_CHARS, newPassphrase, secretOpens, setMode, startNewCode, useApp, useNav,
   type Bars, type PendingCode, type Secret as Typed,
 } from '../app/context.ts';
 import { CodePad, MAX_DIGITS } from '../ui/CodePad.tsx';
@@ -118,7 +118,7 @@ function ChangePassphrase() {
     setBusy(true);
     const outcome = await newPassphrase(deps, was, now).catch(() => undefined).finally(() => setBusy(false));
     if (outcome?.kind === 'Saved') setDone(true);
-    else if (outcome?.kind === 'TooShort') setNote({ title: 'A little longer', text: 'A new passphrase needs at least 15 characters. Five ordinary words is plenty.' });
+    else if (outcome?.kind === 'TooShort') setNote({ title: 'A little longer', text: `A new passphrase needs at least ${MIN_PASSPHRASE_CHARS} characters. Five ordinary words is plenty.` });
     else if (outcome?.kind === 'WrongSecret') setNote(code
       ? { title: "That code didn't open it", text: 'Check the recovery code against the paper. Nothing was changed.' }
       : { title: "That isn't the current one", text: 'Check the current passphrase. Nothing was changed.' });
@@ -135,7 +135,7 @@ function ChangePassphrase() {
       </form>
       <button type="button" className="btn btn--text" data-a="pass-usecode" disabled={busy} style={{ marginTop: 6 }}
         onClick={() => { if (current.current) current.current.value = ''; setNote(undefined); setCode(!code); }}>{code ? 'Use the current passphrase instead' : 'Forgotten it? Use the recovery code instead'}</button>
-      <Meter bars={strength.bars} label={strength.label} extra={strength.label.startsWith('At least') ? ' · five ordinary words is plenty' : ' · at least 15 characters; five ordinary words is plenty'} />
+      <Meter bars={strength.bars} label={strength.label} extra={strength.label.startsWith('At least') ? ' · five ordinary words is plenty' : ` · at least ${MIN_PASSPHRASE_CHARS} characters; five ordinary words is plenty`} />
       {note && <Note title={note.title} text={note.text} />}
       <button type="button" className="btn btn--primary wide" data-a="pass-change" disabled={busy} style={{ marginTop: 18 }} onClick={() => void change()}>{busy ? 'Changing…' : 'Change it'}</button>
     </Page>

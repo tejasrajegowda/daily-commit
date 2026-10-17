@@ -65,10 +65,10 @@ export function passphraseBytes(text: string): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * The fewest characters a new passphrase may have: the floor NIST SP 800-63B-4 sets when a password
- * is the only thing that opens something. Five ordinary words clear it.
+ * The fewest characters a new passphrase may have, counted as code points after NFC and trimming.
+ * Five ordinary words clear it.
  */
-export const MIN_PASSPHRASE_CHARS = 15;
+export const MIN_PASSPHRASE_CHARS = 12;
 
 /** A passphrase's length as it will be stretched: characters (code points) after NFC and trimming. */
 export function passphraseLength(text: string): number {

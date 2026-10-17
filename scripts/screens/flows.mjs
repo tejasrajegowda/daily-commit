@@ -135,7 +135,7 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
 
   await h.open(p, 's=lock&v=pass');
   check('no device copy: the passphrase only, and no way back to a device', await shows(p, '.lk-pass') && (await p.locator('[data-a="lockbio"]').count()) === 0);
-  check('R4-11: the phone hint names the passphrase, not "five words" (the rule is 15 characters)',
+  check('R4-11: the phone hint names the passphrase, not "five words" (the rule is 12 characters)',
     (await p.locator('.lk-hint').innerText()) === 'Your passphrase. Your phone never stores it.');
   await p.fill('.lk-pass input', 'CANARY not the passphrase');
   await p.press('.lk-pass input', 'Enter');
@@ -217,7 +217,7 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
     (await p.locator('[data-a="fstep"] + p.meta').innerText()) === 'This is said once, here.');
   await p.tap('[data-a="fstep"]');
   await p.fill('input.pass', 'short one');
-  check('first day: the meter says the minimum under 15 characters', (await p.locator('[data-a="meter"]').innerText()).includes('At least 15'));
+  check('first day: the meter says the minimum under 12 characters', (await p.locator('[data-a="meter"]').innerText()).includes('At least 12'));
   await p.tap('[data-a="fstep"]');
   check('first day: a short passphrase is refused', (await p.locator('h1.t-l').innerText()) === 'Choose a passphrase'
     && (await p.locator('[data-a="meter"]').innerText()).includes('longer'));
@@ -1556,7 +1556,7 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   await p.fill('input[aria-label="Current passphrase"]', PASSPHRASE);
   await p.fill('input[aria-label="New passphrase"]', 'too short');
   await p.tap('[data-a="pass-change"]');
-  check('Change passphrase: under 15 characters is refused', await until(() => document.querySelector('[data-a="secret-note"]')?.textContent?.includes('at least 15 characters')));
+  check('Change passphrase: under 12 characters is refused', await until(() => document.querySelector('[data-a="secret-note"]')?.textContent?.includes('at least 12 characters')));
   await p.fill('input[aria-label="Current passphrase"]', PASSPHRASE);
   await p.fill('input[aria-label="New passphrase"]', 'CANARY river stone lamp cloud');
   await p.tap('[data-a="pass-change"]');

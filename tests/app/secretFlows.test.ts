@@ -9,10 +9,10 @@ const PASS = { method: 'passphrase', text: PASSPHRASE } as const;
 const opens = async (core: Parameters<typeof rowsOf>[0], method: 'passphrase' | 'recovery', text: string) =>
   (await unlockWithSecret(await rowsOf(core), { method, text })).kind === 'Unlocked';
 
-test('a new passphrase under 15 characters is refused; a long one replaces the old', async () => {
+test('a new passphrase under 12 characters is refused; a long one replaces the old', async () => {
   const r = await realRecord();
   const { deps } = testDeps(r.core);
-  assert.deepEqual(await newPassphrase(deps, PASS, 'too short'), { kind: 'TooShort' });
+  assert.deepEqual(await newPassphrase(deps, PASS, 'eleven char'), { kind: 'TooShort' });
   assert.equal((await newPassphrase(deps, { method: 'passphrase', text: 'CANARY wrong one' }, 'CANARY river stone lamp cloud')).kind, 'WrongSecret');
   assert.equal((await newPassphrase(deps, PASS, 'CANARY river stone lamp cloud')).kind, 'Saved');
   assert.equal(await opens(r.core, 'passphrase', 'CANARY river stone lamp cloud'), true);

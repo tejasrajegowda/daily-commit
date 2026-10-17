@@ -12,10 +12,10 @@ async function prepared(app: ReturnType<typeof emptyApp>): Promise<Prepared> {
   return p.prepared;
 }
 
-test('a passphrase under 15 characters is refused before anything is stretched or written', async () => {
+test('a passphrase under 12 characters is refused before anything is stretched or written', async () => {
   const app = emptyApp();
   assert.deepEqual(await prepareVault(app.deps, 'short one'), { kind: 'TooShort' });
-  assert.deepEqual(await prepareVault(app.deps, '   fourteen chars  '.slice(0, 17)), { kind: 'TooShort' });
+  assert.deepEqual(await prepareVault(app.deps, '   eleven char   '), { kind: 'TooShort' });
   assert.equal(await app.db.vault.count(), 0);
 });
 

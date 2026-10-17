@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { finishFirstRun, firstSettings, HAND_OFF_WORDS, LEAVE_IT, meter, prepareVault, useApp, useHandOff, type Bars, type Prepared } from '../app/context.ts';
+import { finishFirstRun, firstSettings, HAND_OFF_WORDS, LEAVE_IT, meter, MIN_PASSPHRASE_CHARS, prepareVault, useApp, useHandOff, type Bars, type Prepared } from '../app/context.ts';
 import { HandOffNote } from '../ui/HandOffNote.tsx';
 import { I } from '../ui/icons.tsx';
 import { codeGroups } from '../ui/codeGroups.ts';
@@ -121,7 +121,7 @@ export function FirstRun(props: FirstRunProps) {
       <div className="center-col first">
         <Steps step={2} />
         <h1 className="t-l" style={{ marginTop: 10 }}>Choose a passphrase</h1>
-        <p className="body" style={{ margin: '12px 0 0' }}>Five ordinary words you'll remember. Length is what makes it strong: at least 15 characters, and no symbols or numbers needed.</p>
+        <p className="body" style={{ margin: '12px 0 0' }}>Five ordinary words you'll remember. Length is what makes it strong: at least {MIN_PASSPHRASE_CHARS} characters, and no symbols or numbers needed.</p>
         <form onSubmit={e => { e.preventDefault(); void onContinue(); }}>
           <input ref={field} className="pass" type="password" aria-label="Passphrase" style={{ marginTop: 22 }}
             autoComplete="off" autoCapitalize="off" autoCorrect="off" spellCheck={false} disabled={busy}
