@@ -124,7 +124,7 @@ function wakeSwipe(phone: Emu): void {
   pause(600);
 }
 
-function scrollTo(phone: Emu, label: string | RegExp): void {
+export function scrollTo(phone: Emu, label: string | RegExp): void {
   const [w, h] = screenOf(phone);
   for (let i = 0; i < 14; i++) {
     const nodes = phone.dump();
@@ -902,7 +902,7 @@ function a9(phone: Emu, ctx: RunCtx): void {
   if (names.some(n => /backup-.*\.dcbak/.test(n))) throw new Error('an empty backup was left in Download');
 }
 
-function focusDiaryPage(phone: Emu): void {
+export function focusDiaryPage(phone: Emu): void {
   if (!phone.waitFor(words('Earlier'), 15_000) && !phone.waitFor(words('Not yet'), 4_000)) {
     throw new Error('the diary did not open');
   }
@@ -1061,7 +1061,7 @@ function recordIsOpen(phone: Emu): boolean {
 }
 
 /** The code pad. Today also has a node whose text is "1" (the day), so the pad needs the lock and two digits. */
-function codePad(phone: Emu): boolean {
+export function codePad(phone: Emu): boolean {
   return showing(phone, words('LOCKED')) && showing(phone, words('1')) && showing(phone, words('2')) && !showing(phone, words('Passphrase'));
 }
 
@@ -1254,7 +1254,7 @@ function a13(phone: Emu, ctx: RunCtx): void {
   if (!phoneLock) throw new Platform('the phone-lock prompt did not open on a fingerprint touch; the own-code fingerprint and the new-fingerprint note did');
 }
 
-function enterDigits(phone: Emu, digits: string, ok: string): void {
+export function enterDigits(phone: Emu, digits: string, ok: string): void {
   if (!phone.waitFor(words('1'), 20_000)) throw new Error('the code pad was not on screen');
   for (const d of digits) phone.tap(words(d), 8_000);
   phone.tap(words(ok), 15_000);

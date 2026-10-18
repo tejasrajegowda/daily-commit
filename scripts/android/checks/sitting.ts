@@ -1,0 +1,203 @@
+// Task 9's P3–P8 on the one real phone, by script. The owner does only the fingerprint, the phone's own
+// PIN, Android's file picker and the yes/no only the owner's eyes can give; each is one `OWNER:` line, then a
+// wait of at most 5 minutes, then "not done". Only the plan's Recorded items are printed and logged to
+// .local/android/phone-<stamp>.log: numbers, yes/no, the keyboard's name. Never the phone's serial.
+// npm run phone:checks [-- --from P4]
+// npm run phone:checks -- --dry-run [--owner-wait 20] [--from P4]   (the dc- test emulator, started and stopped here)
+import { spawnSync } from 'node:child_process';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { adbOnTestPhone, driver, pause } from '../drive.ts';
+import { startEmulator, stopEmulator } from '../emulator.ts';
+import { childEnv, toolchain, toolPaths } from '../env.ts';
+import { isDcTestPhone } from '../smoke.ts';
+import { DRY_RUN_SERIAL, guardedPhone, NOT_IN_APP, NotInApp, phoneTarget, Refused, type Adb } from './guard.ts';
+import { LONG_FILE } from './long.ts';
+import { answerOf, ITEMS, RUN, STEPS, type ItemKey, type Owner, type PCtx, type Step } from './p.ts';
+
+export const OWNER_WAIT_MS = 5 * 60_000;
+
+export interface SittingArgs { readonly from: Step; readonly dryRun: boolean; readonly ownerWaitMs: number }
+
+/** `--from P<n>`, `--dry-run`, and `--owner-wait <seconds>` (the dry run only). Anything else is refused. */
+export function parseArgs(argv: readonly string[]): SittingArgs | undefined {
+  let from: Step = 'P3';
+  let dryRun = false;
+  let ownerWaitMs = OWNER_WAIT_MS;
+  let waitGiven = false;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const v = argv[i + 1];
+    if (a === '--from' && v !== undefined && (STEPS as readonly string[]).includes(v)) {
+      from = v as Step;
+      i++;
+    } else if (a === '--dry-run') {
+      dryRun = true;
+    } else if (a === '--owner-wait' && v !== undefined && /^\d{1,3}$/.test(v) && Number(v) >= 5) {
+      ownerWaitMs = Number(v) * 1000;
+      waitGiven = true;
+      i++;
+    } else {
+      return undefined;
+    }
+  }
+  if (waitGiven && !dryRun) return undefined;          // on the phone the owner always gets 5 minutes
+  return { from, dryRun, ownerWaitMs };
+}
+
+function stamp(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
+}
+
+function realAdb(): Adb {
+  const tc = toolchain(process.env);
+  const env = childEnv(tc, process.env);
+  const adb = toolPaths(tc).adb;
+  return (args, timeoutMs = 60_000) => {
+    const r = spawnSync(adb, args, { encoding: 'utf8', env, windowsHide: true, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 });
+    return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  };
+}
+
+export function owner(say: (line: string) => void, answers: string, waitMs: number): Owner {
+  return {
+    wait(what, done) {
+      say(`OWNER: ${what}`);
+      const until = Date.now() + waitMs;
+      for (;;) {
+        if (done()) return true;
+        if (Date.now() >= until) {
+          say('  not done in time');
+          return false;
+        }
+        pause(1500);
+      }
+    },
+    ask(key, question) {
+      say(`OWNER: ${question} (answer: a line "${key}=yes" or "${key}=no" in ${answers.split('\\').join('/')})`);
+      const until = Date.now() + waitMs;
+      for (;;) {
+        const got = answerOf(existsSync(answers) ? readFileSync(answers, 'utf8') : '', key);
+        if (got !== undefined) return got;
+        if (Date.now() >= until) {
+          say('  not done in time');
+          return 'not done';
+        }
+        pause(2000);
+      }
+    },
+  };
+}
+
+/** The dry run's test phone: booted behind the memory gate, named dc-, the release APK installed, its data cleared. */
+async function prepareDryRun(say: (line: string) => void): Promise<boolean> {
+  if (!(await startEmulator())) {
+    say('FAIL the dc- test emulator did not start');
+    return false;
+  }
+  const named = adbOnTestPhone(['emu', 'avd', 'name'], 30_000);
+  if (named.code !== 0 || !isDcTestPhone(named.out)) {
+    say('FAIL emulator-5556 is not a dc- test phone');
+    return false;
+  }
+  const ran = spawnSync('npm', ['run', 'phone', '--', '--serial', DRY_RUN_SERIAL], {
+    shell: true, encoding: 'utf8', windowsHide: true, timeout: 300_000, cwd: process.cwd(),
+  });
+  if (!/Installed .+ over what was there/.test(`${ran.stdout ?? ''}${ran.stderr ?? ''}`)) {
+    say('FAIL the release APK did not install on the test emulator');
+    return false;
+  }
+  // The test phone only, after its name was checked: the phone itself is never cleared.
+  adbOnTestPhone(['shell', 'pm clear app.dailycommit'], 60_000);
+  say('dry run: the release APK is on the dc- test emulator, its data cleared');
+  return true;
+}
+
+async function main(): Promise<number> {
+  const args = parseArgs(process.argv.slice(2));
+  if (args === undefined) {
+    console.log('usage: npm run phone:checks [-- --from P3..P8]   |   -- --dry-run [--owner-wait <seconds>] [--from P3..P8]');
+    return 2;
+  }
+  const id = stamp(new Date());
+  mkdirSync(join('.local', 'android'), { recursive: true });
+  const logPath = join('.local', 'android', `phone-${id}.log`);
+  const answers = join('.local', 'android', `phone-${id}-answers.txt`);
+  writeFileSync(answers, '# The owner\'s answers, one per line, for example: P6.screenshot=yes\n');
+  const say = (line: string) => {
+    console.log(line);
+    appendFileSync(logPath, `${line}\n`);
+  };
+  const startedAt = Date.now();
+  say(args.dryRun ? `phone-checks: dry run on the dc- test emulator, from ${args.from}` : `phone-checks: the phone, from ${args.from}`);
+
+  const adb = realAdb();
+  let serial: string;
+  if (args.dryRun) {
+    serial = DRY_RUN_SERIAL;
+  } else {
+    const target = phoneTarget(adb(['devices'], 30_000).out);
+    if (!target.ok) {
+      say(target.why);
+      return 1;
+    }
+    serial = target.serial;
+  }
+
+  const results = new Map<ItemKey, string>();
+  let failed = false;
+  try {
+    if (args.dryRun && !(await prepareDryRun(say))) return 1;
+    const io = guardedPhone(serial, adb, { dryRun: args.dryRun });
+    if (!io.shell('pm path app.dailycommit').out.includes('package:')) {
+      say('Daily Commit is not installed on the phone. Install it with npm run phone first. Nothing was run.');
+      return 1;
+    }
+    const ctx: PCtx = {
+      phone: driver(io),
+      front: () => io.front(),
+      pushLong: () => existsSync(LONG_FILE) && io.pushLong(LONG_FILE),
+      owner: owner(say, answers, args.ownerWaitMs),
+      record(key, value) {
+        results.set(key, value);
+        const label = ITEMS.find(i => i.key === key)?.label ?? key;
+        say(`${key.slice(0, 2)} ${label}: ${value}`);
+      },
+      note: say,
+      timingOn: false,
+    };
+    for (const step of STEPS.slice(STEPS.indexOf(args.from))) {
+      const t0 = Date.now();
+      say(`${step} start`);
+      try {
+        RUN[step](ctx);
+        say(`${step} end (${((Date.now() - t0) / 1000).toFixed(0)} s)`);
+      } catch (err) {
+        if (err instanceof NotInApp) say(`${step} ${NOT_IN_APP}`);
+        else {
+          say(`${step} stopped: ${err instanceof Error ? err.message : 'failed'}`);
+          if (err instanceof Refused) failed = true;
+        }
+      }
+    }
+    try {
+      io.shell('setprop log.tag.DailyCommit ""');
+    } catch {
+      // The phone may be gone; the switch also clears with a restart of the phone.
+    }
+  } finally {
+    if (args.dryRun) {
+      const stopped = await stopEmulator();
+      say(stopped ? 'emulator stopped' : 'FAIL emulator stop');
+      if (!stopped) failed = true;
+    }
+  }
+
+  say('results:');
+  for (const item of ITEMS) say(`  ${item.key} ${item.label}: ${results.get(item.key) ?? 'not done'}`);
+  say(`phone-checks: ${failed ? 'FAIL' : 'done'} (${((Date.now() - startedAt) / 60_000).toFixed(1)} min); log ${logPath.split('\\').join('/')}`);
+  return failed ? 1 : 0;
+}
+
+if (import.meta.main) process.exitCode = await main();

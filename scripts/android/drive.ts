@@ -13,6 +13,8 @@ export interface UiNode {
   readonly cls: string;
   readonly bounds: readonly [number, number, number, number];
   readonly enabled: boolean;
+  /** The package the node belongs to, when the dump says. */
+  readonly pkg?: string;
 }
 
 const ENTITY: Readonly<Record<string, string>> = { amp: '&', lt: '<', gt: '>', quot: '"', '#39': "'", apos: "'" };
@@ -37,6 +39,7 @@ export function nodesOf(xml: string): UiNode[] {
       cls: map.get('class') ?? '',
       bounds: [n(1), n(2), n(3), n(4)],
       enabled: map.get('enabled') === 'true',
+      pkg: map.get('package') ?? '',
     });
   }
   return nodes;
@@ -173,23 +176,50 @@ function labelOf(label: string | RegExp): string {
   return typeof label === 'string' ? label : label.source;
 }
 
+/** What a driver needs from one device. The emulator's and the phone's differ only here. */
+export interface DeviceIo {
+  shell(command: string): { readonly code: number; readonly out: string };
+  execOut(args: readonly string[]): Uint8Array;
+  /** One screen dump: the nodes a driver may read, and the xml it may keep ('' when it keeps none). Undefined when the dump failed. */
+  dump(): { readonly xml: string; readonly nodes: UiNode[] } | undefined;
+  finger(): void;
+}
+
+function testPhoneIo(): DeviceIo {
+  const io: DeviceIo = {
+    shell: command => adbOnTestPhone(['shell', command]),
+    execOut: args => adbBytes(['exec-out', ...args], 60_000),
+    dump() {
+      const dumped = io.shell('uiautomator dump /sdcard/dc-ui.xml');
+      const cat = io.shell('cat /sdcard/dc-ui.xml');
+      io.shell('rm -f /sdcard/dc-ui.xml');
+      if (dumped.code !== 0 || !cat.out.includes('<hierarchy')) return undefined;
+      return { xml: cat.out, nodes: nodesOf(cat.out) };
+    },
+    finger() {
+      const r = adbOnTestPhone(['emu', 'finger', 'touch', '1']);
+      if (r.code !== 0) throw new Error(`finger failed (${r.code})`);
+    },
+  };
+  return io;
+}
+
 export function emu(): Emu {
+  return driver(testPhoneIo());
+}
+
+/** Taps, typing and waits over one device's io. Every read goes through `io.dump()`, every action through `io.shell()`. */
+export function driver(io: DeviceIo): Emu {
   let xml = '';
   const phone: Emu = {
-    shell(command: string) {
-      return adbOnTestPhone(['shell', command]);
-    },
-    execOut(args: readonly string[]) {
-      return adbBytes(['exec-out', ...args], 60_000);
-    },
+    shell: command => io.shell(command),
+    execOut: args => io.execOut(args),
     dump() {
       for (let i = 0; i < 3; i++) {
-        const dumped = phone.shell('uiautomator dump /sdcard/dc-ui.xml');
-        const cat = phone.shell('cat /sdcard/dc-ui.xml');
-        phone.shell('rm -f /sdcard/dc-ui.xml');
-        if (dumped.code === 0 && cat.out.includes('<hierarchy')) {
-          xml = cat.out;
-          return nodesOf(cat.out);
+        const got = io.dump();
+        if (got !== undefined) {
+          xml = got.xml;
+          return got.nodes;
         }
         pause(400);
       }
@@ -233,10 +263,7 @@ export function emu(): Emu {
         pause(400);
       }
     },
-    finger() {
-      const r = adbOnTestPhone(['emu', 'finger', 'touch', '1']);
-      if (r.code !== 0) throw new Error(`finger failed (${r.code})`);
-    },
+    finger: () => io.finger(),
   };
   return phone;
 }
