@@ -4,6 +4,8 @@
 // .local/android/phone-<stamp>.log: numbers, yes/no, the keyboard's name. Never the phone's serial.
 // npm run phone:checks [-- --from P4]
 // npm run phone:checks -- --dry-run [--owner-wait 20] [--from P4]   (the dc- test emulator, started and stopped here)
+// In the dry run a stand-in (standin.ts) does the owner's part at the file picker and answers the owner's questions
+// from what the emulator measures; a fingerprint and the phone's PIN have no stand-in.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -13,7 +15,8 @@ import { childEnv, toolchain, toolPaths } from '../env.ts';
 import { isDcTestPhone } from '../smoke.ts';
 import { DRY_RUN_SERIAL, guardedPhone, NOT_IN_APP, NotInApp, phoneTarget, Refused, type Adb } from './guard.ts';
 import { LONG_FILE } from './long.ts';
-import { answerOf, ITEMS, RUN, STEPS, type ItemKey, type Owner, type PCtx, type Step } from './p.ts';
+import { answerOf, ITEMS, RUN, STEPS, type ItemKey, type Owner, type PCtx, type StandIn, type Step } from './p.ts';
+import { dryRunStandIn } from './standin.ts';
 
 export const OWNER_WAIT_MS = 5 * 60_000;
 
@@ -60,10 +63,23 @@ function realAdb(): Adb {
   };
 }
 
-export function owner(say: (line: string) => void, answers: string, waitMs: number): Owner {
+/** The owner's steps. With a stand-in (the dry run only), it acts or answers first and says so in one line. */
+export function owner(say: (line: string) => void, answers: string, waitMs: number, standIn?: StandIn): Owner {
+  const tried = <T>(run: () => T): T | undefined => {
+    try {
+      return run();
+    } catch (err) {
+      say(`  the stand-in could not: ${err instanceof Error ? err.message : 'failed'}`);
+      return undefined;
+    }
+  };
   return {
-    wait(what, done) {
+    wait(what, done, act) {
       say(`OWNER: ${what}`);
+      if (standIn !== undefined && act !== undefined) {
+        say('  the dry run\'s stand-in does it on the emulator');
+        tried(() => standIn.act(act));
+      }
       const until = Date.now() + waitMs;
       for (;;) {
         if (done()) return true;
@@ -76,6 +92,11 @@ export function owner(say: (line: string) => void, answers: string, waitMs: numb
     },
     ask(key, question) {
       say(`OWNER: ${question} (answer: a line "${key}=yes" or "${key}=no" in ${answers.split('\\').join('/')})`);
+      const stood = standIn === undefined ? undefined : tried(() => standIn.answer(key));
+      if (stood !== undefined) {
+        say(`  the dry run's stand-in measured it on the emulator: ${stood.value}`);
+        return `${stood.value} (emulator stand-in: ${stood.how})`;
+      }
       const until = Date.now() + waitMs;
       for (;;) {
         const got = answerOf(existsSync(answers) ? readFileSync(answers, 'utf8') : '', key);
@@ -158,7 +179,8 @@ async function main(): Promise<number> {
       phone: driver(io),
       front: () => io.front(),
       pushLong: () => existsSync(LONG_FILE) && io.pushLong(LONG_FILE),
-      owner: owner(say, answers, args.ownerWaitMs),
+      owner: owner(say, answers, args.ownerWaitMs, args.dryRun ? dryRunStandIn() : undefined),
+      recorded: key => results.has(key),
       record(key, value) {
         results.set(key, value);
         const label = ITEMS.find(i => i.key === key)?.label ?? key;

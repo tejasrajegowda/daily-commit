@@ -1,5 +1,7 @@
 // The privacy guard for driving a real phone. Every read and every tap first checks that Daily Commit
 // is the focused window; anything else stops the step with "not in the app" and nothing is read.
+// The phone checks the focus again in the same call, right before it taps or reads, so an app that
+// comes up in between is never tapped or read.
 // Only nodes of Daily Commit's own package leave a screen dump. The shell takes a short list of
 // commands and refuses the rest, so a screenshot, a recording, another app's data or a wipe can't be
 // sent by mistake. An emulator is never the phone; the dry run names emulator-5556 on purpose.
@@ -94,7 +96,27 @@ export interface GuardedPhone extends DeviceIo {
   pushLong(localPath: string): boolean;
 }
 
-/** The text between `<hierarchy` and `</hierarchy>` of `uiautomator dump /dev/tty`, or '' when there is none. */
+/** What the phone answers when its own focus check fails. */
+export const NOT_FRONT = 'DC-NOT-IN-FRONT';
+
+const FOCUS_APP = String.raw`[ {]app\.dailycommit/`;
+const FOCUS_PROMPT = 'BiometricPrompt|ConfirmDeviceCredential|ConfirmLock';
+
+/**
+ * `command`, run on the phone only if Daily Commit (or, with `allowPrompt`, Android's own prompt) has the focus
+ * at that moment: the check and the command are one shell call, so nothing can come up between them.
+ */
+export function onlyInFront(command: string, allowPrompt: boolean): string {
+  const focus = allowPrompt ? `${FOCUS_APP}|${FOCUS_PROMPT}` : FOCUS_APP;
+  return `if dumpsys window | grep mCurrentFocus | head -n 1 | grep -qE '${focus}'; then ${command}; else echo ${NOT_FRONT}; fi`;
+}
+
+// A screen read goes to a file in the shell's own folder (not shared storage), is read back and removed in the
+// same call. Under `exec-out` some builds won't open /dev/tty, so a file is used, as Task 8's driver does.
+const DUMP_FILE = '/data/local/tmp/dc-ui.xml';
+export const DUMP_COMMAND = onlyInFront(`uiautomator dump ${DUMP_FILE} >/dev/null && cat ${DUMP_FILE}; rm -f ${DUMP_FILE}`, false);
+
+/** The text between `<hierarchy` and `</hierarchy>` of a uiautomator dump, or '' when there is none. */
 export function hierarchyOf(out: string): string {
   const start = out.indexOf('<hierarchy');
   const end = out.lastIndexOf('</hierarchy>');
@@ -124,14 +146,19 @@ export function guardedPhone(serial: string, adb: Adb, opts: { readonly dryRun?:
       if (kind === 'refused') throw new Refused('that command is not on the guard\'s list');
       if (kind === 'in-app' && front() !== 'app') throw new NotInApp();
       if (kind === 'in-app-or-prompt' && front() === 'other') throw new NotInApp();
-      return run(['shell', command], 60_000);
+      if (kind !== 'in-app' && kind !== 'in-app-or-prompt') return run(['shell', command], 60_000);
+      const r = run(['shell', onlyInFront(command, kind === 'in-app-or-prompt')], 60_000);
+      if (r.out.includes(NOT_FRONT)) throw new NotInApp();
+      return r;
     },
     execOut() {
       throw new Refused('no raw reads from the phone');
     },
     dump() {
       if (front() !== 'app') throw new NotInApp();
-      const xml = hierarchyOf(run(['exec-out', 'uiautomator dump /dev/tty'], 60_000).out);
+      const r = run(['shell', DUMP_COMMAND], 60_000);
+      if (r.out.includes(NOT_FRONT)) throw new NotInApp();
+      const xml = hierarchyOf(r.out);
       if (xml === '') return undefined;
       // Nothing of the xml is kept: only Daily Commit's nodes go on.
       return { xml: '', nodes: oursOnly(nodesOf(xml)) };

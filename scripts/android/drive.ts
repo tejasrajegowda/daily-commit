@@ -65,9 +65,9 @@ export function findClickable(nodes: readonly UiNode[], label: string | RegExp):
 export type PickerMove = 'file' | 'downloads' | 'roots' | 'scroll';
 
 /** Where to go in DocumentsUI. Downloads is preferred once the drawer shows it; the list is scrolled only after that. */
-export function pickerMove(labels: readonly string[], inList: boolean): PickerMove {
+export function pickerMove(labels: readonly string[], inList: boolean, stem = 'dc-seed'): PickerMove {
   const hit = (needle: string) => labels.some(label => label.toLowerCase().includes(needle));
-  if (hit('dc-seed')) return 'file';
+  if (hit(stem)) return 'file';
   if (!inList && hit('downloads')) return 'downloads';
   if (!inList && hit('show roots')) return 'roots';
   return 'scroll';

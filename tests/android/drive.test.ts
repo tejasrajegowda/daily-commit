@@ -64,4 +64,7 @@ test('the file picker opens Downloads from the roots drawer before it scrolls', 
   assert.equal(pickerMove(['dc-seed.dcbak'], true), 'file');
   assert.equal(pickerMove(['dc-seed'], true), 'file');
   assert.equal(pickerMove(['Recent'], true), 'scroll');
+  // The long invented record has its own name; the picker looks for that one only.
+  assert.equal(pickerMove(['dc-3year.dcbak'], true, 'dc-3year'), 'file');
+  assert.equal(pickerMove(['dc-seed.dcbak'], true, 'dc-3year'), 'scroll');
 });

@@ -3,8 +3,8 @@
 // the guard (guard.ts), so only Daily Commit's own words are ever seen, and only the plan's "Recorded"
 // items are kept: numbers, yes/no, and the keyboard's name.
 import { find, pause, type Emu, type UiNode } from '../drive.ts';
-import { codePad, enterDigits, focusDiaryPage, focusSecret, launch, pastLock, scrollTo } from './a.ts';
-import { NotInApp, type Front } from './guard.ts';
+import { codePad, enterDigits, focusDiaryPage, focusSecret, launch, pastLock, scrollTo, scrollUpTo } from './a.ts';
+import { NOT_IN_APP, NotInApp, Refused, type Front } from './guard.ts';
 import { LONG_PASSPHRASE } from './long.ts';
 
 /** The plan's test values (Task 9). All invented. */
@@ -47,12 +47,21 @@ export type ItemKey = (typeof ITEMS)[number]['key'];
 
 export type Answer = 'yes' | 'no' | 'not done';
 
+/** An owner's act the dry run's stand-in can do on the test emulator. On the phone it is the owner's alone. */
+export type Act = 'pick-long';
+
 /** What the owner does. Each prints one plain `OWNER:` line and waits, at most the run's owner wait. */
 export interface Owner {
-  /** Polls `done` until it holds or the wait runs out. */
-  wait(what: string, done: () => boolean): boolean;
-  /** Waits for the owner's yes or no to `key`, relayed into the run's answers file. */
-  ask(key: ItemKey, question: string): Answer;
+  /** Polls `done` until it holds or the wait runs out. `act` names what the dry run's stand-in may do first. */
+  wait(what: string, done: () => boolean, act?: Act): boolean;
+  /** Waits for the owner's yes or no to `key`, relayed into the run's answers file (or the dry run's stand-in's answer). */
+  ask(key: ItemKey, question: string): string;
+}
+
+/** The dry run's stand-in for the owner, on the test emulator only: an act, and the answers the emulator can measure. */
+export interface StandIn {
+  act(what: Act): void;
+  answer(key: ItemKey): { readonly value: 'yes' | 'no'; readonly how: string } | undefined;
 }
 
 export interface PCtx {
@@ -61,6 +70,7 @@ export interface PCtx {
   pushLong(): boolean;
   readonly owner: Owner;
   record(key: ItemKey, value: string): void;
+  recorded(key: ItemKey): boolean;
   note(line: string): void;
   /** Whether this run switched the timing line on and restarted the app for it. */
   timingOn: boolean;
@@ -160,6 +170,22 @@ export function msList(values: readonly (number | undefined)[]): string {
 /** Android asked twice and the page said so first: yes only when both hold. */
 export function askedTwice(pageSaid: boolean, prompts: number): string {
   return `${pageSaid && prompts === 2 ? 'yes' : 'no'} (page said so ${pageSaid ? 'yes' : 'no'}; prompts counted ${prompts})`;
+}
+
+/**
+ * One part of a step. A failure records "not done (why)" for the part's own items not yet recorded, and the step
+ * goes on with its next part, so one failure never empties the parts after it. A refused command stops the run.
+ */
+export function runPart(ctx: PCtx, keys: readonly ItemKey[], run: () => void): void {
+  try {
+    run();
+  } catch (err) {
+    if (err instanceof Refused) throw err;
+    const why = err instanceof NotInApp ? NOT_IN_APP : err instanceof Error ? err.message : 'failed';
+    const step = keys[0]?.slice(0, 2) ?? 'P?';
+    ctx.note(err instanceof NotInApp ? `${step} ${NOT_IN_APP}` : `${step} stopped: ${why}`);
+    for (const key of keys) if (!ctx.recorded(key)) ctx.record(key, `not done (${why})`);
+  }
 }
 
 // ---------- on the phone ----------
@@ -267,7 +293,12 @@ function openRecord(ctx: PCtx): void {
     ctx.phone.key('KEYCODE_BACK');
     screen = settle(ctx, 20_000);
   }
-  if (screen === 'lock') {
+  if (screen === 'welcome' || screen === 'found' || screen === 'first-run') {
+    // No record (the dry run's P3 didn't finish, or the phone's was cleared): one is made with the test values, so
+    // no later step depends on P3. The phone's record is invented, so replacing it is allowed.
+    ctx.note('the app had no record open; the script made one with the test values');
+    firstRun(ctx, screen, false);
+  } else if (screen === 'lock') {
     if (codePad(ctx.phone)) byCode(ctx);
     else byPassphrase(ctx);
   } else if (screen !== 'open') {
@@ -292,10 +323,17 @@ function lockAgain(ctx: PCtx): void {
   throw new Error('the lock screen did not come back');
 }
 
-function openSettings(ctx: PCtx): void {
+/** Settings, scrolled to its top and then to Privacy. Settings left scrolled down is scrolled back, never looked for elsewhere. */
+export function openSettings(ctx: PCtx): void {
   const { phone } = ctx;
-  if (!seen(phone.dump(), words('Settings'))) phone.tap(words('Plan'), 20_000);
-  phone.tap(words('Settings'), 20_000);
+  const nodes = phone.dump();
+  // Settings is up when its Done and its Privacy section are in the tree, in view or not.
+  if (!(seen(nodes, words('Done')) && seen(nodes, words('Privacy')))) {
+    phone.tap(words('Plan'), 20_000);
+    scrollUpTo(phone, words('Settings'));                // Plan's gear; a page opened from the dock keeps the last one's scroll
+    phone.tap(words('Settings'), 20_000);
+  }
+  scrollUpTo(phone, words('Settings'));                  // the heading: every row is below it from here
   scrollTo(phone, words('Privacy'));
 }
 
@@ -387,7 +425,21 @@ function ownerUnlock(ctx: PCtx, timings: Timings, button: RegExp | undefined, wh
 
 // ---------- the steps ----------
 
-function firstRun(ctx: PCtx, screen: Screen): boolean {
+/** The recovery code once all nine groups are drawn. The screen can show the heading before the groups. */
+function readCode(ctx: PCtx, ms = 15_000): string | undefined {
+  const until = Date.now() + ms;
+  for (;;) {
+    const code = codeOnScreen(ctx.phone.dump());
+    if (code !== undefined || Date.now() >= until) return code;
+    pause(500);
+  }
+}
+
+/**
+ * The first run with the test values. With `byOwner` the owner first gets the chance to type the code back on the
+ * phone's keyboard (P3); otherwise the script does all of it. Throws with the reason when it can't finish.
+ */
+function firstRun(ctx: PCtx, screen: Screen, byOwner: boolean): void {
   const { phone } = ctx;
   if (screen === 'found') phone.tap(words('Start new instead'), 15_000);
   if (screen === 'found' || screen === 'welcome') phone.tap(words('Begin'), 20_000);
@@ -399,26 +451,29 @@ function firstRun(ctx: PCtx, screen: Screen): boolean {
   if (!phone.waitFor(words('Your recovery code'), 60_000) && !seen(phone.dump(), words('Type it back'))) {
     throw new Error('the recovery code screen did not come');
   }
-  const code = codeOnScreen(phone.dump());
-  const done = ctx.owner.wait(
-    "Write the first group of the recovery code on the paper, tap \"I've written it down\", type the whole code back with the phone's keyboard, and tap Finish. If Android then asks for your fingerprint or PIN, give it.",
-    look(ctx, nodes => pastLock(nodes)),
-  );
-  if (done) {
-    ctx.note('P3 the recovery code was typed back on the phone\'s keyboard');
-    return true;
+  let code = readCode(ctx);
+  if (byOwner) {
+    const done = ctx.owner.wait(
+      "Write the first group of the recovery code on the paper, tap \"I've written it down\", type the whole code back with the phone's keyboard, and tap Finish. If Android then asks for your fingerprint or PIN, give it.",
+      look(ctx, nodes => pastLock(nodes)),
+    );
+    if (done) {
+      ctx.note('P3 the recovery code was typed back on the phone\'s keyboard');
+      return;
+    }
+    // The owner didn't finish in time. The script finishes, and the keyboard check for the code is void.
+    toApp(ctx);
   }
-  // The owner didn't finish in time. The script finishes, and the keyboard check for the code is void.
-  toApp(ctx);
-  if (code === undefined) return false;
+  if (code === undefined && seen(phone.dump(), words('Your recovery code'))) code = readCode(ctx);
+  if (code === undefined) throw new Error('the recovery code was not readable on screen');
   if (seen(phone.dump(), words("I've written it down"))) phone.tap(words("I've written it down"), 10_000);
-  if (!phone.waitFor(words('Type it back'), 15_000)) return false;
+  if (!phone.waitFor(words('Type it back'), 15_000)) throw new Error('the type-back screen did not come');
   focusSecret(phone, 'Recovery code, typed back');
   phone.type(code);
   phone.tap(words('Finish'), 15_000);
-  ctx.note('P3 the script typed the recovery code back, so P7\'s recovery-code answer is void');
+  if (byOwner) ctx.note('P3 the script typed the recovery code back, so P7\'s recovery-code answer is void');
   if (ctx.front() !== 'app') ctx.owner.wait('If Android asks for your fingerprint or PIN, give it.', look(ctx, nodes => pastLock(nodes)));
-  return waitOpen(ctx, 60_000).open;
+  if (!waitOpen(ctx, 60_000).open) throw new Error('the record did not open after the first run');
 }
 
 function diaryWord(ctx: PCtx): void {
@@ -443,20 +498,31 @@ function diaryWord(ctx: PCtx): void {
 }
 
 function p3(ctx: PCtx): void {
-  toApp(ctx);
-  const screen = settle(ctx);
-  if (screen === 'found' || screen === 'welcome' || screen === 'first-run') {
-    ctx.record('P3.firstRun', firstRun(ctx, screen) ? 'yes' : 'no');
-  } else if (screen === 'lock' || screen === 'open') {
-    ctx.record('P3.firstRun', 'yes (finished before this run)');
-  } else {
-    throw new Error(`the app's first screen was not recognised (${screen})`);
-  }
-  openRecord(ctx);
-  diaryWord(ctx);
-  openSettings(ctx);
-  scrollTo(ctx.phone, has('kept in the app'));
-  ctx.record('P3.storage', storageAnswer(ctx.phone.dump()) ?? 'not readable (the line was not on screen)');
+  runPart(ctx, ['P3.firstRun'], () => {
+    toApp(ctx);
+    const screen = settle(ctx);
+    if (screen === 'found' || screen === 'welcome' || screen === 'first-run') {
+      firstRun(ctx, screen, true);
+      ctx.record('P3.firstRun', 'yes');
+    } else if (screen === 'lock' || screen === 'open') {
+      ctx.record('P3.firstRun', 'yes (finished before this run)');
+    } else {
+      throw new Error(`the app's first screen was not recognised (${screen})`);
+    }
+  });
+  runPart(ctx, ['P3.storage'], () => {
+    openRecord(ctx);
+    try {
+      diaryWord(ctx);
+    } catch (err) {
+      if (err instanceof Refused) throw err;
+      ctx.note(`P3 the diary word was not typed (${err instanceof NotInApp ? NOT_IN_APP : err instanceof Error ? err.message : 'failed'})`);
+      openRecord(ctx);
+    }
+    openSettings(ctx);
+    scrollTo(ctx.phone, has('kept in the app'));
+    ctx.record('P3.storage', storageAnswer(ctx.phone.dump()) ?? 'not readable (the line was not on screen)');
+  });
 }
 
 function p4(ctx: PCtx): void {
@@ -464,53 +530,55 @@ function p4(ctx: PCtx): void {
   toApp(ctx);
   const tag = timingSwitch(ctx);
   ctx.record('P4.timingTag', tag ? 'yes' : 'no');
-  openRecord(ctx);
-  const timings = new Timings(ctx);
-  timings.start();
-  if (!ctx.pushLong()) {
-    ctx.record('P4.restored', 'no (the invented file could not be copied to Download)');
-    return;
-  }
-  phone.shell('am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/dc-3year.dcbak');
-  openSettings(ctx);
-  scrollTo(phone, has('Restore from a backup'));
-  phone.tap(has('Restore from a backup'), 20_000);
-  if (!phone.waitFor(has('Choose a file'), 20_000)) throw new Error('the restore screen did not open');
-  phone.tap(has('Choose a file'), 20_000);
-  const picked = ctx.owner.wait(
-    "In Android's file picker, open Downloads and choose dc-3year.dcbak.",
-    look(ctx, nodes => seen(nodes, words('Passphrase')) || seen(nodes, has('Replace everything')) || seen(nodes, words('Choose another file'))),
-  );
-  if (!picked) {
-    ctx.record('P4.restored', 'no (the file was not picked)');
-    toApp(ctx);
-    return;
-  }
-  ctx.record('P4.stayedOpen', lockOn(phone.dump()) ? 'no' : 'yes');
-  if (seen(phone.dump(), has('Replace everything'))) phone.tap(words('Replace everything'), 15_000);
-  focusSecret(phone, 'Passphrase');
-  phone.type(LONG_PASSPHRASE);
-  phone.tap(words('Restore'), 20_000);
-  if (phone.waitFor(has('Replace everything'), 12_000)) phone.tap(words('Replace everything'), 15_000);
-  if (!phone.waitFor(words('Restored'), 180_000)) {
-    ctx.record('P4.restored', 'no');
-    return;
-  }
-  ctx.record('P4.restored', 'yes');
-  const ms = timings.take('restore');
-  phone.tap(words('Open'), 20_000);
-  if (!phone.waitFor(words('Passphrase'), 30_000) && !phone.waitFor(words('Locked'), 8_000)) throw new Error('the restored record did not reach its lock screen');
-  const opening = byPassphrase(ctx);
-  ctx.record('P4.opening', opening ? 'yes' : 'no');
-  ctx.record('P4.restoreMs', ms !== undefined ? String(ms) : tag ? 'not readable (no restore line)' : 'not readable (the timing switch was refused)');
-  dismissOffer(ctx);
+  runPart(ctx, ['P4.restored', 'P4.stayedOpen', 'P4.restoreMs', 'P4.opening'], () => {
+    openRecord(ctx);
+    const timings = new Timings(ctx);
+    timings.start();
+    if (!ctx.pushLong()) {
+      ctx.record('P4.restored', 'no (the invented file could not be copied to Download)');
+      throw new Error('the invented file could not be copied to Download');
+    }
+    phone.shell('am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/dc-3year.dcbak');
+    openSettings(ctx);
+    scrollTo(phone, has('Restore from a backup'));
+    phone.tap(has('Restore from a backup'), 20_000);
+    if (!phone.waitFor(has('Choose a file'), 20_000)) throw new Error('the restore screen did not open');
+    phone.tap(has('Choose a file'), 20_000);
+    const picked = ctx.owner.wait(
+      "In Android's file picker, open Downloads and choose dc-3year.dcbak.",
+      look(ctx, nodes => seen(nodes, words('Passphrase')) || seen(nodes, has('Replace everything')) || seen(nodes, words('Choose another file'))),
+      'pick-long',
+    );
+    if (!picked) {
+      ctx.record('P4.restored', 'no (the file was not picked)');
+      toApp(ctx);
+      throw new Error('the file was not picked');
+    }
+    ctx.record('P4.stayedOpen', lockOn(phone.dump()) ? 'no' : 'yes');
+    if (seen(phone.dump(), has('Replace everything'))) phone.tap(words('Replace everything'), 15_000);
+    focusSecret(phone, 'Passphrase');
+    phone.type(LONG_PASSPHRASE);
+    phone.tap(words('Restore'), 20_000);
+    if (phone.waitFor(has('Replace everything'), 12_000)) phone.tap(words('Replace everything'), 15_000);
+    if (!phone.waitFor(words('Restored'), 180_000)) {
+      ctx.record('P4.restored', 'no');
+      throw new Error('the restore did not finish');
+    }
+    ctx.record('P4.restored', 'yes');
+    const ms = timings.take('restore');
+    ctx.record('P4.restoreMs', ms !== undefined ? String(ms) : tag ? 'not readable (no restore line)' : 'not readable (the timing switch was refused)');
+    phone.tap(words('Open'), 20_000);
+    if (!phone.waitFor(words('Passphrase'), 30_000) && !phone.waitFor(words('Locked'), 8_000)) throw new Error('the restored record did not reach its lock screen');
+    const opening = byPassphrase(ctx);
+    ctx.record('P4.opening', opening ? 'yes' : 'no');
+    dismissOffer(ctx);
+  });
 }
 
 function p5(ctx: PCtx): void {
   const { phone } = ctx;
   toApp(ctx);
   timingSwitch(ctx);
-  openRecord(ctx);
   const timings = new Timings(ctx);
   timings.start();
   const unlocks: number[] = [];
@@ -522,13 +590,16 @@ function p5(ctx: PCtx): void {
   };
 
   // The phone's lock: set up, then three fingerprints and two PINs.
-  openSettings(ctx);
-  scrollTo(phone, has("Your phone's lock"));
-  if (seen(phone.dump(), has('This phone has no screen lock'))) {
-    ctx.record('P5.phoneLockTwice', 'not offered (the phone has no screen lock)');
-    ctx.record('P5.fingerMs', 'not done (no screen lock)');
-    ctx.record('P5.pinMs', 'not done (no screen lock)');
-  } else {
+  runPart(ctx, ['P5.phoneLockTwice', 'P5.fingerMs', 'P5.pinMs'], () => {
+    openRecord(ctx);
+    openSettings(ctx);
+    scrollTo(phone, has("Your phone's lock"));
+    if (seen(phone.dump(), has('This phone has no screen lock'))) {
+      ctx.record('P5.phoneLockTwice', 'not offered (the phone has no screen lock)');
+      ctx.record('P5.fingerMs', 'not done (no screen lock)');
+      ctx.record('P5.pinMs', 'not done (no screen lock)');
+      return;
+    }
     phone.tap(has("Your phone's lock"), 20_000);
     const pageSaid = phone.waitFor(has('Android asks twice'), 10_000);
     focusSecret(phone, 'Passphrase');
@@ -548,43 +619,55 @@ function p5(ctx: PCtx): void {
       pin.push(add(ownerUnlock(ctx, timings, has("Use your phone's PIN or pattern"), `Open Daily Commit with your phone's PIN: in Android's prompt tap "Use PIN" if it shows, then type it (${i + 1} of 2).`)));
     }
     ctx.record('P5.pinMs', msList(pin));
+  });
+
+  // The own code: set up, then three opens by the script.
+  runPart(ctx, ['P5.codeMs'], () => {
     openRecord(ctx);
-  }
+    openSettings(ctx);
+    scrollTo(phone, has('A separate code'));
+    phone.tap(has('A separate code'), 15_000);
+    // The set-up opens on its heading; its password field doesn't always carry its name in the tree (8a A13).
+    if (phone.waitFor(words('Your passphrase first'), 10_000)) {
+      focusSecret(phone, 'Passphrase');
+      phone.type(LONG_PASSPHRASE);
+      phone.tap(words('Continue'), 15_000);
+      enterDigits(phone, CODE, 'Next');
+      enterDigits(phone, CODE, 'Set the code');
+      if (!phone.waitFor(words('Done'), 25_000)) throw new Error('the code was not set');
+      phone.tap(words('Done'), 15_000);
+    } else {
+      ctx.note('P5 the separate code was already set (an earlier run)');
+    }
+    const code: (number | undefined)[] = [];
+    for (let i = 0; i < 3; i++) {
+      lockAgain(ctx);
+      if (ctx.front() === 'prompt') phone.key('KEYCODE_BACK');
+      if (!codePad(phone)) throw new Error('the lock screen did not offer the code pad');
+      opening ||= byCode(ctx);
+      code.push(add({ ms: timings.take('unlock'), opening: false }));
+    }
+    ctx.record('P5.codeMs', msList(code));
+    dismissOffer(ctx);
+  });
 
-  // The own code: set up, three opens by the script, then the fingerprint switch and one fingerprint.
-  openSettings(ctx);
-  scrollTo(phone, has('A separate code'));
-  phone.tap(has('A separate code'), 15_000);
-  if (phone.waitFor(words('Passphrase'), 10_000)) {
-    focusSecret(phone, 'Passphrase');
-    phone.type(LONG_PASSPHRASE);
-    phone.tap(words('Continue'), 15_000);
-    enterDigits(phone, CODE, 'Next');
-    enterDigits(phone, CODE, 'Set the code');
-    if (!phone.waitFor(words('Done'), 25_000)) throw new Error('the code was not set');
-    phone.tap(words('Done'), 15_000);
-  } else {
-    ctx.note('P5 the separate code was already set (an earlier run)');
-  }
-  const code: (number | undefined)[] = [];
-  for (let i = 0; i < 3; i++) {
-    lockAgain(ctx);
-    if (ctx.front() === 'prompt') phone.key('KEYCODE_BACK');
-    if (!codePad(phone)) throw new Error('the lock screen did not offer the code pad');
-    opening ||= byCode(ctx);
-    code.push(add({ ms: timings.take('unlock'), opening: false }));
-  }
-  ctx.record('P5.codeMs', msList(code));
-  dismissOffer(ctx);
-
-  openSettings(ctx);
-  scrollTo(phone, has('Fingerprint opens it too'));
-  phone.tap(has('Fingerprint opens it too'), 15_000);
-  const asked = phone.waitFor(has('Letting the fingerprint'), 12_000) || phone.waitFor(has('Android asks twice'), 6_000);
-  if (!asked) {
-    ctx.record('P5.fingerSwitchTwice', 'no (the switch did not ask for the passphrase)');
-    ctx.record('P5.codeFingerMs', 'not done');
-  } else {
+  // The fingerprint switch inside own-code mode, then one fingerprint on the code pad.
+  runPart(ctx, ['P5.fingerSwitchTwice', 'P5.codeFingerMs'], () => {
+    openRecord(ctx);
+    openSettings(ctx);
+    scrollTo(phone, has('Fingerprint opens it too'));
+    if (seen(phone.dump(), has('needs a screen lock on the phone first'))) {
+      ctx.record('P5.fingerSwitchTwice', 'not offered (the phone has no screen lock)');
+      ctx.record('P5.codeFingerMs', 'not done (no screen lock)');
+      return;
+    }
+    phone.tap(has('Fingerprint opens it too'), 15_000);
+    const asked = phone.waitFor(has('Letting the fingerprint'), 12_000) || phone.waitFor(has('Android asks twice'), 6_000);
+    if (!asked) {
+      ctx.record('P5.fingerSwitchTwice', 'no (the switch did not ask for the passphrase)');
+      ctx.record('P5.codeFingerMs', 'not done');
+      return;
+    }
     const pageSaid = seen(phone.dump(), has('Android asks twice'));
     focusSecret(phone, 'Passphrase');
     phone.type(LONG_PASSPHRASE);
@@ -595,66 +678,74 @@ function p5(ctx: PCtx): void {
     if (!set.done) toApp(ctx);
     const one = add(ownerUnlock(ctx, timings, words('Use fingerprint'), 'Open Daily Commit with your fingerprint (on the code pad).'));
     ctx.record('P5.codeFingerMs', msList([one]));
-  }
-  openRecord(ctx);
+  });
 
   // Look back, twice.
-  const lookback: (number | undefined)[] = [];
-  for (let i = 0; i < 2; i++) {
-    phone.tap(words('Look back'), 20_000);
-    lookback.push(timings.take('lookback', 15_000));
-    phone.tap(words('Today'), 20_000);
-  }
-  ctx.record('P5.lookbackMs', msList(lookback));
+  runPart(ctx, ['P5.lookbackMs'], () => {
+    openRecord(ctx);
+    const lookback: (number | undefined)[] = [];
+    for (let i = 0; i < 2; i++) {
+      phone.tap(words('Look back'), 20_000);
+      lookback.push(timings.take('lookback', 15_000));
+      phone.tap(words('Today'), 20_000);
+    }
+    ctx.record('P5.lookbackMs', msList(lookback));
+  });
   ctx.record('P5.opening', opening ? 'yes' : 'no');
   ctx.record('P5.over10s', unlocks.length === 0 ? 'not readable (no unlock timed)' : unlocks.some(ms => ms > 10_000) ? 'yes' : 'no');
 }
 
+/** One of the owner's yes/no questions, asked with the record open. */
+function askOpen(ctx: PCtx, key: ItemKey, question: string): void {
+  runPart(ctx, [key], () => {
+    openRecord(ctx);
+    ctx.record(key, ctx.owner.ask(key, question));
+  });
+}
+
 function p6(ctx: PCtx): void {
-  openRecord(ctx);
-  ctx.record('P6.screenshot', ctx.owner.ask('P6.screenshot', 'With Daily Commit open, press the side key and volume down together. Did Android refuse the screenshot, with nothing new in Gallery?'));
-  openRecord(ctx);
-  ctx.record('P6.recents', ctx.owner.ask('P6.recents', "Open Recents and look at Daily Commit's card. Does it show nothing of the record?"));
-  openRecord(ctx);
-  ctx.record('P6.blinkIcon', ctx.owner.ask('P6.blinkIcon', 'Press Home, wait 3 seconds, open Daily Commit from its icon and watch the first instant. Did anything of the record show, even for a blink, before the lock screen?'));
-  openRecord(ctx);
-  ctx.record('P6.blinkRecents', ctx.owner.ask('P6.blinkRecents', "Press Home, then open Daily Commit from its card in Recents. Did anything of the record show before the lock screen?"));
-  openRecord(ctx);
-  ctx.record('P6.blinkScreen', ctx.owner.ask('P6.blinkScreen', 'Press the side key to turn the screen off, then on, and unlock the phone. Did anything of the record show before Daily Commit\'s lock screen?'));
-  openRecord(ctx);
+  askOpen(ctx, 'P6.screenshot', 'With Daily Commit open, press the side key and volume down together. Did Android refuse the screenshot, with nothing new in Gallery?');
+  askOpen(ctx, 'P6.recents', "Open Recents and look at Daily Commit's card. Does it show nothing of the record?");
+  askOpen(ctx, 'P6.blinkIcon', 'Press Home, wait 3 seconds, open Daily Commit from its icon and watch the first instant. Did anything of the record show, even for a blink, before the lock screen?');
+  askOpen(ctx, 'P6.blinkRecents', "Press Home, then open Daily Commit from its card in Recents. Did anything of the record show before the lock screen?");
+  askOpen(ctx, 'P6.blinkScreen', 'Press the side key to turn the screen off, then on, and unlock the phone. Did anything of the record show before Daily Commit\'s lock screen?');
 }
 
 function p7(ctx: PCtx): void {
-  openRecord(ctx);
-  ctx.record('P7.keyboard', keyboardName(ctx.phone.shell('settings get secure default_input_method').out));
-  ctx.record('P7.diaryWord', ctx.owner.ask('P7.diaryWord', 'In a text field where nothing is sent (a new note in Notes), type "Vex". Is "Vextromil" offered in the suggestion bar? If it is, long-press it and remove it, then discard the note.'));
-  ctx.record('P7.codeGroup', ctx.owner.ask('P7.codeGroup', 'In that field, type the first three characters of the group on your paper. Is the rest of the group offered? If it is, remove it, then discard the note.'));
+  runPart(ctx, ['P7.keyboard'], () => {
+    openRecord(ctx);
+    ctx.record('P7.keyboard', keyboardName(ctx.phone.shell('settings get secure default_input_method').out));
+  });
+  askOpen(ctx, 'P7.diaryWord', 'In a text field where nothing is sent (a new note in Notes), type "Vex". Is "Vextromil" offered in the suggestion bar? If it is, long-press it and remove it, then discard the note.');
+  askOpen(ctx, 'P7.codeGroup', 'In that field, type the first three characters of the group on your paper. Is the rest of the group offered? If it is, remove it, then discard the note.');
 }
 
 function p8(ctx: PCtx): void {
-  const { phone } = ctx;
-  openRecord(ctx);
-  phone.tap(words('Diary'), 20_000);
-  focusDiaryPage(phone);
-  phone.type(SCREEN_OFF_WORDS);
-  phone.key('KEYCODE_SLEEP');
-  pause(1500);
-  phone.key('KEYCODE_WAKEUP');
-  pause(800);
-  phone.shell('wm dismiss-keyguard');
-  pause(800);
-  toApp(ctx);
-  const screen = settle(ctx, 20_000);
-  if (screen === 'lock') {
-    if (codePad(phone)) byCode(ctx);
-    else byPassphrase(ctx);
-  }
-  dismissOffer(ctx);
-  if (!seen(phone.dump(), has('CANARY typed screen off'))) {
-    if (!seen(phone.dump(), words('Earlier'))) phone.tap(words('Diary'), 20_000);
-    phone.waitFor(has('CANARY typed screen off'), 8_000);
-  }
-  ctx.record('P8.kept', seen(phone.dump(), has('CANARY typed screen off')) ? 'yes' : 'no');
+  runPart(ctx, ['P8.kept'], () => {
+    const { phone } = ctx;
+    openRecord(ctx);
+    phone.tap(words('Diary'), 20_000);
+    focusDiaryPage(phone);
+    phone.type(SCREEN_OFF_WORDS);
+    phone.key('KEYCODE_SLEEP');
+    pause(1500);
+    phone.key('KEYCODE_WAKEUP');
+    pause(800);
+    phone.shell('wm dismiss-keyguard');
+    pause(800);
+    toApp(ctx);
+    const screen = settle(ctx, 20_000);
+    if (screen === 'lock') {
+      if (codePad(phone)) byCode(ctx);
+      else byPassphrase(ctx);
+    }
+    dismissOffer(ctx);
+    if (!seen(phone.dump(), has('CANARY typed screen off'))) {
+      if (!seen(phone.dump(), words('Earlier'))) phone.tap(words('Diary'), 20_000);
+      phone.waitFor(has('CANARY typed screen off'), 8_000);
+    }
+    ctx.record('P8.kept', seen(phone.dump(), has('CANARY typed screen off')) ? 'yes' : 'no');
+  });
 }
 
 export const RUN: Readonly<Record<Step, (ctx: PCtx) => void>> = { P3: p3, P4: p4, P5: p5, P6: p6, P7: p7, P8: p8 };

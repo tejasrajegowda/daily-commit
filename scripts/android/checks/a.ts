@@ -140,6 +140,18 @@ export function scrollTo(phone: Emu, label: string | RegExp): void {
   throw new Error(`${name} was not on screen (${labels.join(' | ') || 'no words'})`);
 }
 
+/** Scrolls back up until `label` is in view. A page opened from the dock keeps the scroll of the page before it. */
+export function scrollUpTo(phone: Emu, label: string | RegExp): void {
+  const [w, h] = screenOf(phone);
+  for (let i = 0; i < 14; i++) {
+    if (phone.dump().some(n => hitNode(n, label) && inView(n, w, h))) return;
+    swipe(phone, Math.floor(h * 0.32), Math.floor(h * 0.78));
+    pause(350);
+  }
+  const name = typeof label === 'string' ? label : label.source;
+  throw new Error(`${name} was not on screen after scrolling up`);
+}
+
 function hitNode(n: UiNode, label: string | RegExp): boolean {
   return find([n], label) !== undefined;
 }
@@ -376,25 +388,25 @@ function tapNode(phone: Emu, nodes: readonly UiNode[], label: string | RegExp): 
   phone.shell(`input tap ${x} ${y}`);
 }
 
-function pickFile(phone: Emu, ctx: RunCtx, fileName: string): void {
+/** Chooses `fileName` in Android's file picker: Downloads from the roots drawer, the file, then Open if asked. True once the app has it. */
+export function pickInPicker(phone: Emu, fileName: string, stemName: string, ms = 50_000): boolean {
   const file = has(fileName);
-  const stem = has('dc-seed');
-  const until = Date.now() + 50_000;
+  const stem = has(stemName);
+  const until = Date.now() + ms;
   let inList = false;
-  let nodes = phone.dump();
   while (Date.now() < until) {
-    nodes = phone.dump();
-    if (seen(nodes, words('Passphrase')) || seen(nodes, words('Choose another file'))) return;
-    const move = pickerMove(nodeLabels(nodes), inList);
+    const nodes = phone.dump();
+    if (seen(nodes, words('Passphrase')) || seen(nodes, words('Choose another file'))) return true;
+    const move = pickerMove(nodeLabels(nodes), inList, stemName);
     if (move === 'file') {
       tapNode(phone, nodes, find(nodes, file) ? file : stem);
       pause(700);
       const after = phone.dump();
-      if (seen(after, words('Passphrase'))) return;
+      if (seen(after, words('Passphrase'))) return true;
       for (const label of ['Open', 'Select', 'Done']) {
         if (!findClickable(after, words(label))) continue;
         tapNode(phone, after, words(label));
-        if (phone.waitFor(words('Passphrase'), 12_000)) return;
+        if (phone.waitFor(words('Passphrase'), 12_000)) return true;
       }
     } else if (move === 'downloads') {
       tapNode(phone, nodes, has('Downloads'));
@@ -408,6 +420,12 @@ function pickFile(phone: Emu, ctx: RunCtx, fileName: string): void {
     }
     pause(400);
   }
+  return false;
+}
+
+function pickFile(phone: Emu, ctx: RunCtx, fileName: string): void {
+  if (pickInPicker(phone, fileName, 'dc-seed')) return;
+  const nodes = phone.dump();
   ctx.save('picker-last.xml', phone.lastXml());
   const preview = nodeLabels(nodes).slice(0, 30).join(' | ').slice(0, 400);
   ctx.note(`picker showed: ${preview || 'no words'}`);
