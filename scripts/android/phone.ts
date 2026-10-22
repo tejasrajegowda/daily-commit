@@ -3,10 +3,11 @@
 // version over a newer one, never another project's emulator. A real phone waits until the key's
 // second copy is recorded. Nothing of the device is printed but its serial.
 // node scripts/android/phone.ts [--serial <serial>]
-import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { runAdb } from './adbGate.ts';
 import { APP_ID, SIGNED_APK } from './apk-check.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
+import { runSyncCommand } from './proc.ts';
 import { RELEASE_CERT_SHA256, SECOND_COPY, versionCodeOf, signersOf } from './signing.ts';
 
 export type Tool = 'adb' | 'apkanalyzer' | 'apksigner';
@@ -146,13 +147,13 @@ export function phoneExec(): Exec {
   const paths = toolPaths(tc);
   return (tool, args) => {
     if (tool === 'adb') {
-      const r = spawnSync(paths.adb, args, { encoding: 'utf8', env, windowsHide: true, timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
-      return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+      const ran = runAdb('install', args, { timeoutMs: 300_000, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      return { code: ran.status ?? 1, out: ran.out };
     }
     const bat = tool === 'apkanalyzer' ? paths.apkanalyzer : paths.apksigner;
     const apk = args[args.length - 1] ?? '';
     const head = args.slice(0, -1).join(' ');
-    const r = spawnSync(`"${bat}" ${head} "${apk}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
+    const r = runSyncCommand(`"${bat}" ${head} "${apk}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, timeout: 300_000, maxBuffer: 64 * 1024 * 1024 });
     return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
   };
 }

@@ -29,3 +29,12 @@ test('a missing platform or tool is named', () => {
   assert.deepEqual(missingTools(tc, p => p !== paths.platform), ['platform']);
   assert.deepEqual(missingTools(tc, () => true), []);
 });
+
+test('RF1: adb is never on a child\'s PATH, added or inherited, so only the gate can start it', () => {
+  const tc = toolchain(base);
+  const inheritedTools = join('Z', 'sdk', 'platform-tools');
+  const env = childEnv(tc, { ...base, PATH: ['A', inheritedTools, `${inheritedTools}/`, 'B'].join(';') });
+  const parts = (env.PATH ?? env.Path ?? '').split(';');
+  assert.equal(parts.some(p => /platform-tools/i.test(p)), false);
+  assert.ok(parts.includes('A') && parts.includes('B'));
+});

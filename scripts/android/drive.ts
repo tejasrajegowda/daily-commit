@@ -1,9 +1,8 @@
 // Driving the test phone: a uiautomator dump turned into nodes, and adb aimed only at emulator-5556.
 // Every call names that serial. Nothing else is ever addressed.
-import { spawnSync } from 'node:child_process';
-import { childEnv, toolchain, toolPaths } from './env.ts';
+import { EMULATOR_SERIAL, runAdb } from './adbGate.ts';
 
-export const TEST_SERIAL = 'emulator-5556';
+export const TEST_SERIAL = EMULATOR_SERIAL;
 
 /** One node of a `uiautomator dump`. */
 export interface UiNode {
@@ -139,31 +138,15 @@ export interface Emu {
 
 const MAX_BUFFER = 32 * 1024 * 1024;
 
-function adbTool(): { readonly adb: string; readonly env: Record<string, string> } {
-  const tc = toolchain(process.env);
-  return { adb: toolPaths(tc).adb, env: childEnv(tc, process.env) };
-}
-
 /** One adb command. The serial is always emulator-5556; a different `-s` is refused. */
 export function adbOnTestPhone(args: readonly string[], timeoutMs = 60_000): { readonly code: number; readonly out: string } {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '-s' && args[i + 1] !== TEST_SERIAL) throw new Error('adb may address only emulator-5556');
-  }
-  const { adb, env } = adbTool();
-  const r = spawnSync(adb, ['-s', TEST_SERIAL, ...args], {
-    encoding: 'utf8', env, windowsHide: true, timeout: timeoutMs, maxBuffer: MAX_BUFFER,
-  });
-  return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+  const ran = runAdb('emulator', ['-s', TEST_SERIAL, ...args], { timeoutMs, encoding: 'utf8', maxBuffer: MAX_BUFFER });
+  return { code: ran.status ?? 1, out: ran.out };
 }
 
 function adbBytes(args: readonly string[], timeoutMs: number): Uint8Array {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '-s' && args[i + 1] !== TEST_SERIAL) throw new Error('adb may address only emulator-5556');
-  }
-  const { adb, env } = adbTool();
-  const r = spawnSync(adb, ['-s', TEST_SERIAL, ...args], { env, windowsHide: true, timeout: timeoutMs, maxBuffer: MAX_BUFFER });
-  const stdout = Buffer.isBuffer(r.stdout) ? r.stdout : Buffer.from(r.stdout ?? '');
-  return new Uint8Array(stdout);
+  const ran = runAdb('emulator', ['-s', TEST_SERIAL, ...args], { timeoutMs, maxBuffer: MAX_BUFFER });
+  return ran.stdout;
 }
 
 /** A blocking wait. The emulator checks are synchronous; this does not need the event loop. */

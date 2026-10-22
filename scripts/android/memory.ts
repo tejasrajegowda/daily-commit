@@ -2,9 +2,9 @@
 // Gradle build or an emulator starts only when nothing else heavy is running (in any project) and
 // enough memory is free. It waits and re-checks; it never stops, suspends or signals anything.
 // It prints counts and amounts only, never a process's command line.
-import { spawnSync } from 'node:child_process';
 import { freemem } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { runSync } from './proc.ts';
 
 export const GB = 1024 ** 3;
 // Gradle here runs at -Xmx2g with no daemon and Kotlin in-process, so it peaks near 3 GB: 4 GB free leaves a 1 GB margin.
@@ -44,8 +44,8 @@ export function mayStart(kind: 'gradle' | 'emulator', h: Heavy): { readonly ok: 
 /** Reads the PC now (os.freemem and one CIM query); prints nothing. */
 export function readHeavy(): Heavy {
   const query = "Get-CimInstance Win32_Process -Filter \"Name='java.exe' or Name='javaw.exe' or Name='qemu-system-x86_64.exe' or Name='emulator.exe'\" | Select-Object Name,CommandLine | ConvertTo-Json -Compress";
-  const r = spawnSync('powershell', ['-NoProfile', '-Command', query], { encoding: 'utf8', windowsHide: true });
-  const text = (r.stdout ?? '').trim();
+  const r = runSync('powershell', ['-NoProfile', '-Command', query], { encoding: 'utf8', windowsHide: true });
+  const text = String(r.stdout ?? '').trim();
   let rows: ProcessRow[] = [];
   if (r.status === 0 && text) {
     const parsed: unknown = JSON.parse(text);

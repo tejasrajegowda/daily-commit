@@ -1,11 +1,11 @@
 // The release key's certificate pin, the version-code rule, and the properties text that points at
 // the key. The key itself stays outside the repo. A password is never printed.
 // node scripts/android/signing.ts new-key --dir <folder>
-import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { childEnv, toolchain, toolPaths } from './env.ts';
+import { runSync } from './proc.ts';
 
 /** The release key's certificate, SHA-256, lowercase hex, as apksigner prints it. Empty until Step 0; then pinned for good. */
 export const RELEASE_CERT_SHA256: string = 'b92b6b89d794155d518ff56e4f6260709124bd7f89bc299c5d20bb4e5c49441f';
@@ -90,7 +90,7 @@ function newKey(dir: string): number {
   const base = ['-keystore', keyPath, '-storepass:file', tmp];
   try {
     writeFileSync(tmp, password, { mode: 0o600 });
-    const made = spawnSync(keytool, ['-genkeypair', ...base, '-storetype', 'PKCS12', '-alias', KEY_ALIAS, '-keyalg', 'RSA',
+    const made = runSync(keytool, ['-genkeypair', ...base, '-storetype', 'PKCS12', '-alias', KEY_ALIAS, '-keyalg', 'RSA',
       '-keysize', '4096', '-validity', '10000', '-dname', 'CN=Daily Commit', '-keypass:file', tmp],
       { encoding: 'utf8', env, windowsHide: true, timeout: 300_000 });
     if ((made.status ?? 1) !== 0) {
@@ -98,7 +98,7 @@ function newKey(dir: string): number {
       console.log('the key could not be made');
       return 1;
     }
-    const listed = spawnSync(keytool, ['-list', '-v', ...base], { encoding: 'utf8', env, windowsHide: true, timeout: 120_000 });
+    const listed = runSync(keytool, ['-list', '-v', ...base], { encoding: 'utf8', env, windowsHide: true, timeout: 120_000 });
     const sha = keytoolSha256(`${listed.stdout ?? ''}\n${listed.stderr ?? ''}`);
     if ((listed.status ?? 1) !== 0 || sha === undefined) {
       if (existsSync(keyPath)) unlinkSync(keyPath);

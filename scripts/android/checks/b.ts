@@ -1,10 +1,9 @@
 // Task 8b. Android's backup on the test phone, read by the files it stored, then a wiped
 // install and the two ways back in. adb stays on emulator-5556.
-import { spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { runAdb } from '../adbGate.ts';
 import { adbOnTestPhone, find, pause, TEST_SERIAL, type Emu, type UiNode } from '../drive.ts';
-import { childEnv, toolchain, toolPaths } from '../env.ts';
 import {
   appInFront, dismissKeyguard, focusSecret, guardUninstall, launch, locked, openFoundCopy,
   pastLock, pushSeed, restoreSeed, showing, unlock, type Check, type RunCtx,
@@ -206,17 +205,9 @@ export function snapshotNames(names: readonly string[]): string | undefined {
   return undefined;
 }
 
-function captureTo(args: readonly string[], dest: string, timeoutMs: number): number {
-  const tc = toolchain(process.env);
-  const fd = openSync(dest, 'w');
-  try {
-    const ran = spawnSync(toolPaths(tc).adb, ['-s', TEST_SERIAL, ...args], {
-      env: childEnv(tc, process.env), windowsHide: true, timeout: timeoutMs, stdio: ['ignore', fd, 'ignore'],
-    });
-    return ran.status ?? 1;
-  } finally {
-    closeSync(fd);
-  }
+export function captureTo(args: readonly string[], dest: string, timeoutMs: number): number {
+  const ran = runAdb('emulator', ['-s', TEST_SERIAL, ...args], { timeoutMs, captureTo: dest });
+  return ran.status ?? 1;
 }
 
 function looksLikeTar(path: string): boolean {

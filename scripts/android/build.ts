@@ -3,12 +3,12 @@
 // node scripts/android/build.ts test    → Gradle :app:testDebugUnitTest, then a summary of the JVM tests.
 // Gradle runs in one process with no daemon (android/gradle.properties), its output goes to
 // .local/logs/, and only the last lines are printed. Nothing is left running afterwards.
-import { spawn, spawnSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { freemem } from 'node:os';
 import { join } from 'node:path';
 import { childEnv, missingTools, toolchain, toolPaths } from './env.ts';
 import { GB, readHeavy, waitForRoom } from './memory.ts';
+import { runSync, runSyncCommand, startChild } from './proc.ts';
 
 const RESULTS_DIR = 'android/app/build/test-results/testDebugUnitTest';
 const TAIL_LINES = 25;
@@ -64,10 +64,10 @@ async function gradle(mode: string, tasks: readonly string[], java: string, env:
   let lowestFree = freemem();
   const sampler = setInterval(() => { lowestFree = Math.min(lowestFree, freemem()); }, 5_000);
   const code = await new Promise<number>(resolve => {
-    const child = spawn(java, ['-Xmx64m', '-Xms64m', '-Dorg.gradle.appname=gradlew', '-jar', join('gradle', 'wrapper', 'gradle-wrapper.jar'),
+    const child = startChild(java, ['-Xmx64m', '-Xms64m', '-Dorg.gradle.appname=gradlew', '-jar', join('gradle', 'wrapper', 'gradle-wrapper.jar'),
       '--no-daemon', '--console=plain', ...tasks], { cwd: 'android', env, windowsHide: true });
-    child.stdout.on('data', keep);
-    child.stderr.on('data', keep);
+    child.stdout?.on('data', keep);
+    child.stderr?.on('data', keep);
     child.on('error', () => resolve(1));
     child.on('close', c => resolve(c ?? 1));
   });
@@ -82,11 +82,11 @@ async function gradle(mode: string, tasks: readonly string[], java: string, env:
 
 function npmBuild(): number {
   // npm is a shell script on Windows, so it goes through the shell as one fixed string
-  return spawnSync('npm run build', { stdio: 'inherit', shell: true }).status ?? 1;
+  return runSyncCommand('npm run build', { stdio: 'inherit', shell: true }).status ?? 1;
 }
 
 function node(args: readonly string[], env: Record<string, string>): number {
-  return spawnSync(process.execPath, args, { stdio: 'inherit', env }).status ?? 1;
+  return runSync(process.execPath, args, { stdio: 'inherit', env }).status ?? 1;
 }
 
 async function main(mode: string | undefined): Promise<number> {

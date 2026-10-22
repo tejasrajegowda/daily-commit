@@ -1,11 +1,11 @@
 // Task 8a and 8b on the test phone. One process holds the emulator for the whole run.
 // adb is only ever aimed at emulator-5556.
-import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
 import { join } from 'node:path';
 import { adbOnTestPhone, emu, pause, type Emu } from '../drive.ts';
 import { childEnv, toolchain, toolPaths } from '../env.ts';
+import { runSync } from '../proc.ts';
 import { startEmulator, stopEmulator } from '../emulator.ts';
 import { GB } from '../memory.ts';
 import { isDcTestPhone } from '../smoke.ts';
@@ -71,14 +71,14 @@ function refused(argv: readonly string[]): boolean {
 
 function avdListed(name: string): boolean {
   const tc = toolchain(process.env);
-  const listed = spawnSync(toolPaths(tc).emulator, ['-list-avds'], {
+  const listed = runSync(toolPaths(tc).emulator, ['-list-avds'], {
     encoding: 'utf8', env: childEnv(tc, process.env), windowsHide: true, timeout: 60_000,
   });
   return `${listed.stdout ?? ''}${listed.stderr ?? ''}`.split(/\r?\n/).some(line => line.trim() === name);
 }
 
 function installApp(): string {
-  const ran = spawnSync('npm', ['run', 'phone', '--', '--serial', 'emulator-5556'], {
+  const ran = runSync('npm', ['run', 'phone', '--', '--serial', 'emulator-5556'], {
     shell: true, encoding: 'utf8', windowsHide: true, timeout: 300_000, cwd: process.cwd(),
   });
   return `${ran.stdout ?? ''}${ran.stderr ?? ''}`;
@@ -395,7 +395,7 @@ async function main(): Promise<number> {
   if (!failed && (from === undefined || from === 'A19')) {
     if (!avdListed('dc-api37')) say('SKIP A19 (dc-api37 does not exist)');
     else {
-      const ran = spawnSync('npm', ['run', 'android:smoke', '--', '--avd', 'dc-api37'], {
+      const ran = runSync('npm', ['run', 'android:smoke', '--', '--avd', 'dc-api37'], {
         shell: true, encoding: 'utf8', windowsHide: true, timeout: 30 * 60_000, cwd: process.cwd(),
       });
       const out = `${ran.stdout ?? ''}${ran.stderr ?? ''}`;

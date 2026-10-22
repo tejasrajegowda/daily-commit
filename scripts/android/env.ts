@@ -18,19 +18,23 @@ export function toolchain(env: Env): Toolchain {
   return { jdk, sdk };
 }
 
-/** The environment for one child process: JAVA_HOME, ANDROID_HOME, ANDROID_SDK_ROOT, and PATH with the tools first. Never written anywhere. */
+/**
+ * The environment for one child process: JAVA_HOME, ANDROID_HOME, ANDROID_SDK_ROOT, and PATH with the tools first.
+ * platform-tools (adb) is never on it, inherited or added, so a child can't reach a device by name: adbGate.ts
+ * starts adb by its full path. Never written anywhere.
+ */
 export function childEnv(tc: Toolchain, env: Env): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [k, v] of Object.entries(env)) if (v !== undefined) out[k] = v;
   const key = 'PATH' in out ? 'PATH' : 'Path' in out ? 'Path' : 'PATH';
   const first = [
     join(tc.jdk, 'bin'),
-    join(tc.sdk, 'platform-tools'),
     join(tc.sdk, 'emulator'),
     join(tc.sdk, 'cmdline-tools', 'latest', 'bin'),
     join(tc.sdk, 'build-tools', BUILD_TOOLS),
   ];
-  out[key] = [...first, ...(out[key] ? [out[key]] : [])].join(delimiter);
+  const inherited = (out[key] ?? '').split(delimiter).filter(p => p !== '' && !/[\\/]platform-tools[\\/]?$/i.test(p));
+  out[key] = [...first, ...inherited].join(delimiter);
   out.JAVA_HOME = tc.jdk;
   out.ANDROID_HOME = tc.sdk;
   out.ANDROID_SDK_ROOT = tc.sdk;

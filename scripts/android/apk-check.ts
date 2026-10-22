@@ -4,10 +4,10 @@
 // was synced, and the leak paths: backup rules, permissions, what other apps can reach, the web view.
 // Run by `npm run android:build`, or on its own with `npm run android:check`.
 // node scripts/android/apk-check.ts → one line per problem, exit 1 if there is any.
-import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, relative, sep } from 'node:path';
 import { releaseProblems } from '../release-check.ts';
+import { runSyncCommand } from './proc.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 import { RELEASE_CERT_SHA256, signersOf } from './signing.ts';
 
@@ -216,14 +216,14 @@ function readResource(path: string, env: Record<string, string>, tool: string, a
 
 /** One apkanalyzer command; a .bat can't be spawned without a shell, so the command is one fixed string. */
 function apkanalyzer(args: string, env: Record<string, string>, tool: string, apk: string): string {
-  const r = spawnSync(`"${tool}" ${args} "${apk}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+  const r = runSyncCommand(`"${tool}" ${args} "${apk}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`apkanalyzer ${args.split(' ')[0] ?? ''} failed (exit ${r.status ?? 'none'})`);
-  return r.stdout;
+  return String(r.stdout ?? '');
 }
 
 /** `apksigner verify --print-certs` for the signed release APK. */
 function printCerts(env: Record<string, string>, tool: string, apk: string): string {
-  const r = spawnSync(`"${tool}" verify --print-certs "${apk}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
+  const r = runSyncCommand(`"${tool}" verify --print-certs "${apk}"`, { shell: true, encoding: 'utf8', env, windowsHide: true, maxBuffer: 64 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`apksigner verify failed (exit ${r.status ?? 'none'})`);
   return `${r.stdout ?? ''}`;
 }

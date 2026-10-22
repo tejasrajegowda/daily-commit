@@ -6,7 +6,6 @@
 // The emulator-only key lives in .local/android/ (ignored) and is never used for the phone.
 // Nothing from the screen is printed except whether the title matched.
 // node scripts/android/smoke.ts → one PASS/FAIL line per check, exit 1 on any FAIL; a copy in .local/android/.
-import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
@@ -14,6 +13,7 @@ import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { APP_ID, newestReleaseApk, SIGNED_APK, UNSIGNED_APK } from './apk-check.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
+import { runSync, runSyncCommand } from './proc.ts';
 import { find, nodesOf } from './drive.ts';
 import { adb, AVD, SERIAL, startEmulator, stopEmulator } from './emulator.ts';
 import { GB, readHeavy } from './memory.ts';
@@ -128,13 +128,13 @@ function stamp(d: Date): string {
 
 /** A tool run with its arguments as a list (no shell); its status only. */
 function run(tool: string, args: readonly string[], env: Record<string, string>): number {
-  return spawnSync(tool, args, { stdio: 'ignore', env, windowsHide: true, timeout: 300_000 }).status ?? 1;
+  return runSync(tool, args, { stdio: 'ignore', env, windowsHide: true, timeout: 300_000 }).status ?? 1;
 }
 
 /** A .bat tool: it can't be spawned without a shell, so the command is one fixed string of quoted paths. */
 function runBat(tool: string, args: readonly string[], env: Record<string, string>): number {
   const line = [tool, ...args].map(a => `"${a}"`).join(' ');
-  return spawnSync(line, { shell: true, stdio: 'ignore', env, windowsHide: true, timeout: 300_000 }).status ?? 1;
+  return runSyncCommand(line, { shell: true, stdio: 'ignore', env, windowsHide: true, timeout: 300_000 }).status ?? 1;
 }
 
 /** The password goes to keytool and apksigner only through a file of the script's own, removed straight after. */

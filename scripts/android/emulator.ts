@@ -2,15 +2,16 @@
 // (another project uses 5554), with no snapshot, no window, a software GPU and 3 GB. It is started
 // detached. Stopping it talks to emulator-5556, then stops only the process this script started.
 // node scripts/android/emulator.ts start|stop
-import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { EMULATOR_SERIAL, runAdb } from './adbGate.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 import { waitForRoom } from './memory.ts';
+import { runSync, startChild } from './proc.ts';
 
 export const PORT = 5556;
-export const SERIAL = 'emulator-5556';
+export const SERIAL = EMULATOR_SERIAL;
 export const AVD = 'dc-api33';
 
 const BOOT_WAIT_MS = 5 * 60_000;
@@ -79,10 +80,9 @@ function onStopSignal(): void {
   });
 }
 
-function tools(): { adb: string; emulator: string; env: Record<string, string> } {
+function tools(): { emulator: string; env: Record<string, string> } {
   const tc = toolchain(process.env);
-  const paths = toolPaths(tc);
-  return { adb: paths.adb, emulator: paths.emulator, env: childEnv(tc, process.env) };
+  return { emulator: toolPaths(tc).emulator, env: childEnv(tc, process.env) };
 }
 
 /**
@@ -97,9 +97,8 @@ export function mayRemoveFill(avdNameOutput: string, code: number): boolean {
 
 /** One adb command on the test phone (or on adb itself with no serial); its output, never printed here. */
 export function adb(args: readonly string[], timeoutMs = 120_000): { status: number; out: string } {
-  const { adb: tool, env } = tools();
-  const r = spawnSync(tool, args, { encoding: 'utf8', env, windowsHide: true, timeout: timeoutMs, maxBuffer: 64 * 1024 * 1024 });
-  return { status: r.status ?? 1, out: (r.stdout ?? '') + (r.stderr ?? '') };
+  const ran = runAdb('emulator', args, { timeoutMs, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  return { status: ran.status ?? 1, out: ran.out };
 }
 
 function listed(timeoutMs?: number): boolean {
@@ -118,7 +117,7 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
   const fd = openSync(log, 'w');
   const started = Date.now();
   const seconds = () => ((Date.now() - started) / 1000).toFixed(0);
-  const child = spawn(emulator, args, { detached: true, stdio: ['ignore', fd, fd], env, windowsHide: true });
+  const child = startChild(emulator, args, { detached: true, stdio: ['ignore', fd, fd], env, windowsHide: true });
   let exited: number | null = null;
   child.on('error', () => { if (exited === null) exited = -1; });
   child.on('exit', code => { exited = code ?? exited ?? -1; });
@@ -191,7 +190,7 @@ function stopOurProcessTree(): void {
   const alive = pid !== undefined && pidAlive(pid);
   if (pid === undefined || !shouldStopProcessTree({ pid, alive })) return;
   console.log('emulator: stopping the process this script started');
-  spawnSync('taskkill', taskkillArgs(pid), { shell: false, windowsHide: true, stdio: 'ignore', timeout: 30_000 });
+  runSync('taskkill', taskkillArgs(pid), { shell: false, windowsHide: true, stdio: 'ignore', timeout: 30_000 });
 }
 
 /** adb -s emulator-5556 emu kill, then up to 60 s. If the process this script started is still alive, stops that process tree only. */

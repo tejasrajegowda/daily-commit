@@ -7,12 +7,12 @@
 // `--from P<n>` is refused before the phone is touched: a resumed run would skip the opening check.
 // In the dry run a stand-in (standin.ts) does the owner's part at the file picker and answers the owner's questions
 // from what the emulator measures; a fingerprint, the phone's PIN and the screen-off typing have no stand-in.
-import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { runAdb } from '../adbGate.ts';
 import { adbOnTestPhone, driver, pause } from '../drive.ts';
 import { startEmulator, stopEmulator } from '../emulator.ts';
-import { childEnv, toolchain, toolPaths } from '../env.ts';
+import { runSync } from '../proc.ts';
 import { isDcTestPhone } from '../smoke.ts';
 import { DRY_RUN_SERIAL, guardedPhone, NOT_IN_APP, NotInApp, phoneTarget, Refused, type Adb } from './guard.ts';
 import { LONG_FILE } from './long.ts';
@@ -63,12 +63,9 @@ function stamp(d: Date): string {
 }
 
 function realAdb(): Adb {
-  const tc = toolchain(process.env);
-  const env = childEnv(tc, process.env);
-  const adb = toolPaths(tc).adb;
   return (args, timeoutMs = 60_000) => {
-    const r = spawnSync(adb, args, { encoding: 'utf8', env, windowsHide: true, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024 });
-    return { code: r.status ?? 1, out: `${r.stdout ?? ''}${r.stderr ?? ''}` };
+    const ran = runAdb('phoneChecks', args, { timeoutMs, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+    return { code: ran.status ?? 1, out: ran.out };
   };
 }
 
@@ -131,7 +128,7 @@ async function prepareDryRun(say: (line: string) => void): Promise<boolean> {
     say('FAIL emulator-5556 is not a dc- test phone');
     return false;
   }
-  const ran = spawnSync('npm', ['run', 'phone', '--', '--serial', DRY_RUN_SERIAL], {
+  const ran = runSync('npm', ['run', 'phone', '--', '--serial', DRY_RUN_SERIAL], {
     shell: true, encoding: 'utf8', windowsHide: true, timeout: 300_000, cwd: process.cwd(),
   });
   if (!/Installed .+ over what was there/.test(`${ran.stdout ?? ''}${ran.stderr ?? ''}`)) {

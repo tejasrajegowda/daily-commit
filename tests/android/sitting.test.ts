@@ -416,12 +416,11 @@ test('the stand-in can reach only the dc- test emulator, and only after the dry 
   assert.deepEqual(from, ['../drive.ts', '../smoke.ts', './a.ts', './guard.ts', './p.ts', './screen.ts', 'node:buffer']);
   assert.match(standin, /^import \{ windowIsSecure \} from '\.\.\/smoke\.ts';$/m);
   assert.match(standin, /^import \{ frontOf \} from '\.\/guard\.ts';$/m);
-  // Every adb call under it names emulator-5556 and nothing else; another serial is refused before adb runs.
+  // Every adb call under it goes through the emulator lane; another serial is refused before adb runs.
   const drive = readFileSync(new URL('../../scripts/android/drive.ts', import.meta.url), 'utf8');
   assert.equal(TEST_SERIAL, 'emulator-5556');
-  const spawns = [...drive.matchAll(/spawnSync\(/g)].length;
-  assert.equal(spawns, 2);
-  assert.equal([...drive.matchAll(/spawnSync\(adb, \['-s', TEST_SERIAL, \.\.\.args\]/g)].length, spawns);
+  assert.equal([...drive.matchAll(/runAdb\(\s*'emulator'/g)].length, 2);
+  assert.equal([...drive.matchAll(/spawnSync\(/g)].length, 0);
   assert.throws(() => adbOnTestPhone(['-s', 'R5CT000TEST', 'shell', 'true']), /only emulator-5556/);
   // The dry run refuses an emulator whose AVD isn't dc-, before the stand-in or the guarded io exists.
   const sitting = readFileSync(new URL('../../scripts/android/checks/sitting.ts', import.meta.url), 'utf8');
