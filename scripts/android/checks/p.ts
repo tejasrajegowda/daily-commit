@@ -1,10 +1,10 @@
 // Task 9's P3–P8 on the owner's phone, driven by script. The owner does only what is the owner's: a fingerprint,
-// the phone's own PIN, Android's file picker, and what only the owner's eyes can answer. Every read goes through
-// the guard (guard.ts), so only Daily Commit's own words are ever seen, and only the plan's "Recorded"
-// items are kept: numbers, yes/no, and the keyboard's name.
+// the phone's own PIN, Android's file picker, the typing in another app, the diary words and the side key, and
+// what only the owner's eyes can answer. Every read goes through the guard (guard.ts), so only Daily Commit's
+// own words are ever seen, and only the plan's "Recorded" items are kept: numbers, yes/no, and the keyboard's name.
 import { find, pause, type Emu, type UiNode } from '../drive.ts';
 import { codePad, enterDigits, focusDiaryPage, focusSecret, launch, pastLock, scrollTo, scrollUpTo } from './a.ts';
-import { NOT_IN_APP, NotInApp, Refused, type Front } from './guard.ts';
+import { NOT_IN_APP, NotInApp, Refused, SCAN_LONG, type Front } from './guard.ts';
 import { LONG_PASSPHRASE } from './long.ts';
 
 /** The plan's test values (Task 9). All invented. */
@@ -636,14 +636,14 @@ function p4(ctx: PCtx): void {
       ctx.record('P4.restored', 'no (the invented file could not be copied to Download)');
       throw new Error('the invented file could not be copied to Download');
     }
-    phone.shell('am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/dc-3year.dcbak');
+    phone.shell(SCAN_LONG);
     openSettings(ctx);
     scrollTo(phone, has('Restore from a backup'));
     phone.tap(has('Restore from a backup'), 20_000);
     if (!phone.waitFor(has('Choose a file'), 20_000)) throw new Error('the restore screen did not open');
     phone.tap(has('Choose a file'), 20_000);
     const picked = ctx.owner.wait(
-      "In Android's file picker, open Downloads and choose dc-3year.dcbak.",
+      "In Android's file picker, open Downloads and choose dc-3year.dcbak. If it is not there, you can still reach it by browsing the phone's storage in the picker.",
       look(ctx, nodes => seen(nodes, words('Passphrase')) || seen(nodes, has('Replace everything')) || seen(nodes, words('Choose another file'))),
       'pick-long',
     );
@@ -820,35 +820,61 @@ function p7(ctx: PCtx): void {
     openRecord(ctx);
     ctx.record('P7.keyboard', keyboardName(ctx.phone.shell('settings get secure default_input_method').out));
   });
-  askOpen(ctx, 'P7.diaryWord', 'In a text field where nothing is sent (a new note in Notes), type "Vex". Is "Vextromil" offered in the suggestion bar? If it is, long-press it and remove it, then discard the note.');
-  askOpen(ctx, 'P7.codeGroup', 'In that field, type the first three characters of the group on your paper. Is the rest of the group offered? If it is, remove it, then discard the note.');
+  // These two stay in the other app. openRecord here would bring Daily Commit back over the field being typed in.
+  runPart(ctx, ['P7.diaryWord'], () => {
+    ctx.record('P7.diaryWord', ctx.owner.ask('P7.diaryWord', 'Go to a text field where nothing is sent (a new note in Notes, or the search bar without pressing search). Type "Vex". Is "Vextromil" offered? Leave the note open.'));
+  });
+  runPart(ctx, ['P7.codeGroup'], () => {
+    ctx.record('P7.codeGroup', ctx.owner.ask('P7.codeGroup', 'In that field, clear it and type the first three characters of the group on your paper. Is the rest of the group offered? If either was offered, long-press it and remove it, then discard the note.'));
+  });
+  try {
+    openRecord(ctx);
+  } catch (err) {
+    if (err instanceof Refused) throw err;
+    const why = err instanceof NotInApp ? NOT_IN_APP : err instanceof Error ? err.message : 'failed';
+    ctx.note(`P7 stopped: ${why}`);
+  }
 }
 
 function p8(ctx: PCtx): void {
   runPart(ctx, ['P8.kept'], () => {
-    const { phone } = ctx;
     openRecord(ctx);
-    phone.tap(words('Diary'), 20_000);
-    focusDiaryPage(phone);
-    phone.type(SCREEN_OFF_WORDS);
-    phone.key('KEYCODE_SLEEP');
-    pause(1500);
-    phone.key('KEYCODE_WAKEUP');
-    pause(800);
-    phone.shell('wm dismiss-keyguard');
-    pause(800);
-    toApp(ctx);
-    const screen = settle(ctx, 20_000);
-    if (screen === 'lock') {
-      if (codePad(phone)) byCode(ctx);
-      else byPassphrase(ctx);
+    // The words have to be half-typed on the keyboard, so the script never types them and never reads the screen until the owner has left.
+    let away = false;
+    let stable = 0;
+    const back = ctx.owner.wait(
+      `In Daily Commit, open Diary and a new page. Type "${SCREEN_OFF_WORDS}" and, without pausing, press the side key. Turn the screen on, unlock with ${CODE}, open Diary and that page.`,
+      () => {
+        if (ctx.front() !== 'app') {
+          away = true;
+          return false;
+        }
+        if (!away) return false;
+        try {
+          const nodes = ctx.phone.dump();
+          if (lockOn(nodes) || !pastLock(nodes)) return false;
+          if (seen(nodes, has(SCREEN_OFF_WORDS))) return true;
+          const pageUp = seen(nodes, words('Diary page')) || seen(nodes, words('Earlier'));
+          if (!pageUp) {
+            stable = 0;
+            return false;
+          }
+          stable += 1;
+          return stable >= 3;
+        } catch (err) {
+          if (err instanceof NotInApp) {
+            away = true;
+            return false;
+          }
+          throw err;
+        }
+      },
+    );
+    if (!back) {
+      ctx.record('P8.kept', 'not done');
+      return;
     }
-    dismissOffer(ctx);
-    if (!seen(phone.dump(), has('CANARY typed screen off'))) {
-      if (!seen(phone.dump(), words('Earlier'))) phone.tap(words('Diary'), 20_000);
-      phone.waitFor(has('CANARY typed screen off'), 8_000);
-    }
-    ctx.record('P8.kept', seen(phone.dump(), has('CANARY typed screen off')) ? 'yes' : 'no');
+    ctx.record('P8.kept', seen(ctx.phone.dump(), has(SCREEN_OFF_WORDS)) ? 'yes' : 'no');
   });
 }
 

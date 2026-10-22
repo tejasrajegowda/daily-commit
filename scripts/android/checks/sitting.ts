@@ -1,12 +1,12 @@
-// Task 9's P3–P8 on the one real phone, by script. The owner does only the fingerprint, the phone's own
-// PIN, Android's file picker and the yes/no only the owner's eyes can give; each is one `OWNER:` line, then a
+// Task 9's P3–P8 on the one real phone, by script. The owner does the fingerprint, the phone's own
+// PIN, Android's file picker, the typing in another app, the diary words and the side key, and the yes/no only the owner's eyes can give; each is one `OWNER:` line, then a
 // wait of at most 5 minutes, then "not done". Only the plan's Recorded items are printed and logged to
 // .local/android/phone-<stamp>.log: numbers, yes/no, the keyboard's name. Never the phone's serial.
 // npm run phone:checks
 // npm run phone:checks -- --dry-run [--owner-wait 20]   (the dc- test emulator, started and stopped here)
 // `--from P<n>` is refused before the phone is touched: a resumed run would skip the opening check.
 // In the dry run a stand-in (standin.ts) does the owner's part at the file picker and answers the owner's questions
-// from what the emulator measures; a fingerprint and the phone's PIN have no stand-in.
+// from what the emulator measures; a fingerprint, the phone's PIN and the screen-off typing have no stand-in.
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

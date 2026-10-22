@@ -56,6 +56,8 @@ export function phoneTarget(adbDevices: string): { readonly ok: true; readonly s
 export type ShellKind = 'in-app' | 'in-app-or-prompt' | 'anywhere' | 'read' | 'refused';
 
 const LONG_REMOTE = '/sdcard/Download/dc-3year.dcbak';
+/** One file, through MediaStore's own scan. The scanner broadcast is ignored on Android 13. */
+export const SCAN_LONG = `content call --uri content://media --method scan_file --arg ${LONG_REMOTE}`;
 const ANYWHERE_KEYS = new Set(['KEYCODE_HOME', 'KEYCODE_WAKEUP', 'KEYCODE_SLEEP']);
 // The keys the steps press inside the app. Any other key (the screenshot key, one that opens another app) is refused.
 const IN_APP_KEYS = new Set(['KEYCODE_ENTER', ...'0123456789'.split('').map(d => `KEYCODE_${d}`)]);
@@ -77,7 +79,7 @@ export function shellKind(command: string): ShellKind {
   if (c === `am force-stop ${APP}`) return 'anywhere';
   if (c === 'wm dismiss-keyguard') return 'anywhere';
   if (c === 'setprop log.tag.DailyCommit VERBOSE' || c === 'setprop log.tag.DailyCommit ""') return 'anywhere';
-  if (c === `am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file://${LONG_REMOTE}`) return 'anywhere';
+  if (c === SCAN_LONG) return 'anywhere';
   if (c === 'wm size' || c === 'date +%s') return 'read';
   if (c === 'logcat -d -v threadtime -s DailyCommit:V') return 'read';
   if (c === 'getprop log.tag.DailyCommit') return 'read';

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { driver, type DeviceIo } from '../../scripts/android/drive.ts';
-import { DUMP_COMMAND, frontOf, guardedPhone, hierarchyOf, NOT_FRONT, NotInApp, onlyInFront, oursOnly, phoneTarget, Refused, shellKind, type Adb } from '../../scripts/android/checks/guard.ts';
+import { DUMP_COMMAND, frontOf, guardedPhone, hierarchyOf, NOT_FRONT, NotInApp, onlyInFront, oursOnly, phoneTarget, Refused, SCAN_LONG, shellKind, type Adb, type Front } from '../../scripts/android/checks/guard.ts';
 import { answerOf, askedTwice, codeOnScreen, keyboardName, lockOn, msList, NOT_TEST_RECORD, openSettings, phoneMayRun, RUN, runPart, screenOf, storageAnswer, timingsAfter, timingsOf, type ItemKey, type PCtx } from '../../scripts/android/checks/p.ts';
 import { LONG_PASSPHRASE } from '../../scripts/android/checks/long.ts';
 import { fromRun, owner, parseArgs } from '../../scripts/android/checks/sitting.ts';
@@ -598,6 +598,272 @@ test('settings type-back is a real record: refused, and nothing is tapped or rep
   assert.equal(phone.taps.length, tapsAtCheck);
   assert.equal(phone.taps.includes(mid(START_B)), false);
   assert.equal(phone.taps.includes(mid(REPLACE_B)), false);
+});
+
+function dock(text: string, x: number): UiNode {
+  return box(text, [x, 2200, x + 270, 2400]);
+}
+
+/** A gatePhone-shaped phone whose screen and focus follow the step. Same io, with the owner supplied by the test. */
+function stepPhone(screen: () => readonly UiNode[], owner: PCtx['owner'], opts?: { front?: () => Front; pushLong?: boolean; proved?: boolean; onShell?: (command: string) => void }): {
+  commands: string[]; taps: string[]; recorded: Map<string, string>; dumps: { n: number }; ctx: PCtx;
+} {
+  const commands: string[] = [];
+  const taps: string[] = [];
+  const recorded = new Map<string, string>();
+  const dumps = { n: 0 };
+  const io: DeviceIo = {
+    shell(c) {
+      opts?.onShell?.(c);
+      commands.push(c);
+      const tap = /^input tap (\d+) (\d+)$/.exec(c);
+      if (tap) taps.push(`${tap[1]},${tap[2]}`);
+      if (c === 'wm size') return { code: 0, out: 'Physical size: 1080x2400' };
+      if (c === 'settings get secure default_input_method') return { code: 0, out: 'com.samsung.android.honeyboard/.service.HoneyBoardService\n' };
+      return { code: 0, out: '' };
+    },
+    execOut() { throw new Error('no'); },
+    finger() { throw new Error('no'); },
+    dump: () => {
+      dumps.n += 1;
+      return { xml: '', nodes: [...screen()] };
+    },
+  };
+  const ctx: PCtx = {
+    phone: driver(io),
+    front: opts?.front ?? (() => 'app'),
+    pushLong: () => opts?.pushLong ?? false,
+    owner,
+    record: (key, value) => { recorded.set(key, value); },
+    recorded: key => recorded.has(key),
+    note() {},
+    timingOn: false,
+    proved: opts?.proved ?? true,
+  };
+  return { commands, taps, recorded, dumps, ctx };
+}
+
+test('P7 asks the two typing questions without bringing Daily Commit forward, and reopens only after both', () => {
+  let front: Front = 'app';
+  let phase: 'lock' | 'open' = 'lock';
+  const asks: { key: string; q: string; at: number; launches: number; typed: number }[] = [];
+  const phone = stepPhone(
+    () => (phase === 'lock' ? lockScreen(false) : [
+      dock('Today', 0), dock('Look back', 270), dock('Diary', 540), dock('Plan', 810),
+    ]),
+    {
+      wait: () => false,
+      ask(key, question) {
+        asks.push({
+          key, q: question, at: phone.commands.length,
+          launches: phone.commands.filter(c => c.includes('am start')).length,
+          typed: phone.commands.filter(c => c.startsWith('input text ')).length,
+        });
+        front = 'other';
+        return 'yes';
+      },
+    },
+    {
+      front: () => front,
+      onShell(c) {
+        if (c.includes('am start')) {
+          phase = 'lock';
+          front = 'app';
+        }
+        if (c.startsWith('input text ')) phase = 'open';
+      },
+    },
+  );
+  RUN.P7(phone.ctx);
+  assert.equal(asks.length, 2);
+  assert.equal(asks[0]?.key, 'P7.diaryWord');
+  assert.equal(asks[1]?.key, 'P7.codeGroup');
+  assert.match(asks[0]?.q ?? '', /Vex/);
+  assert.match(asks[0]?.q ?? '', /Vextromil/);
+  assert.doesNotMatch(asks[0]?.q ?? '', /discard/i);
+  assert.match(asks[1]?.q ?? '', /In that field/);
+  assert.match(asks[1]?.q ?? '', /discard/i);
+  assert.ok((asks[0]?.typed ?? 0) >= 1);
+  assert.equal(asks[0]?.launches, 0);
+  assert.equal(asks[1]?.launches, asks[0]?.launches);
+  assert.equal(asks[1]?.typed, asks[0]?.typed);
+  const between = phone.commands.slice(asks[0]?.at ?? 0, asks[1]?.at ?? 0);
+  assert.equal(between.some(c => c.includes('am start') || c.includes('KEYCODE_WAKEUP') || c.startsWith('input text ')), false);
+  assert.equal(phone.commands.filter(c => c.includes('am start')).length, (asks[1]?.launches ?? 0) + 1);
+  const settingsAt = phone.commands.findIndex(c => c === 'settings get secure default_input_method');
+  assert.ok(settingsAt >= 0 && settingsAt < (asks[0]?.at ?? 0));
+  assert.equal(phone.recorded.get('P7.keyboard'), 'Samsung Keyboard');
+  assert.equal(phone.recorded.get('P7.diaryWord'), 'yes');
+  assert.equal(phone.recorded.get('P7.codeGroup'), 'yes');
+  assert.equal(phone.taps.includes(mid(START_B)), false);
+  assert.equal(phone.taps.includes(mid(REPLACE_B)), false);
+  for (const c of phone.commands) assert.notEqual(shellKind(c), 'refused', c);
+});
+
+function diaryScreen(words: boolean): UiNode[] {
+  const nodes = [
+    dock('Today', 0), dock('Look back', 270), dock('Diary', 540), dock('Plan', 810),
+    box('Earlier', [40, 300, 400, 380], 'android.widget.TextView'),
+    box('Diary page', [40, 500, 900, 900], 'android.widget.EditText'),
+  ];
+  if (words) nodes.push(box('CANARY typed screen off', [40, 520, 900, 620], 'android.widget.TextView'));
+  return nodes;
+}
+
+test('P8 is the owner typing and the side key; a screen that still shows the app does not finish, and the script never types', () => {
+  let front: Front = 'app';
+  let nodes = diaryScreen(true);
+  const dumpsAt = { n: 0 };
+  let question = '';
+  let early = false;
+  const phone = stepPhone(() => nodes, {
+    wait(what, done) {
+      question = what;
+      dumpsAt.n = phone.dumps.n;
+      // A dump here would take the keyboard's focus, so the check stays false without reading.
+      if (done() !== false || phone.dumps.n !== dumpsAt.n) {
+        early = true;
+        return false;
+      }
+      front = 'other';
+      if (done() !== false || phone.dumps.n !== dumpsAt.n) {
+        early = true;
+        return false;
+      }
+      front = 'app';
+      nodes = lockScreen(false);
+      if (done() !== false) return false;
+      nodes = diaryScreen(true);
+      return done();
+    },
+    ask: () => 'not done',
+  }, { front: () => front });
+  RUN.P8(phone.ctx);
+  assert.equal(early, false);
+  assert.equal(phone.commands.filter(c => c.startsWith('input text ') || c.includes('KEYCODE_SLEEP')).join('\n'), '');
+  assert.match(question, /CANARY typed screen off/);
+  assert.match(question, /side key/);
+  assert.match(question, /135790/);
+  assert.match(question, /Diary/);
+  assert.equal(phone.recorded.get('P8.kept'), 'yes');
+  for (const c of phone.commands) assert.notEqual(shellKind(c), 'refused', c);
+});
+
+test('P8 records no only after the diary page has stayed up without the words', () => {
+  let front: Front = 'app';
+  let nodes = diaryScreen(true);
+  let settled = 0;
+  let early = false;
+  const phone = stepPhone(() => nodes, {
+    wait(what, done) {
+      assert.match(what, /CANARY typed screen off/);
+      if (done() !== false) {
+        early = true;
+        return false;
+      }
+      front = 'other';
+      if (done() !== false) return false;
+      front = 'app';
+      nodes = diaryScreen(false);
+      // Two looks at the diary without the words are not enough; the third is.
+      if (done() !== false) {
+        early = true;
+        return false;
+      }
+      settled += 1;
+      if (done() !== false) {
+        early = true;
+        return false;
+      }
+      settled += 1;
+      const third = done();
+      if (third) settled += 1;
+      return third;
+    },
+    ask: () => 'not done',
+  }, { front: () => front });
+  RUN.P8(phone.ctx);
+  assert.equal(early, false);
+  assert.equal(settled, 3);
+  assert.equal(phone.commands.filter(c => c.startsWith('input text ') || c.includes('KEYCODE_SLEEP')).join('\n'), '');
+  assert.equal(phone.recorded.get('P8.kept'), 'no');
+});
+
+test('P8 records not done when the owner never comes back, even if the words were already on screen', () => {
+  const phone = stepPhone(() => diaryScreen(true), {
+    wait: () => false,
+    ask: () => 'not done',
+  });
+  RUN.P8(phone.ctx);
+  assert.equal(phone.commands.filter(c => c.startsWith('input text ') || c.includes('KEYCODE_SLEEP')).join('\n'), '');
+  assert.equal(phone.recorded.get('P8.kept'), 'not done');
+});
+
+const PICK_LINE = "In Android's file picker, open Downloads and choose dc-3year.dcbak. If it is not there, you can still reach it by browsing the phone's storage in the picker.";
+
+test('the long backup is scanned as that one file, and the owner can still browse the phone storage', () => {
+  assert.equal(shellKind(SCAN_LONG), 'anywhere');
+  assert.equal(SCAN_LONG, 'content call --uri content://media --method scan_file --arg /sdcard/Download/dc-3year.dcbak');
+  assert.equal(shellKind('am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/dc-3year.dcbak'), 'refused');
+  assert.equal(shellKind('content call --uri content://media --method scan_volume --arg external_primary'), 'refused');
+  assert.equal(shellKind('content query --uri content://media'), 'refused');
+  assert.equal(shellKind('content call --uri content://media --method scan_file --arg /sdcard/Download/other.dcbak'), 'refused');
+  assert.equal(shellKind('content call --uri content://media --method scan_file'), 'refused');
+  assert.equal(shellKind(`${SCAN_LONG}; content query --uri content://media`), 'refused');
+  const { adb, sent } = fakeAdb(() => OURS);
+  const io = guardedPhone('R5CT000TEST', adb);
+  io.shell(SCAN_LONG);
+  assert.ok(sent.some(a => a.join(' ').includes(SCAN_LONG)));
+  assert.throws(() => io.shell('am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Download/dc-3year.dcbak'), Refused);
+  assert.throws(() => io.shell('content call --uri content://media --method scan_volume --arg external_primary'), Refused);
+
+  let view: 'today' | 'plan' | 'settings' | 'choose' = 'today';
+  let asked = '';
+  const phone = stepPhone(() => {
+    if (view === 'today') return [dock('Today', 0), dock('Look back', 270), dock('Diary', 540), dock('Plan', 810)];
+    if (view === 'plan') return [dock('Today', 0), dock('Plan', 810), box('Settings', [100, 400, 800, 480])];
+    if (view === 'settings') return [
+      box('Settings', [40, 180, 500, 260], 'android.widget.TextView'),
+      box('Done', [800, 180, 1040, 260]),
+      box('Privacy', [40, 500, 500, 580], 'android.widget.TextView'),
+      box('Restore from a backup', [40, 700, 900, 780]),
+    ];
+    return [box('Choose a file', [100, 900, 800, 980])];
+  }, {
+    wait(what) {
+      asked = what;
+      return false;
+    },
+    ask: () => 'not done',
+  }, {
+    pushLong: true,
+    onShell(c) {
+      const tap = /^input tap (\d+) (\d+)$/.exec(c);
+      if (!tap) return;
+      const hit = (view === 'today' ? [dock('Today', 0), dock('Look back', 270), dock('Diary', 540), dock('Plan', 810)]
+        : view === 'plan' ? [dock('Today', 0), dock('Plan', 810), box('Settings', [100, 400, 800, 480])]
+        : view === 'settings' ? [
+          box('Settings', [40, 180, 500, 260], 'android.widget.TextView'),
+          box('Done', [800, 180, 1040, 260]),
+          box('Privacy', [40, 500, 500, 580], 'android.widget.TextView'),
+          box('Restore from a backup', [40, 700, 900, 780]),
+        ]
+        : [box('Choose a file', [100, 900, 800, 980])]).find(n => {
+        const x = Math.floor((n.bounds[0] + n.bounds[2]) / 2);
+        const y = Math.floor((n.bounds[1] + n.bounds[3]) / 2);
+        return String(x) === tap[1] && String(y) === tap[2];
+      });
+      if (hit?.text === 'Plan') view = 'plan';
+      else if (hit?.text === 'Settings') view = 'settings';
+      else if (hit?.text === 'Restore from a backup') view = 'choose';
+    },
+  });
+  RUN.P4(phone.ctx);
+  assert.equal(asked, PICK_LINE);
+  assert.ok(phone.commands.includes(SCAN_LONG));
+  assert.equal(phone.commands.some(c => c.includes('MEDIA_SCANNER')), false);
+  for (const c of phone.commands) assert.notEqual(shellKind(c), 'refused', c);
+  assert.equal(phone.recorded.get('P4.restored'), 'no (the file was not picked)');
 });
 
 test('a --from run is refused before the phone is used', () => {
