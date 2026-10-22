@@ -47,6 +47,13 @@ export type ItemKey = (typeof ITEMS)[number]['key'];
 
 export type Answer = 'yes' | 'no' | 'not done';
 
+/** Printed, and nothing else, when this phone's record is not the invented test one. */
+export const NOT_TEST_RECORD = 'refused: this phone holds a record that is not the test one';
+
+function refuseRecord(): never {
+  throw new Refused('this phone holds a record that is not the test one');
+}
+
 /** An owner's act the dry run's stand-in can do on the test emulator. On the phone it is the owner's alone. */
 export type Act = 'pick-long';
 
@@ -74,6 +81,11 @@ export interface PCtx {
   note(line: string): void;
   /** Whether this run switched the timing line on and restarted the app for it. */
   timingOn: boolean;
+  /**
+   * Set by the opening check, and only when there is no record yet or the test passphrase opened the lock.
+   * Nothing may make or replace a record until this is set.
+   */
+  proved: boolean;
 }
 
 // ---------- pure readers (tested) ----------
@@ -293,9 +305,11 @@ function openRecord(ctx: PCtx): void {
     ctx.phone.key('KEYCODE_BACK');
     screen = settle(ctx, 20_000);
   }
-  if (screen === 'welcome' || screen === 'found' || screen === 'first-run') {
-    // No record (the dry run's P3 didn't finish, or the phone's was cleared): one is made with the test values, so
-    // no later step depends on P3. The phone's record is invented, so replacing it is allowed.
+  // A record that came back is a record. Never "Start new instead".
+  if (screen === 'found') refuseRecord();
+  if (screen === 'welcome' || screen === 'first-run') {
+    // No record. The opening check already allowed this run, so one is made with the test values.
+    if (!ctx.proved) refuseRecord();
     ctx.note('the app had no record open; the script made one with the test values');
     firstRun(ctx, screen, false);
   } else if (screen === 'lock') {
@@ -305,6 +319,88 @@ function openRecord(ctx: PCtx): void {
     throw new Error(`the record is not on screen (${screen})`);
   }
   dismissOffer(ctx);
+}
+
+/** The app in front, without asking the owner and without tapping. False when it cannot be brought up. */
+function bringApp(ctx: PCtx): boolean {
+  if (ctx.front() === 'app') return true;
+  if (ctx.front() === 'prompt') ctx.phone.key('KEYCODE_BACK');
+  launch(ctx.phone, false);
+  return inFront(ctx, 8_000);
+}
+
+/** The lock's own fixed note after a passphrase that did not open. Nothing from the record is read. */
+function passphraseFailed(nodes: readonly UiNode[]): boolean {
+  return seen(nodes, has("That didn't open it"));
+}
+
+/**
+ * Submit the test passphrase. True only when the record then opens. A code pad is switched to the
+ * passphrase first; the test code is never typed, because a real code could be those digits.
+ */
+function tryTestPassphrase(ctx: PCtx): boolean {
+  const { phone } = ctx;
+  if (codePad(phone) && !seen(phone.dump(), words('Use your passphrase'))) return false;
+  if (seen(phone.dump(), words('Use your passphrase'))) phone.tap(words('Use your passphrase'), 10_000);
+  focusSecret(phone, 'Passphrase');
+  phone.type(LONG_PASSPHRASE);
+  pause(300);
+  phone.key('KEYCODE_ENTER');
+  pause(600);
+  let nodes = phone.dump();
+  if (pastLock(nodes)) return true;
+  if (passphraseFailed(nodes)) return false;
+  // Enter can leave the form unsent while the keyboard is up. Open sends it once.
+  if (seen(nodes, words('Open'))) phone.tap(words('Open'), 8_000);
+  const until = Date.now() + 60_000;
+  for (;;) {
+    nodes = phone.dump();
+    if (pastLock(nodes)) return true;
+    if (passphraseFailed(nodes)) return false;
+    if (Date.now() >= until) return false;
+    pause(500);
+  }
+}
+
+/**
+ * True when this run may continue: there is no record yet, or the lock opens with the test passphrase.
+ * A record that is already open is sent home and tried the same way. Any other screen is false.
+ * Nothing here is logged, and no word that belongs to the record is read.
+ */
+function provePhone(ctx: PCtx): boolean {
+  if (!bringApp(ctx)) return false;
+  let screen = settle(ctx);
+  if (screen === 'welcome' || screen === 'first-run') {
+    // Read again. "Type it back" is also Settings' new recovery code, and that screen exists only
+    // once a record does. The first run's own type-back has Finish. Settings does not.
+    const nodes = ctx.phone.dump();
+    const now = screenOf(nodes);
+    if (now !== 'welcome' && now !== 'first-run') return false;
+    if (seen(nodes, words('Type it back')) && !seen(nodes, words('Finish'))) return false;
+    return true;
+  }
+  if (screen === 'open') {
+    ctx.phone.key('KEYCODE_HOME');
+    pause(400);
+    launch(ctx.phone, false);
+    if (!inFront(ctx, 8_000)) return false;
+    screen = settle(ctx, 20_000);
+    // We already saw a record. Welcome after that is not "no record".
+    if (screen !== 'lock') return false;
+  }
+  if (screen === 'lock') return tryTestPassphrase(ctx);
+  return false;
+}
+
+/** The opening check. Sets `proved` only when the run may make or replace a record. A failure keeps nothing. */
+export function phoneMayRun(ctx: PCtx): boolean {
+  try {
+    const ok = provePhone(ctx);
+    if (ok) ctx.proved = true;
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 /** Home, then back in: the app locks the moment it is left (owner D-4). */
@@ -440,9 +536,10 @@ function readCode(ctx: PCtx, ms = 15_000): string | undefined {
  * phone's keyboard (P3); otherwise the script does all of it. Throws with the reason when it can't finish.
  */
 function firstRun(ctx: PCtx, screen: Screen, byOwner: boolean): void {
+  // Making a record is allowed only after the opening check, and never over one that came back.
+  if (!ctx.proved || screen === 'found') refuseRecord();
   const { phone } = ctx;
-  if (screen === 'found') phone.tap(words('Start new instead'), 15_000);
-  if (screen === 'found' || screen === 'welcome') phone.tap(words('Begin'), 20_000);
+  if (screen === 'welcome') phone.tap(words('Begin'), 20_000);
   if (seen(phone.dump(), words('Choose a passphrase')) || phone.waitFor(words('Choose a passphrase'), 15_000)) {
     focusSecret(phone, 'Passphrase');
     phone.type(LONG_PASSPHRASE);
@@ -501,7 +598,8 @@ function p3(ctx: PCtx): void {
   runPart(ctx, ['P3.firstRun'], () => {
     toApp(ctx);
     const screen = settle(ctx);
-    if (screen === 'found' || screen === 'welcome' || screen === 'first-run') {
+    if (screen === 'found') refuseRecord();
+    if (screen === 'welcome' || screen === 'first-run') {
       firstRun(ctx, screen, true);
       ctx.record('P3.firstRun', 'yes');
     } else if (screen === 'lock' || screen === 'open') {
@@ -555,11 +653,17 @@ function p4(ctx: PCtx): void {
       throw new Error('the file was not picked');
     }
     ctx.record('P4.stayedOpen', lockOn(phone.dump()) ? 'no' : 'yes');
-    if (seen(phone.dump(), has('Replace everything'))) phone.tap(words('Replace everything'), 15_000);
+    if (seen(phone.dump(), has('Replace everything'))) {
+      if (!ctx.proved) refuseRecord();
+      phone.tap(words('Replace everything'), 15_000);
+    }
     focusSecret(phone, 'Passphrase');
     phone.type(LONG_PASSPHRASE);
     phone.tap(words('Restore'), 20_000);
-    if (phone.waitFor(has('Replace everything'), 12_000)) phone.tap(words('Replace everything'), 15_000);
+    if (phone.waitFor(has('Replace everything'), 12_000)) {
+      if (!ctx.proved) refuseRecord();
+      phone.tap(words('Replace everything'), 15_000);
+    }
     if (!phone.waitFor(words('Restored'), 180_000)) {
       ctx.record('P4.restored', 'no');
       throw new Error('the restore did not finish');

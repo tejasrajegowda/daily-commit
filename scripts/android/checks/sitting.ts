@@ -2,8 +2,9 @@
 // PIN, Android's file picker and the yes/no only the owner's eyes can give; each is one `OWNER:` line, then a
 // wait of at most 5 minutes, then "not done". Only the plan's Recorded items are printed and logged to
 // .local/android/phone-<stamp>.log: numbers, yes/no, the keyboard's name. Never the phone's serial.
-// npm run phone:checks [-- --from P4]
-// npm run phone:checks -- --dry-run [--owner-wait 20] [--from P4]   (the dc- test emulator, started and stopped here)
+// npm run phone:checks
+// npm run phone:checks -- --dry-run [--owner-wait 20]   (the dc- test emulator, started and stopped here)
+// `--from P<n>` is refused before the phone is touched: a resumed run would skip the opening check.
 // In the dry run a stand-in (standin.ts) does the owner's part at the file picker and answers the owner's questions
 // from what the emulator measures; a fingerprint and the phone's PIN have no stand-in.
 import { spawnSync } from 'node:child_process';
@@ -15,7 +16,7 @@ import { childEnv, toolchain, toolPaths } from '../env.ts';
 import { isDcTestPhone } from '../smoke.ts';
 import { DRY_RUN_SERIAL, guardedPhone, NOT_IN_APP, NotInApp, phoneTarget, Refused, type Adb } from './guard.ts';
 import { LONG_FILE } from './long.ts';
-import { answerOf, ITEMS, RUN, STEPS, type ItemKey, type Owner, type PCtx, type StandIn, type Step } from './p.ts';
+import { answerOf, ITEMS, NOT_TEST_RECORD, phoneMayRun, RUN, STEPS, type ItemKey, type Owner, type PCtx, type StandIn, type Step } from './p.ts';
 import { dryRunStandIn } from './standin.ts';
 
 export const OWNER_WAIT_MS = 5 * 60_000;
@@ -46,6 +47,14 @@ export function parseArgs(argv: readonly string[]): SittingArgs | undefined {
   }
   if (waitGiven && !dryRun) return undefined;          // on the phone the owner always gets 5 minutes
   return { from, dryRun, ownerWaitMs };
+}
+
+/** `--from P<n>` resumes past the opening check, so the run is refused before the phone is touched. */
+export function fromRun(argv: readonly string[]): boolean {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--from' && (STEPS as readonly string[]).includes(argv[i + 1] ?? '')) return true;
+  }
+  return false;
 }
 
 function stamp(d: Date): string {
@@ -136,10 +145,15 @@ async function prepareDryRun(say: (line: string) => void): Promise<boolean> {
 }
 
 async function main(): Promise<number> {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const args = parseArgs(argv);
   if (args === undefined) {
-    console.log('usage: npm run phone:checks [-- --from P3..P8]   |   -- --dry-run [--owner-wait <seconds>] [--from P3..P8]');
+    console.log('usage: npm run phone:checks [-- --dry-run [--owner-wait <seconds>]]');
     return 2;
+  }
+  if (fromRun(argv)) {
+    console.log(NOT_TEST_RECORD);
+    return 1;
   }
   const id = stamp(new Date());
   mkdirSync(join('.local', 'android'), { recursive: true });
@@ -188,7 +202,13 @@ async function main(): Promise<number> {
       },
       note: say,
       timingOn: false,
+      proved: false,
     };
+    // Before any step. A step may make a record or replace one, and this is the only place that may allow that.
+    if (!phoneMayRun(ctx)) {
+      say(NOT_TEST_RECORD);
+      return 1;
+    }
     for (const step of STEPS.slice(STEPS.indexOf(args.from))) {
       const t0 = Date.now();
       say(`${step} start`);
@@ -199,7 +219,10 @@ async function main(): Promise<number> {
         if (err instanceof NotInApp) say(`${step} ${NOT_IN_APP}`);
         else {
           say(`${step} stopped: ${err instanceof Error ? err.message : 'failed'}`);
-          if (err instanceof Refused) failed = true;
+          if (err instanceof Refused) {
+            failed = true;
+            break;
+          }
         }
       }
     }

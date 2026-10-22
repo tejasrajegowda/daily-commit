@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { driver, type DeviceIo } from '../../scripts/android/drive.ts';
 import { DUMP_COMMAND, frontOf, guardedPhone, hierarchyOf, NOT_FRONT, NotInApp, onlyInFront, oursOnly, phoneTarget, Refused, shellKind, type Adb } from '../../scripts/android/checks/guard.ts';
-import { answerOf, askedTwice, codeOnScreen, keyboardName, lockOn, msList, openSettings, runPart, screenOf, storageAnswer, timingsAfter, timingsOf, type ItemKey, type PCtx } from '../../scripts/android/checks/p.ts';
-import { owner, parseArgs } from '../../scripts/android/checks/sitting.ts';
+import { answerOf, askedTwice, codeOnScreen, keyboardName, lockOn, msList, NOT_TEST_RECORD, openSettings, phoneMayRun, RUN, runPart, screenOf, storageAnswer, timingsAfter, timingsOf, type ItemKey, type PCtx } from '../../scripts/android/checks/p.ts';
+import { LONG_PASSPHRASE } from '../../scripts/android/checks/long.ts';
+import { fromRun, owner, parseArgs } from '../../scripts/android/checks/sitting.ts';
 import { blinkAnswer, noLearning, plainCard } from '../../scripts/android/checks/standin.ts';
 import { adbOnTestPhone, inputTextArg, nodesOf, TEST_SERIAL, type UiNode } from '../../scripts/android/drive.ts';
 
@@ -429,4 +430,190 @@ test('the stand-in can reach only the dc- test emulator, and only after the dry 
   assert.ok(checked > 0);
   assert.ok(checked < sitting.indexOf('guardedPhone(serial'));
   assert.ok(checked < sitting.indexOf('dryRunStandIn()'));
+});
+
+const USE_B: UiNode['bounds'] = [100, 400, 800, 480];
+const PASS_B: UiNode['bounds'] = [100, 700, 800, 780];
+const OPEN_B: UiNode['bounds'] = [400, 900, 700, 980];
+const START_B: UiNode['bounds'] = [100, 1500, 800, 1580];
+const REPLACE_B: UiNode['bounds'] = [100, 1700, 800, 1780];
+
+function box(text: string, bounds: UiNode['bounds'], cls = 'android.widget.Button'): UiNode {
+  return { text, desc: '', id: '', cls, bounds, enabled: true, pkg: 'app.dailycommit' };
+}
+
+function mid(bounds: UiNode['bounds']): string {
+  return `${Math.floor((bounds[0] + bounds[2]) / 2)},${Math.floor((bounds[1] + bounds[3]) / 2)}`;
+}
+
+/** A phone whose screen follows the commands. The same shape as the settings fake above. */
+function gatePhone(screen: (phase: string) => readonly UiNode[]): { taps: string[]; commands: string[]; notes: string[]; ctx: PCtx } {
+  let phase = 'start';
+  const taps: string[] = [];
+  const commands: string[] = [];
+  const notes: string[] = [];
+  const io: DeviceIo = {
+    shell(c) {
+      commands.push(c);
+      if (c.includes('KEYCODE_HOME') || c.includes('am start')) phase = 'lock';
+      if (c.startsWith('input text ')) phase = 'after';
+      const tap = /^input tap (\d+) (\d+)$/.exec(c);
+      if (tap) taps.push(`${tap[1]},${tap[2]}`);
+      return { code: 0, out: c === 'wm size' ? 'Physical size: 1080x2400' : '' };
+    },
+    execOut() { throw new Error('no'); },
+    finger() { throw new Error('no'); },
+    dump: () => ({ xml: '', nodes: [...screen(phase)] }),
+  };
+  const ctx: PCtx = {
+    phone: driver(io),
+    front: () => 'app',
+    pushLong: () => false,
+    owner: owner(() => undefined, 'answers-that-do-not-exist.txt', 0),
+    record() {},
+    recorded: () => false,
+    note: line => notes.push(line),
+    timingOn: false,
+    proved: false,
+  };
+  return { taps, commands, notes, ctx };
+}
+
+function lockScreen(failed: boolean): UiNode[] {
+  const nodes = [
+    box('Locked', [40, 200, 400, 280], 'android.widget.TextView'),
+    box('Use your passphrase', USE_B),
+    box('Passphrase', PASS_B, 'android.widget.TextView'),
+    box('', [80, 800, 900, 880], 'android.widget.EditText'),
+    box('Open', OPEN_B),
+    box('Start new instead', START_B),
+    box('Replace everything', REPLACE_B),
+  ];
+  if (failed) {
+    nodes.push(box("That didn't open it. Check it and try again.", [40, 1100, 900, 1200], 'android.widget.TextView'));
+    // Planted record words. A check that reads them would take this for the test record.
+    nodes.push(box('CANARY habit 0', [40, 1240, 900, 1320], 'android.widget.TextView'));
+    nodes.push(box('ZEDHABIT', [40, 1340, 900, 1420], 'android.widget.TextView'));
+  }
+  return nodes;
+}
+
+test('a real-looking record is refused, nothing is replaced, and nothing is tapped after the check', () => {
+  const found = gatePhone(() => [
+    box('Your record came back with this phone', [40, 200, 900, 320], 'android.widget.TextView'),
+    box('Restore it', [100, 600, 800, 700]),
+    box('Start new instead', START_B),
+    box('CANARY habit 0', [40, 900, 900, 1000], 'android.widget.TextView'),
+    box('ZEDHABIT', [40, 1040, 900, 1140], 'android.widget.TextView'),
+  ]);
+  assert.equal(phoneMayRun(found.ctx), false);
+  assert.equal(found.ctx.proved, false);
+  assert.deepEqual(found.taps, []);
+  assert.deepEqual(found.notes, []);
+  assert.doesNotMatch(found.commands.join('\n'), /ZEDHABIT|CANARY habit/);
+  const tapsAtCheck = found.taps.length;
+  let thrown: unknown;
+  try {
+    RUN.P3(found.ctx);
+  } catch (err) {
+    thrown = err;
+  }
+  assert.ok(thrown instanceof Refused);
+  assert.equal((thrown as Error).message, NOT_TEST_RECORD);
+  assert.equal(found.taps.length, tapsAtCheck);
+
+  // Already open, and the words look like the test record. The test passphrase does not open it.
+  const open = gatePhone(phase => (phase === 'after' ? lockScreen(true) : phase === 'lock' ? lockScreen(false) : [
+    box('Today', [0, 2200, 270, 2400]),
+    box('Diary', [540, 2200, 810, 2400]),
+    box('CANARY habit 0', [40, 500, 900, 600], 'android.widget.TextView'),
+    box('ZEDHABIT', [40, 640, 900, 740], 'android.widget.TextView'),
+  ]));
+  assert.equal(phoneMayRun(open.ctx), false);
+  assert.equal(open.ctx.proved, false);
+  const textAt = open.commands.findIndex(c => c.startsWith('input text '));
+  assert.ok(textAt > 0);
+  assert.equal(open.commands[textAt], `input text ${inputTextArg(LONG_PASSPHRASE)}`);
+  assert.equal(open.commands.slice(textAt + 1).some(c => c.startsWith('input tap ')), false);
+  assert.equal(open.taps.includes(mid(START_B)), false);
+  assert.equal(open.taps.includes(mid(REPLACE_B)), false);
+  assert.deepEqual(open.notes, []);
+  assert.doesNotMatch(open.commands.join('\n'), /ZEDHABIT|CANARY habit/);
+});
+
+test('the lock opening with the test passphrase lets the run proceed', () => {
+  const phone = gatePhone(phase => (phase === 'after'
+    ? [box('Today', [0, 2200, 270, 2400]), box('Diary', [540, 2200, 810, 2400])]
+    : lockScreen(false)));
+  assert.equal(LONG_PASSPHRASE, 'CANARY phone test passphrase');
+  assert.equal(phoneMayRun(phone.ctx), true);
+  assert.equal(phone.ctx.proved, true);
+  assert.equal(phone.commands.filter(c => c.startsWith('input text ')).join('\n'), `input text ${inputTextArg(LONG_PASSPHRASE)}`);
+  assert.equal(phone.taps.includes(mid(START_B)), false);
+  assert.equal(phone.taps.includes(mid(REPLACE_B)), false);
+  assert.deepEqual(phone.notes, []);
+});
+
+test('no record yet lets the run proceed, and the check itself does not tap', () => {
+  for (const screen of [
+    [box('Daily Commit', [40, 200, 600, 300], 'android.widget.TextView'), box('Begin', [100, 800, 800, 900]), box('Restore from a backup instead', [100, 1000, 800, 1100])],
+    [box('Choose a passphrase', [40, 200, 800, 300], 'android.widget.TextView')],
+    [box('Type it back', [40, 200, 800, 300], 'android.widget.TextView'), box('Finish', [100, 800, 800, 900])],
+  ]) {
+    const phone = gatePhone(() => screen);
+    assert.equal(phoneMayRun(phone.ctx), true);
+    assert.equal(phone.ctx.proved, true);
+    assert.deepEqual(phone.taps, []);
+    assert.deepEqual(phone.commands, []);
+    assert.deepEqual(phone.notes, []);
+  }
+});
+
+test('settings type-back is a real record: refused, and nothing is tapped or replaced', () => {
+  const nodes = [
+    box('Type it back', [40, 200, 800, 300], 'android.widget.TextView'),
+    box('Use the new code', [100, 800, 800, 900]),
+    box('Start new instead', START_B),
+    box('Replace everything', REPLACE_B),
+    box('ZEDHABIT', [40, 1100, 900, 1200], 'android.widget.TextView'),
+  ];
+  // The same heading as an unfinished first run. Finish is what the first run has and Settings does not.
+  assert.equal(screenOf(nodes), 'first-run');
+  const phone = gatePhone(() => nodes);
+  assert.equal(phoneMayRun(phone.ctx), false);
+  assert.equal(phone.ctx.proved, false);
+  // Length, not deepEqual to []. That comparison narrows the list to never[], and the includes below stop typechecking.
+  assert.equal(phone.taps.length, 0);
+  assert.deepEqual(phone.notes, []);
+  assert.doesNotMatch(phone.commands.join('\n'), /input text|ZEDHABIT/);
+  const tapsAtCheck = phone.taps.length;
+  let thrown: unknown;
+  try {
+    RUN.P3(phone.ctx);
+  } catch (err) {
+    thrown = err;
+  }
+  assert.ok(thrown instanceof Refused);
+  assert.equal((thrown as Error).message, NOT_TEST_RECORD);
+  assert.equal(phone.taps.length, tapsAtCheck);
+  assert.equal(phone.taps.includes(mid(START_B)), false);
+  assert.equal(phone.taps.includes(mid(REPLACE_B)), false);
+});
+
+test('a --from run is refused before the phone is used', () => {
+  assert.equal(fromRun(['--from', 'P3']), true);
+  assert.equal(fromRun(['--from', 'P4']), true);
+  assert.equal(fromRun(['--dry-run', '--owner-wait', '20', '--from', 'P8']), true);
+  assert.equal(fromRun([]), false);
+  assert.equal(fromRun(['--dry-run']), false);
+  const sitting = readFileSync(new URL('../../scripts/android/checks/sitting.ts', import.meta.url), 'utf8');
+  const fromAt = sitting.indexOf('if (fromRun(argv))');
+  const prepareAt = sitting.indexOf('if (args.dryRun && !(await prepareDryRun(say))) return 1;');
+  const gateAt = sitting.indexOf('if (!phoneMayRun(ctx))');
+  const loopAt = sitting.indexOf('for (const step of STEPS.slice');
+  assert.ok(fromAt > 0 && prepareAt > fromAt);
+  assert.ok(gateAt > prepareAt && loopAt > gateAt);
+  const beforeLog = sitting.slice(fromAt, sitting.indexOf('mkdirSync', fromAt));
+  assert.match(beforeLog, /console\.log\(NOT_TEST_RECORD\)/);
+  assert.equal(beforeLog.includes('guardedPhone'), false);
 });

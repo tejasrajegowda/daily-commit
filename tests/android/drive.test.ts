@@ -25,6 +25,11 @@ test('input text: one argument, spaces as %s, the shell\'s specials escaped, pla
   assert.equal(inputTextArg("it's (fine)"), "it\\'s%s\\(fine\\)");
   assert.throws(() => inputTextArg('100%'));
   assert.throws(() => inputTextArg('naïve'));
+  // The phone check types this. It has to stay one argument, so the shell cannot see a second command.
+  const typed = inputTextArg('CANARY phone test passphrase');
+  assert.equal(typed.includes(' '), false);
+  assert.doesNotMatch(typed, /[;&|`$()<>\\'"]/);
+  assert.equal(typed.split('%s').length, 4);
 });
 
 test('a node is on screen only when its bounds have area', () => {
