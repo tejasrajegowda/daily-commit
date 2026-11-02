@@ -28,10 +28,11 @@ export function junitSummary(xmlTexts: readonly string[]): { tests: number; fail
   return sum;
 }
 
-function failingTests(xmlTexts: readonly string[]): string[] {
+/** The failing tests' names. A passing test is a self-closing tag, so it is matched on its own and never runs on into the next test's body. */
+export function failingTests(xmlTexts: readonly string[]): string[] {
   const names: string[] = [];
   for (const text of xmlTexts) {
-    for (const m of text.matchAll(/<testcase\b([^>]*)>([\s\S]*?)<\/testcase>/g)) {
+    for (const m of text.matchAll(/<testcase\b([^>]*?)(?:\/>|>([\s\S]*?)<\/testcase>)/g)) {
       if (!/<(failure|error)\b/.test(m[2] ?? '')) continue;
       const name = /\sname="([^"]*)"/.exec(m[1] ?? '')?.[1] ?? '?';
       const cls = /\sclassname="([^"]*)"/.exec(m[1] ?? '')?.[1] ?? '?';

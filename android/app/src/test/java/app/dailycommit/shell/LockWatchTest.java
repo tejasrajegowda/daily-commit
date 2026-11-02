@@ -152,6 +152,39 @@ public class LockWatchTest {
         assertEquals(List.of(), watch.drawn());
     }
 
+    // the screen-off broadcast reaching the app after the screen came back and the activity resumed (seen on the test phone)
+    @Test public void aScreenOffThatArrivesAfterTheScreenCameBackLeavesThenComesBack() {
+        assertEquals(LEAVE_THEN_RESUME, decideLeave(Event.SCREEN_OFF, NONE, NOW, true, false, true));
+        assertEquals(LEAVE, decideLeave(Event.SCREEN_OFF, NONE, NOW, false, false, true));    // the screen is still off
+        assertEquals(LEAVE, decideLeave(Event.SCREEN_OFF, NONE, NOW, true, false, false));    // not resumed: a resume is still to come
+        assertEquals(LEAVE, decideLeave(Event.SCREEN_OFF, NONE, NOW, true, false));           // the old call: never treated as late
+    }
+
+    @Test public void aLateScreenOffLocksAndTheCoverLiftsOnceTheLockScreenHasDrawn() {
+        // pause, stop, resume, then the screen-off broadcast, in that order
+        assertEquals(List.of(COVER, SEND_LEAVE), on(Event.PAUSE, NONE, NOW));
+        assertEquals(List.of(), on(Event.STOP, NONE, NOW + 290));
+        assertEquals(List.of(SEND_RESUME), on(Event.RESUME, NONE, NOW + 412));
+        assertEquals(List.of(SEND_LEAVE, SEND_RESUME), watch.on(Event.SCREEN_OFF, NONE, NOW + 2_000, true, false, true));
+        assertEquals(List.of(UNCOVER), watch.drawn());
+        assertEquals(List.of(), watch.drawn());
+    }
+
+    @Test public void aLateScreenOffAfterTheCoverAlreadyLiftedCoversLeavesAndComesBack() {
+        on(Event.PAUSE, NONE, NOW);
+        on(Event.RESUME, NONE, NOW + 400);
+        assertEquals(List.of(UNCOVER), watch.drawn());
+        assertEquals(List.of(COVER, SEND_LEAVE, SEND_RESUME), watch.on(Event.SCREEN_OFF, NONE, NOW + 2_000, true, false, true));
+        assertEquals(List.of(UNCOVER), watch.drawn());
+    }
+
+    @Test public void aScreenOffWhileTheScreenIsOffStillWaitsForTheResume() {
+        assertEquals(List.of(COVER, SEND_LEAVE), watch.on(Event.SCREEN_OFF, NONE, NOW, false, false, false));
+        assertEquals(List.of(), watch.drawn());                 // still left: the cover stays
+        assertEquals(List.of(SEND_RESUME), on(Event.RESUME, NONE, NOW + 5_000));
+        assertEquals(List.of(UNCOVER), watch.drawn());
+    }
+
     @Test public void aHandOffPastTheLimitStillLocksOnReturn_whenTheMarkWasClearedAndTheTimerNeverRan() {
         assertEquals(List.of(COVER), on(Event.PAUSE, FRESH, NOW));
         assertEquals(List.of(), on(Event.STOP, FRESH, NOW + 10));

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { anrShown, emulatorArgs, emulatorStopped, homeReady, mayRemoveFill, PORT, SERIAL, shouldStopProcessTree, taskkillArgs } from '../../scripts/android/emulator.ts';
+import { readFileSync } from 'node:fs';
+import { anrShown, emulatorArgs, emulatorStopped, homeReady, mayRemoveFill, PORT, QUIET_DIALOGS, SERIAL, shouldStopProcessTree, taskkillArgs } from '../../scripts/android/emulator.ts';
 
 test('the emulator is ready only once a real home screen has the focus, not the boot-time fallback', () => {
   // The focus lines a dc-api33 boot actually gave: the fallback first, then nothing, then the launcher.
@@ -12,6 +13,16 @@ test('the emulator is ready only once a real home screen has the focus, not the 
   assert.equal(homeReady('  mCurrentFocus=Window{8e987a4 u0 Application Not Responding: com.android.systemui}\r\n'), false);
   assert.equal(anrShown('  mCurrentFocus=Window{8e987a4 u0 Application Not Responding: com.android.systemui}\r\n'), true);
   assert.equal(anrShown('  mCurrentFocus=null\r\n'), false);
+});
+
+test('the test phone is told not to show "isn\'t responding" dialogs before the boot counts as done', () => {
+  // Seen on the test phone: System UI's dialog took the focus about 20 s after the home screen was ready.
+  assert.deepEqual([...QUIET_DIALOGS], ['shell', 'settings', 'put', 'global', 'hide_error_dialogs', '1']);
+  const src = readFileSync(new URL('../../scripts/android/emulator.ts', import.meta.url), 'utf8');
+  const start = src.slice(src.indexOf('export async function startEmulator'));
+  const quietAt = start.indexOf("adb(['-s', SERIAL, ...QUIET_DIALOGS]");
+  const readyAt = start.indexOf('if (homeReady(focus))');
+  assert.ok(quietAt > 0 && readyAt > quietAt);
 });
 
 test('the emulator runs on its own port, with no snapshot, no window, a software GPU and 3 GB', () => {

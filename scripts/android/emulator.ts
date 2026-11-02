@@ -109,6 +109,13 @@ export function anrShown(focusOut: string): boolean {
   return /mCurrentFocus=Window\{[^}]*Application Not Responding/.test(focusOut);
 }
 
+/**
+ * Android's own switch for test devices: no "isn't responding" or crash dialog is shown. A busy PC makes System UI
+ * answer slowly for about a minute after boot, and its dialog then takes the focus from the app well after the
+ * home screen was ready. The test phone only; the owner's phone never gets it.
+ */
+export const QUIET_DIALOGS = ['shell', 'settings', 'put', 'global', 'hide_error_dialogs', '1'] as const;
+
 /** One adb command on the test phone (or on adb itself with no serial); its output, never printed here. */
 export function adb(args: readonly string[], timeoutMs = 120_000): { status: number; out: string } {
   const ran = runAdb('emulator', args, { timeoutMs, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -149,6 +156,7 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
   };
   let announced = false;
   let freed = false;
+  let quiet = false;
   while (Date.now() - started < BOOT_WAIT_MS) {
     if (await childGone()) break;
     if (!announced && listed(POLL_MS)) {
@@ -176,6 +184,7 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
     const boot = adb(['-s', SERIAL, 'shell', 'getprop', 'sys.boot_completed'], POLL_MS);
     if (await childGone()) break;
     if (boot.out.trim() === '1') {
+      if (!quiet) quiet = adb(['-s', SERIAL, ...QUIET_DIALOGS], 30_000).status === 0;
       const focus = adb(['-s', SERIAL, 'shell', 'dumpsys window | grep mCurrentFocus'], POLL_MS).out;
       if (homeReady(focus)) {
         console.log(`emulator: booted in ${seconds()} s`);

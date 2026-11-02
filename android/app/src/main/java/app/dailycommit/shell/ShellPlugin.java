@@ -96,7 +96,7 @@ public class ShellPlugin extends Plugin {
     private void event(LockWatch.Event event) {
         long now = SystemClock.elapsedRealtime();
         long since = HandOff.since();
-        apply(watch.on(event, since, now, interactive(), keyguardLocked()));
+        apply(watch.on(event, since, now, interactive(), keyguardLocked(), resumed()));
         if (event != LockWatch.Event.RESUME && HandOff.since() != HandOff.NONE) {
             timerSince = HandOff.since();
             main.removeCallbacks(handOffTimer);
@@ -259,6 +259,10 @@ public class ShellPlugin extends Plugin {
 
     private boolean interactive() { return getContext().getSystemService(PowerManager.class).isInteractive(); }
     private boolean keyguardLocked() { return getContext().getSystemService(KeyguardManager.class).isKeyguardLocked(); }
+    private boolean resumed() {
+        Activity activity = getActivity();
+        return activity instanceof LifecycleOwner owner && owner.getLifecycle().getCurrentState().isAtLeast(Lifecycle.State.RESUMED);
+    }
 
     private void onIo(PluginCall call, Body body) {
         io.execute(() -> {

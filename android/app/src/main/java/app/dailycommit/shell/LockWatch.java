@@ -18,11 +18,20 @@ public final class LockWatch {
 
     /** `handOffSince` is HandOff.since(), on the elapsed-realtime clock, or HandOff.NONE. */
     public static Decision decideLeave(Event event, long handOffSince, long now, boolean interactive, boolean keyguardLocked) {
+        return decideLeave(event, handOffSince, now, interactive, keyguardLocked, false);
+    }
+
+    /**
+     * `resumed` is whether the activity is resumed as the event arrives. The screen-off broadcast can reach the app
+     * seconds late, after the screen came back and the activity resumed: it still leaves, then comes back at once,
+     * so the record is locked and the lock screen is drawn instead of the cover staying up with no resume to come.
+     */
+    public static Decision decideLeave(Event event, long handOffSince, long now, boolean interactive, boolean keyguardLocked, boolean resumed) {
         boolean open = handOffSince != HandOff.NONE;
         boolean expired = open && now - handOffSince >= HAND_OFF_LIMIT_MS;
         switch (event) {
             case SCREEN_OFF:
-                return Decision.LEAVE;
+                return interactive && resumed ? Decision.LEAVE_THEN_RESUME : Decision.LEAVE;
             case PAUSE:
             case STOP:
                 return open && !expired && interactive && !keyguardLocked ? Decision.STAY : Decision.LEAVE;
@@ -43,6 +52,11 @@ public final class LockWatch {
 
     /** What to do for one event, in order. */
     public synchronized List<Out> on(Event event, long handOffSince, long now, boolean interactive, boolean keyguardLocked) {
+        return on(event, handOffSince, now, interactive, keyguardLocked, false);
+    }
+
+    /** What to do for one event, in order; `resumed` as in decideLeave. */
+    public synchronized List<Out> on(Event event, long handOffSince, long now, boolean interactive, boolean keyguardLocked, boolean resumed) {
         // A timer or a return whose mark was already cleared still uses the time it was armed with.
         long since = handOffSince;
         if (handOffSince == HandOff.NONE && armedAt != HandOff.NONE
@@ -50,7 +64,14 @@ public final class LockWatch {
             since = armedAt;
         }
         List<Out> out = new ArrayList<>();
-        Decision decision = decideLeave(event, since, now, interactive, keyguardLocked);
+        Decision decision = decideLeave(event, since, now, interactive, keyguardLocked, resumed);
+        if (event == Event.SCREEN_OFF && decision == Decision.LEAVE_THEN_RESUME) {
+            leave(out);                                                   // a late screen-off still locks
+            left = false;
+            waitingForDrawn = true;                                       // the cover stays until the lock screen has drawn
+            out.add(Out.SEND_RESUME);
+            return out;
+        }
         switch (event) {
             case RESUME:
                 if (decision == Decision.LEAVE_THEN_RESUME) leave(out);   // a hand-off left open past the limit counts as leaving
