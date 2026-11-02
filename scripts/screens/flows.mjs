@@ -1309,6 +1309,8 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('Settings, laptop: Display is open first', (await q.locator('main[data-cat="display"]').count()) === 1);
   await q.click('[data-a="setcat"][data-x="about"]');
   check('Settings, laptop: a category switches the panel', await shows(q, 'main[data-cat="about"]') && (await q.locator('main[data-cat="about"]').textContent()).includes("What the lock can't do"));
+  check('Settings, About: what changed, newest first, from the running version down', (await q.locator('main[data-cat="about"] [data-a="changes"] .nm').allInnerTexts()).join(' ') === '0.1.0'
+    && (await q.locator('main[data-cat="about"] [data-a="changes"]').innerText()).includes('The first version on this phone.'));
 
   const untilText = (page, needle) => page.waitForFunction(t => document.body.innerText.includes(t), needle, { timeout: 8000 }).then(() => true, () => false);
   await h.open(p, 's=old');

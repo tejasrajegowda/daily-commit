@@ -4,6 +4,7 @@ import { setSetting } from '../record/ops/settings.ts';
 import { applyDisplay } from '../ui/display.ts';
 import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
+import { changesFrom } from './whatChanged.ts';
 import { CATEGORIES, checkinLines, dayLines, isSamsung, notVerifiedPath, notVerifiedWords, REMINDER_WORDS, SETTINGS_WORDS as W, sizeWords, whenWords, type Category, type Line } from './settingsWords.ts';
 
 // Settings: every group stacked on a phone, a category list beside one panel on a laptop. Support
@@ -210,6 +211,8 @@ export function Settings() {
     about: () => (
       <>
         <div className="list"><Row line={W.about(deps.appVersion)} /></div>
+        <p className="eb" style={{ margin: '22px 4px 10px' }}>{W.changed}</p>
+        <div className="list changes" data-a="changes">{changesFrom(deps.appVersion).map(c => <Row key={c.version} line={{ nm: c.version, sub: c.line }} />)}</div>
         <p className="eb" style={{ margin: '22px 4px 10px' }}>What the lock can't do</p>
         <div className="list">{W.cant.map(l => <Row key={l.nm} line={l} />)}</div>
         <Note>{W.aboutNote}</Note>

@@ -91,6 +91,7 @@ export const SETTINGS_WORDS = {
   dataNote: 'Every copy is locked. Without your passphrase or the recovery code, none of them can be read, by anyone.',
   pause: { nm: 'Pause tracking', sub: 'hides every habit, keeps the diary, deletes nothing, sends nothing' },
   pauseNote: 'It lives here from day one and the app never suggests it.',
+  changed: 'What changed',
   about: (version: string) => ({ nm: 'Daily Commit', sub: `a notebook, not a treatment · version ${version}` }),
   cant: [
     { nm: 'Copies made before a change', sub: 'still open with the passphrase that was in use when they were made' },
