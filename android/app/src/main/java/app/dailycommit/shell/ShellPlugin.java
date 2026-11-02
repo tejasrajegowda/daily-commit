@@ -96,8 +96,10 @@ public class ShellPlugin extends Plugin {
     private void event(LockWatch.Event event) {
         long now = SystemClock.elapsedRealtime();
         long since = HandOff.since();
-        apply(watch.on(event, since, now, interactive(), keyguardLocked(), resumed()));
-        if (event != LockWatch.Event.RESUME && HandOff.since() != HandOff.NONE) {
+        boolean interactive = interactive();
+        boolean resumed = resumed();
+        apply(watch.on(event, since, now, interactive, keyguardLocked(), resumed));
+        if (LockWatch.armsTimer(event, HandOff.since(), interactive, resumed)) {
             timerSince = HandOff.since();
             main.removeCallbacks(handOffTimer);
             main.postDelayed(handOffTimer, Math.max(0, timerSince + LockWatch.HAND_OFF_LIMIT_MS - now));

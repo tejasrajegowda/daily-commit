@@ -158,6 +158,7 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
   let freed = false;
   let quiet = false;
   let ours = false;
+  let known = false;                                   // the name has been read at least once
   while (Date.now() - started < BOOT_WAIT_MS) {
     if (await childGone()) break;
     if (!announced && listed(POLL_MS)) {
@@ -169,7 +170,7 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
     if (announced && !freed) {
       const named = adb(['-s', SERIAL, 'emu', 'avd', 'name'], 30_000);
       const readable = named.status === 0 && named.out.trim() !== '';
-      if (readable) ours = mayRemoveFill(named.out, named.status);
+      if (readable) { known = true; ours = mayRemoveFill(named.out, named.status); }
       if (readable && ours) {
         const rm = adb(['-s', SERIAL, 'shell', 'rm', '-f', '/data/local/tmp/dc-fill', '/data/user/0/app.dailycommit/dc-fill'], 60_000);
         if (rm.status === 0) {
@@ -189,12 +190,13 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
       // Only once the name check has said this is a dc- test phone, the same rule as the fill file.
       if (ours && !quiet) quiet = adb(['-s', SERIAL, ...QUIET_DIALOGS], 30_000).status === 0;
       const focus = adb(['-s', SERIAL, 'shell', 'dumpsys window | grep mCurrentFocus'], POLL_MS).out;
-      if (homeReady(focus)) {
+      // Booted only once the name is known, and on a dc- test phone only once the dialogs are quiet (else tried again).
+      if (homeReady(focus) && known && (quiet || !ours)) {
         console.log(`emulator: booted in ${seconds()} s`);
         return true;
       }
       // The test phone only: closing the dialog lets the frozen part restart; the wait goes on.
-      if (anrShown(focus)) {
+      if (ours && anrShown(focus)) {
         adb(['-s', SERIAL, 'shell', 'am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS'], 30_000);
         console.log('emulator: closed a "not responding" dialog');
       }

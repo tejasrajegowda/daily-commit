@@ -12,8 +12,11 @@ import static app.dailycommit.shell.LockWatch.Out.END_HAND_OFF;
 import static app.dailycommit.shell.LockWatch.Out.SEND_LEAVE;
 import static app.dailycommit.shell.LockWatch.Out.SEND_RESUME;
 import static app.dailycommit.shell.LockWatch.Out.UNCOVER;
+import static app.dailycommit.shell.LockWatch.armsTimer;
 import static app.dailycommit.shell.LockWatch.decideLeave;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import java.util.List;
 import org.junit.Test;
@@ -207,5 +210,26 @@ public class LockWatchTest {
         assertEquals(List.of(), on(Event.PAUSE, FRESH, NOW + 10));
         assertEquals(List.of(END_HAND_OFF), on(Event.RESUME, FRESH, NOW + 20));
         assertEquals(List.of(UNCOVER), watch.drawn());
+    }
+
+    @Test public void aStopAndTheHandOffEndingWhileDrawnIsOwedStillWaitForDrawn() {
+        assertEquals(List.of(COVER, SEND_LEAVE, SEND_RESUME), watch.on(Event.SCREEN_OFF, FRESH, NOW, true, false, true));
+        assertEquals(List.of(), on(Event.PAUSE, FRESH, NOW + 10));
+        assertEquals(List.of(), on(Event.STOP, FRESH, NOW + 20));
+        assertEquals(List.of(END_HAND_OFF), watch.handOffEnded(true));
+        assertEquals(List.of(), on(Event.RESUME, NONE, NOW + 30));
+        assertEquals(List.of(UNCOVER), watch.drawn());
+    }
+
+    // the five-minute timer is only for a hand-off that took the app off the screen (review of the cover fix)
+    @Test public void aLateScreenOffWhileResumedStartsNoHandOffTimer() {
+        assertFalse(armsTimer(Event.SCREEN_OFF, FRESH, true, true));      // no resume would follow to cancel it
+        assertTrue(armsTimer(Event.SCREEN_OFF, FRESH, false, true));      // the screen really is off
+        assertTrue(armsTimer(Event.SCREEN_OFF, FRESH, true, false));
+        assertTrue(armsTimer(Event.PAUSE, FRESH, true, true));
+        assertTrue(armsTimer(Event.STOP, FRESH, true, false));
+        assertFalse(armsTimer(Event.PAUSE, NONE, true, false));           // no hand-off open
+        assertFalse(armsTimer(Event.RESUME, FRESH, true, true));
+        assertFalse(armsTimer(Event.HAND_OFF_TIMER, FRESH, true, false));
     }
 }

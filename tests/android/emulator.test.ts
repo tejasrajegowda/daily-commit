@@ -21,10 +21,13 @@ test('the test phone is told not to show "isn\'t responding" dialogs before the 
   const src = readFileSync(new URL('../../scripts/android/emulator.ts', import.meta.url), 'utf8');
   const start = src.slice(src.indexOf('export async function startEmulator'));
   const quietAt = start.indexOf("adb(['-s', SERIAL, ...QUIET_DIALOGS]");
-  const readyAt = start.indexOf('if (homeReady(focus))');
+  const readyAt = start.indexOf('if (homeReady(focus)');
   assert.ok(quietAt > 0 && readyAt > quietAt);
   // only on a phone the name check called a dc- test phone
-  assert.match(start, /if \(readable\) ours = mayRemoveFill\(named\.out, named\.status\);/);
+  assert.match(start, /if \(readable\) \{ known = true; ours = mayRemoveFill\(named\.out, named\.status\); \}/);
+  // booted only once the name is known and, on a test phone, the switch is on; the dialog is closed only on a test phone
+  assert.match(start, /if \(homeReady\(focus\) && known && \(quiet \|\| !ours\)\)/);
+  assert.match(start, /if \(ours && anrShown\(focus\)\)/);
   assert.match(start, /if \(ours && !quiet\) quiet = adb\(\['-s', SERIAL, \.\.\.QUIET_DIALOGS\]/);
 });
 

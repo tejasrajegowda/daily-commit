@@ -44,6 +44,16 @@ public final class LockWatch {
         }
     }
 
+    /**
+     * Whether this event starts the five-minute hand-off timer. The timer is for a hand-off that took the app off the
+     * screen; a late screen-off while the activity is resumed has no resume to follow that would cancel it, so it
+     * starts none (the pause that may come later starts it).
+     */
+    public static boolean armsTimer(Event event, long handOffSince, boolean interactive, boolean resumed) {
+        if (handOffSince == HandOff.NONE || event == Event.RESUME || event == Event.HAND_OFF_TIMER) return false;
+        return !(event == Event.SCREEN_OFF && interactive && resumed);
+    }
+
     private boolean left;
     private boolean covered;
     private boolean waitingForDrawn;
