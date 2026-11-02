@@ -167,7 +167,8 @@ export function lockOn(nodes: readonly UiNode[]): boolean {
 /** The recovery code as the first-run screen shows it, groups in reading order. Kept in memory only. */
 export function codeOnScreen(nodes: readonly UiNode[]): string | undefined {
   const groups = nodes
-    .filter(n => /^[0-9A-HJKMNP-Z]{1,5}$/.test(n.text.trim()))
+    // Groups of the code's 32 letters and digits; the last is one check character, which may also be * ~ $ =.
+    .filter(n => /^(?:[0-9A-HJKMNP-Z]{1,5}|[*~$=])$/.test(n.text.trim()))
     .slice()
     .sort((a, b) => a.bounds[1] - b.bounds[1] || a.bounds[0] - b.bounds[0])
     .map(n => n.text.trim());

@@ -95,6 +95,20 @@ export function mayRemoveFill(avdNameOutput: string, code: number): boolean {
   return name.startsWith('dc-');
 }
 
+/**
+ * True once a window other than the boot-time FallbackHome has the focus. sys.boot_completed comes
+ * first: an app started then loses the focus to the launcher a few seconds later.
+ */
+export function homeReady(focusOut: string): boolean {
+  const line = focusOut.split(/\r?\n/).find(l => l.includes('mCurrentFocus')) ?? '';
+  return /mCurrentFocus=Window\{/.test(line) && !line.includes('FallbackHome') && !anrShown(line);
+}
+
+/** An "isn't responding" dialog has the focus. On a busy PC System UI can show one as the boot ends. */
+export function anrShown(focusOut: string): boolean {
+  return /mCurrentFocus=Window\{[^}]*Application Not Responding/.test(focusOut);
+}
+
 /** One adb command on the test phone (or on adb itself with no serial); its output, never printed here. */
 export function adb(args: readonly string[], timeoutMs = 120_000): { status: number; out: string } {
   const ran = runAdb('emulator', args, { timeoutMs, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -105,7 +119,7 @@ function listed(timeoutMs?: number): boolean {
   return adb(['devices'], timeoutMs).out.split(/\r?\n/).some(l => l.startsWith(`${SERIAL}\t`) || l.startsWith(`${SERIAL} `));
 }
 
-/** Starts it behind the memory gate ('emulator') and waits for sys.boot_completed (5 minutes at most). */
+/** Starts it behind the memory gate ('emulator') and waits for sys.boot_completed and a real home screen (5 minutes at most). */
 export async function startEmulator(avd: string = AVD): Promise<boolean> {
   const args = emulatorArgs(avd);
   if (!(await waitForRoom('emulator'))) return false;
@@ -162,8 +176,16 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
     const boot = adb(['-s', SERIAL, 'shell', 'getprop', 'sys.boot_completed'], POLL_MS);
     if (await childGone()) break;
     if (boot.out.trim() === '1') {
-      console.log(`emulator: booted in ${seconds()} s`);
-      return true;
+      const focus = adb(['-s', SERIAL, 'shell', 'dumpsys window | grep mCurrentFocus'], POLL_MS).out;
+      if (homeReady(focus)) {
+        console.log(`emulator: booted in ${seconds()} s`);
+        return true;
+      }
+      // The test phone only: closing the dialog lets the frozen part restart; the wait goes on.
+      if (anrShown(focus)) {
+        adb(['-s', SERIAL, 'shell', 'am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS'], 30_000);
+        console.log('emulator: closed a "not responding" dialog');
+      }
     }
     const left = POLL_MS - (Date.now() - polledAt);
     if (left > 0) await sleep(left);

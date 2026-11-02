@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aboveDock, centre, dockTop, find, inView, inputTextArg, nodesOf, onScreen, pickerMove, type UiNode } from '../../scripts/android/drive.ts';
+import { aboveDock, centre, dockTop, find, inView, inputTextArg, nodesOf, onScreen, pickerFileNode, pickerMove, type UiNode } from '../../scripts/android/drive.ts';
 
 const DUMP = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0">
     <node index="0" text="" resource-id="" class="android.widget.FrameLayout" content-desc="" enabled="true" bounds="[0,0][1080,2400]">
@@ -72,4 +72,19 @@ test('the file picker opens Downloads from the roots drawer before it scrolls', 
   // The long invented record has its own name; the picker looks for that one only.
   assert.equal(pickerMove(['dc-3year.dcbak'], true, 'dc-3year'), 'file');
   assert.equal(pickerMove(['dc-seed.dcbak'], true, 'dc-3year'), 'scroll');
+});
+
+test("the picker's file row is the name, never the Preview button that also names the file", () => {
+  const n = (text: string, desc: string, cls: string): UiNode => ({ text, desc, id: '', cls, bounds: [0, 0, 10, 10], enabled: true, pkg: 'com.google.android.documentsui' });
+  // The order a Downloads list gave on API 33: the preview button comes before the name.
+  const nodes = [
+    n('', 'Preview the file dc-3year.dcbak', 'android.widget.ImageButton'),
+    n('dc-3year.dcbak', '', 'android.widget.TextView'),
+    n('', 'Preview the file dc-seed.dcbak', 'android.widget.ImageButton'),
+    n('dc-seed.dcbak', '', 'android.widget.TextView'),
+  ];
+  assert.equal(pickerFileNode(nodes, 'dc-3year.dcbak', 'dc-3year'), nodes[1]);
+  assert.equal(pickerFileNode(nodes, 'dc-seed.dcbak', 'dc-seed'), nodes[3]);
+  assert.equal(pickerFileNode([nodes[0]!], 'dc-3year.dcbak', 'dc-3year'), undefined);
+  assert.equal(pickerFileNode([n('dc-3year (1).dcbak', '', 'android.widget.TextView')], 'dc-3year.dcbak', 'dc-3year')?.text, 'dc-3year (1).dcbak');
 });

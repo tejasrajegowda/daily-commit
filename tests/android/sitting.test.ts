@@ -372,6 +372,12 @@ test('the screens, the storage line and the recovery code are read from the app\
   shown.push(node('K', [500, 700, 560, 780]));
   assert.equal(codeOnScreen([...shown].reverse()), `${groups.join('')}K`);
   assert.equal(codeOnScreen(shown.slice(0, 8)), undefined);
+  // The ninth group is one check character, and five of the 37 are not letters or digits.
+  for (const check of ['*', '~', '$', '=', 'U']) {
+    assert.equal(codeOnScreen([...shown.slice(0, 8), node(check, [500, 700, 560, 780])]), `${groups.join('')}${check}`, check);
+  }
+  // A symbol is a check character only on its own, never inside a group of five.
+  assert.equal(codeOnScreen([...shown.slice(0, 7), node('AB*DE', [100, 700, 280, 780]), node('K', [500, 700, 560, 780])]), undefined);
 });
 
 test('the recorded values: timings listed, "asked twice" only with the page and two prompts', () => {

@@ -61,6 +61,15 @@ export function findClickable(nodes: readonly UiNode[], label: string | RegExp):
   return hits.find(n => n.enabled && n.cls.includes('Button')) ?? hits.find(n => n.enabled) ?? hits[0];
 }
 
+/**
+ * The file's own row in Android's picker: the node whose text is its name, else the stem. The
+ * picker's "Preview the file …" button names the file too, and tapping it opens a preview instead.
+ */
+export function pickerFileNode(nodes: readonly UiNode[], fileName: string, stemName: string): UiNode | undefined {
+  const own = nodes.filter(n => !/^Preview\b/i.test(n.desc) && !/^Preview\b/i.test(n.text));
+  return own.find(n => n.text.trim() === fileName) ?? own.find(n => n.text.includes(stemName));
+}
+
 export type PickerMove = 'file' | 'downloads' | 'roots' | 'scroll';
 
 /** Where to go in DocumentsUI. Downloads is preferred once the drawer shows it; the list is scrolled only after that. */

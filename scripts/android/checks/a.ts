@@ -3,7 +3,7 @@
 import { Buffer } from 'node:buffer';
 import { writeFileSync } from 'node:fs';
 import { isDcTestPhone, windowIsSecure } from '../smoke.ts';
-import { aboveDock, adbOnTestPhone, centre, dockTop, find, findClickable, inView, onScreen, pause, pickerMove, type Emu, type UiNode } from '../drive.ts';
+import { aboveDock, adbOnTestPhone, centre, dockTop, find, findClickable, inView, onScreen, pause, pickerFileNode, pickerMove, type Emu, type UiNode } from '../drive.ts';
 import { canaryHits } from './canary.ts';
 import { devtoolsOnImage, devtoolsSocket, ourAlarms, ourNotifications, ourTaskId, resumedActivity } from './dumps.ts';
 import { secureCapture } from './screen.ts';
@@ -390,8 +390,6 @@ function tapNode(phone: Emu, nodes: readonly UiNode[], label: string | RegExp): 
 
 /** Chooses `fileName` in Android's file picker: Downloads from the roots drawer, the file, then Open if asked. True once the app has it. */
 export function pickInPicker(phone: Emu, fileName: string, stemName: string, ms = 50_000): boolean {
-  const file = has(fileName);
-  const stem = has(stemName);
   const until = Date.now() + ms;
   let inList = false;
   while (Date.now() < until) {
@@ -399,7 +397,14 @@ export function pickInPicker(phone: Emu, fileName: string, stemName: string, ms 
     if (seen(nodes, words('Passphrase')) || seen(nodes, words('Choose another file'))) return true;
     const move = pickerMove(nodeLabels(nodes), inList, stemName);
     if (move === 'file') {
-      tapNode(phone, nodes, find(nodes, file) ? file : stem);
+      const row = pickerFileNode(nodes, fileName, stemName);
+      if (row === undefined) {
+        swipeUp(phone);
+        pause(400);
+        continue;
+      }
+      const [x, y] = centre(row);
+      phone.shell(`input tap ${x} ${y}`);
       pause(700);
       const after = phone.dump();
       if (seen(after, words('Passphrase'))) return true;

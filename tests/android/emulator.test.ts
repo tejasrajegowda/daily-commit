@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { emulatorArgs, emulatorStopped, mayRemoveFill, PORT, SERIAL, shouldStopProcessTree, taskkillArgs } from '../../scripts/android/emulator.ts';
+import { anrShown, emulatorArgs, emulatorStopped, homeReady, mayRemoveFill, PORT, SERIAL, shouldStopProcessTree, taskkillArgs } from '../../scripts/android/emulator.ts';
+
+test('the emulator is ready only once a real home screen has the focus, not the boot-time fallback', () => {
+  // The focus lines a dc-api33 boot actually gave: the fallback first, then nothing, then the launcher.
+  assert.equal(homeReady('  mCurrentFocus=Window{d98cafb u0 com.android.settings/com.android.settings.FallbackHome}\r\n'), false);
+  assert.equal(homeReady('  mCurrentFocus=null\r\n'), false);
+  assert.equal(homeReady(''), false);
+  assert.equal(homeReady('  mCurrentFocus=Window{536fa63 u0 com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity}\r\n'), true);
+  // A boot on a busy PC can end with System UI's "not responding" dialog holding the focus.
+  assert.equal(homeReady('  mCurrentFocus=Window{8e987a4 u0 Application Not Responding: com.android.systemui}\r\n'), false);
+  assert.equal(anrShown('  mCurrentFocus=Window{8e987a4 u0 Application Not Responding: com.android.systemui}\r\n'), true);
+  assert.equal(anrShown('  mCurrentFocus=null\r\n'), false);
+});
 
 test('the emulator runs on its own port, with no snapshot, no window, a software GPU and 3 GB', () => {
   assert.equal(PORT, 5556);
