@@ -301,8 +301,9 @@ function byCode(ctx: PCtx): boolean {
 function openRecord(ctx: PCtx): void {
   toApp(ctx);
   let screen = settle(ctx);
-  if (screen === 'restore' || screen === 'unknown') {
-    // A restore screen left by a picker that wasn't used: Back closes it.
+  if (screen === 'restore') {
+    // A restore screen left by a picker that wasn't used: Back closes it. On any other screen
+    // Back may leave the app, so an unknown screen is reported below, never stepped back from.
     ctx.phone.key('KEYCODE_BACK');
     screen = settle(ctx, 20_000);
   }
@@ -322,12 +323,15 @@ function openRecord(ctx: PCtx): void {
   dismissOffer(ctx);
 }
 
+/** A first start after the app's data was cleared took about 8 s on the test phone; the wait has room above that. */
+export const COLD_START_MS = 30_000;
+
 /** The app in front, without asking the owner and without tapping. False when it cannot be brought up. */
 function bringApp(ctx: PCtx): boolean {
   if (ctx.front() === 'app') return true;
   if (ctx.front() === 'prompt') ctx.phone.key('KEYCODE_BACK');
   launch(ctx.phone, false);
-  return inFront(ctx, 8_000);
+  return inFront(ctx, COLD_START_MS);
 }
 
 /** The lock's own fixed note after a passphrase that did not open. Nothing from the record is read. */

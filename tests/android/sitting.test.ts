@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { driver, type DeviceIo } from '../../scripts/android/drive.ts';
 import { DUMP_COMMAND, frontOf, guardedPhone, hierarchyOf, NOT_FRONT, NotInApp, onlyInFront, oursOnly, phoneTarget, Refused, SCAN_LONG, shellKind, type Adb, type Front } from '../../scripts/android/checks/guard.ts';
-import { answerOf, askedTwice, codeOnScreen, keyboardName, lockOn, msList, NOT_TEST_RECORD, openSettings, phoneMayRun, RUN, runPart, screenOf, storageAnswer, timingsAfter, timingsOf, type ItemKey, type PCtx } from '../../scripts/android/checks/p.ts';
+import { answerOf, askedTwice, codeOnScreen, COLD_START_MS, keyboardName, lockOn, msList, NOT_TEST_RECORD, openSettings, phoneMayRun, RUN, runPart, screenOf, storageAnswer, timingsAfter, timingsOf, type ItemKey, type PCtx } from '../../scripts/android/checks/p.ts';
 import { LONG_PASSPHRASE } from '../../scripts/android/checks/long.ts';
 import { fromRun, owner, parseArgs } from '../../scripts/android/checks/sitting.ts';
 import { blinkAnswer, noLearning, plainCard } from '../../scripts/android/checks/standin.ts';
@@ -544,6 +544,32 @@ test('a real-looking record is refused, nothing is replaced, and nothing is tapp
   assert.equal(open.taps.includes(mid(REPLACE_B)), false);
   assert.deepEqual(open.notes, ['opening check: the lock did not open with the test passphrase']);
   assert.doesNotMatch(open.commands.join('\n'), /ZEDHABIT|CANARY habit/);
+});
+
+test('a cold first start slower than 8 s still lets the check run', t => {
+  const phone = gatePhone(() => [box('Begin', [100, 800, 800, 900]), box('Restore from a backup instead', [100, 1000, 800, 1100])]);
+  // Each focus read moves the clock 3 s; the app has the focus from 18 s on. The old 8 s wait gave up at about 14 s.
+  let now = 0;
+  t.mock.method(Date, 'now', () => now);
+  phone.ctx.front = () => {
+    now += 3_000;
+    return now >= 18_000 ? 'app' : 'other';
+  };
+  assert.ok(COLD_START_MS >= 18_000);
+  assert.equal(phoneMayRun(phone.ctx), true);
+  assert.equal(phone.ctx.proved, true);
+  assert.deepEqual(phone.notes, []);
+});
+
+test('a screen that is not one of the app\'s known ones is reported, never stepped back from', t => {
+  // The app in front with nothing the script knows on it (a covered, blank window). Back there would leave the app.
+  const phone = gatePhone(() => [box('Daily Commit', [40, 128, 1040, 200], 'android.widget.TextView')]);
+  let now = 0;
+  t.mock.method(Date, 'now', () => (now += 30_000));
+  phone.ctx.proved = true;
+  RUN.P7(phone.ctx);
+  assert.equal(phone.commands.some(c => c.includes('KEYCODE_BACK')), false);
+  assert.ok(phone.notes.some(n => n.includes('the record is not on screen (unknown)')));
 });
 
 test('a check that throws notes only the error type, never its message', () => {
