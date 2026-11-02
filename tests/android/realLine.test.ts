@@ -235,6 +235,7 @@ test('RF1: the phone checks refuse a record that is not the test one', () => {
   assert.equal(open.commands.slice(textAt + 1).some(c => c.startsWith('input tap ')), false);
   assert.equal(open.taps.includes(mid(START_B)), false);
   assert.equal(open.taps.includes(mid(REPLACE_B)), false);
-  assert.deepEqual(open.notes, []);
+  // One line of why, from the fixed set. Nothing of the record.
+  assert.deepEqual(open.notes, ['opening check: the lock did not open with the test passphrase']);
   assert.doesNotMatch(open.commands.join('\n'), /ZEDHABIT|CANARY habit/);
 });

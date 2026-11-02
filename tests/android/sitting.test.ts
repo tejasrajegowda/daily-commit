@@ -514,7 +514,7 @@ test('a real-looking record is refused, nothing is replaced, and nothing is tapp
   assert.equal(phoneMayRun(found.ctx), false);
   assert.equal(found.ctx.proved, false);
   assert.deepEqual(found.taps, []);
-  assert.deepEqual(found.notes, []);
+  assert.deepEqual(found.notes, ['opening check: the app shows the found screen']);
   assert.doesNotMatch(found.commands.join('\n'), /ZEDHABIT|CANARY habit/);
   const tapsAtCheck = found.taps.length;
   let thrown: unknown;
@@ -542,8 +542,17 @@ test('a real-looking record is refused, nothing is replaced, and nothing is tapp
   assert.equal(open.commands.slice(textAt + 1).some(c => c.startsWith('input tap ')), false);
   assert.equal(open.taps.includes(mid(START_B)), false);
   assert.equal(open.taps.includes(mid(REPLACE_B)), false);
-  assert.deepEqual(open.notes, []);
+  assert.deepEqual(open.notes, ['opening check: the lock did not open with the test passphrase']);
   assert.doesNotMatch(open.commands.join('\n'), /ZEDHABIT|CANARY habit/);
+});
+
+test('a check that throws notes only the error type, never its message', () => {
+  const phone = gatePhone(() => {
+    throw new TypeError('ZEDHABIT CANARY habit 0');
+  });
+  assert.equal(phoneMayRun(phone.ctx), false);
+  assert.equal(phone.ctx.proved, false);
+  assert.deepEqual(phone.notes, ['opening check: the check stopped (TypeError)']);
 });
 
 test('the lock opening with the test passphrase lets the run proceed', () => {
@@ -589,7 +598,7 @@ test('settings type-back is a real record: refused, and nothing is tapped or rep
   assert.equal(phone.ctx.proved, false);
   // Length, not deepEqual to []. That comparison narrows the list to never[], and the includes below stop typechecking.
   assert.equal(phone.taps.length, 0);
-  assert.deepEqual(phone.notes, []);
+  assert.deepEqual(phone.notes, ['opening check: Settings shows a new recovery code, so a record exists']);
   assert.doesNotMatch(phone.commands.join('\n'), /input text|ZEDHABIT/);
   const tapsAtCheck = phone.taps.length;
   let thrown: unknown;
