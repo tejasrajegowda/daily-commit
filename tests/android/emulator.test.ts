@@ -23,6 +23,9 @@ test('the test phone is told not to show "isn\'t responding" dialogs before the 
   const quietAt = start.indexOf("adb(['-s', SERIAL, ...QUIET_DIALOGS]");
   const readyAt = start.indexOf('if (homeReady(focus))');
   assert.ok(quietAt > 0 && readyAt > quietAt);
+  // only on a phone the name check called a dc- test phone
+  assert.match(start, /if \(readable\) ours = mayRemoveFill\(named\.out, named\.status\);/);
+  assert.match(start, /if \(ours && !quiet\) quiet = adb\(\['-s', SERIAL, \.\.\.QUIET_DIALOGS\]/);
 });
 
 test('the emulator runs on its own port, with no snapshot, no window, a software GPU and 3 GB', () => {

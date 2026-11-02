@@ -157,6 +157,7 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
   let announced = false;
   let freed = false;
   let quiet = false;
+  let ours = false;
   while (Date.now() - started < BOOT_WAIT_MS) {
     if (await childGone()) break;
     if (!announced && listed(POLL_MS)) {
@@ -168,7 +169,8 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
     if (announced && !freed) {
       const named = adb(['-s', SERIAL, 'emu', 'avd', 'name'], 30_000);
       const readable = named.status === 0 && named.out.trim() !== '';
-      if (readable && mayRemoveFill(named.out, named.status)) {
+      if (readable) ours = mayRemoveFill(named.out, named.status);
+      if (readable && ours) {
         const rm = adb(['-s', SERIAL, 'shell', 'rm', '-f', '/data/local/tmp/dc-fill', '/data/user/0/app.dailycommit/dc-fill'], 60_000);
         if (rm.status === 0) {
           adb(['-s', SERIAL, 'shell', 'sync'], 30_000);
@@ -184,7 +186,8 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
     const boot = adb(['-s', SERIAL, 'shell', 'getprop', 'sys.boot_completed'], POLL_MS);
     if (await childGone()) break;
     if (boot.out.trim() === '1') {
-      if (!quiet) quiet = adb(['-s', SERIAL, ...QUIET_DIALOGS], 30_000).status === 0;
+      // Only once the name check has said this is a dc- test phone, the same rule as the fill file.
+      if (ours && !quiet) quiet = adb(['-s', SERIAL, ...QUIET_DIALOGS], 30_000).status === 0;
       const focus = adb(['-s', SERIAL, 'shell', 'dumpsys window | grep mCurrentFocus'], POLL_MS).out;
       if (homeReady(focus)) {
         console.log(`emulator: booted in ${seconds()} s`);

@@ -80,10 +80,10 @@ public final class LockWatch {
                     left = false;
                     waitingForDrawn = true;                               // the cover stays until the app has drawn
                     out.add(Out.SEND_RESUME);
-                } else if (covered) {
+                } else if (covered && !waitingForDrawn) {
                     covered = false;                                      // a hand-off came back in time: nothing changed
                     out.add(Out.UNCOVER);
-                }
+                }                                                         // a cover still owed a drawn report lifts only in drawn()
                 armedAt = HandOff.NONE;
                 return out;
             case HAND_OFF_TIMER:

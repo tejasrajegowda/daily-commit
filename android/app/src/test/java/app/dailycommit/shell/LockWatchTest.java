@@ -28,7 +28,7 @@ public class LockWatchTest {
     private List<LockWatch.Out> on(Event e, long since, long now) { return watch.on(e, since, now, true, false); }
 
     // the decision alone (C16)
-    @Test public void theScreenGoingOffAlwaysLeaves() {
+    @Test public void theScreenGoingOffLeaves_whenTheActivityIsNotResumed() {
         assertEquals(LEAVE, decideLeave(Event.SCREEN_OFF, FRESH, NOW, true, false));
         assertEquals(LEAVE, decideLeave(Event.SCREEN_OFF, NONE, NOW, true, false));
     }
@@ -190,5 +190,22 @@ public class LockWatchTest {
         assertEquals(List.of(), on(Event.STOP, FRESH, NOW + 10));
         assertEquals(List.of(END_HAND_OFF), watch.handOffEnded(true));
         assertEquals(List.of(SEND_LEAVE, SEND_RESUME), on(Event.RESUME, NONE, FRESH + HAND_OFF_LIMIT_MS + 5));
+    }
+
+    // a hand-off that opens and closes while the cover is still owed a drawn report (review of the late screen-off)
+    @Test public void aLateScreenOffDuringAHandOffKeepsTheCoverUntilTheLockScreenHasDrawn() {
+        assertEquals(List.of(COVER, SEND_LEAVE, SEND_RESUME), watch.on(Event.SCREEN_OFF, FRESH, NOW, true, false, true));
+        assertEquals(List.of(), on(Event.PAUSE, FRESH, NOW + 10));          // the system screen opens: stays
+        assertEquals(List.of(END_HAND_OFF), on(Event.RESUME, FRESH, NOW + 20)); // it closes: no uncover yet
+        assertEquals(List.of(UNCOVER), watch.drawn());
+        assertEquals(List.of(), watch.drawn());
+    }
+
+    @Test public void aHandOffBetweenComingBackAndDrawnKeepsTheCoverUntilDrawn() {
+        on(Event.PAUSE, NONE, NOW);
+        assertEquals(List.of(SEND_RESUME), on(Event.RESUME, NONE, NOW + 5));
+        assertEquals(List.of(), on(Event.PAUSE, FRESH, NOW + 10));
+        assertEquals(List.of(END_HAND_OFF), on(Event.RESUME, FRESH, NOW + 20));
+        assertEquals(List.of(UNCOVER), watch.drawn());
     }
 }
