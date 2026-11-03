@@ -350,7 +350,7 @@ async function start(): Promise<void> {
   }) as typeof db.device.bulkPut;
   // the harness's time stands still, so its minute clock ticks only when a flow moves the clock on
   let tick = () => {};
-  const assembled = assemble(writable, device, systemRandom, APP_VERSION, 1500);
+  const assembled = assemble(writable, device, systemRandom, state.version ?? APP_VERSION, 1500);
   assembled.clock.stop();
   const deps = { ...assembled, clock: minuteClock(writable.now, run => { tick = run; return undefined; }, () => {}) };
   await prelude(state, deps, phone);

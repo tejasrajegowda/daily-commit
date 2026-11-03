@@ -597,7 +597,7 @@ async function main(): Promise<number> {
         }
         // The list sits under its heading, often below the fold: bring the oldest line into view, then read
         if (aboutOrder(labels) === 'missing') {
-          try { scrollTo(phone, /^0\.1\.0/); } catch { /* read what is there */ }
+          try { scrollTo(phone, /^0\.1\.0\b/); } catch { /* read what is there */ }
           labels = texts();
         }
         const order = aboutOrder(labels);

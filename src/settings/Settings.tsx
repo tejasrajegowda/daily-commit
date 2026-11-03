@@ -112,6 +112,7 @@ export function Settings() {
     }
   };
 
+  const changes = changesFrom(deps.appVersion);
   const panels: Record<Category, () => ReactNode> = {
     day: () => {
       const checkins = checkinLines(model.cues.values());
@@ -211,8 +212,12 @@ export function Settings() {
     about: () => (
       <>
         <div className="list"><Row line={W.about(deps.appVersion)} /></div>
-        <p className="eb" style={{ margin: '22px 4px 10px' }}>{W.changed}</p>
-        <div className="list changes" data-a="changes">{changesFrom(deps.appVersion).map(c => <Row key={c.version} line={{ nm: c.version, sub: c.line }} />)}</div>
+        {changes.length > 0 && (   // a version with no line shows nothing here, not a heading over an empty list
+          <>
+            <p className="eb" style={{ margin: '22px 4px 10px' }}>{W.changed}</p>
+            <div className="list changes" data-a="changes">{changes.map(c => <Row key={c.version} line={{ nm: c.version, sub: c.line }} />)}</div>
+          </>
+        )}
         <p className="eb" style={{ margin: '22px 4px 10px' }}>What the lock can't do</p>
         <div className="list">{W.cant.map(l => <Row key={l.nm} line={l} />)}</div>
         <Note>{W.aboutNote}</Note>

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
   aboutOrder, changeVersions, clockReadback, clockStamp, dateSetArg, dateSetCommands, dayNumberFrom, nameBox, namePoint,
@@ -93,4 +94,12 @@ test('an install is yes, or a fixed reason, and the rehearsal edits only the fir
   assert.equal(patched?.startsWith("export const CHANGES: readonly Change[] = [\r\n  { version: '0.1.1', line: 'Rehearsal build.' },\r\n"), true);
   assert.equal(patchChanges('no list'), undefined);
   assert.equal(patchPackageVersion('no version'), undefined);
+});
+
+// A regex written through a tool once came out with a backspace where \b was meant, so it never matched
+test('the rehearsal scripts hold no control characters (a lost word boundary in a pattern is one)', () => {
+  for (const file of ['scripts/android/checks/u6.ts', 'scripts/android/checks/u6Read.ts']) {
+    const text = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
+    assert.equal(/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text), false, file);
+  }
 });

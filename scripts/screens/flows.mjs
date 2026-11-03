@@ -1317,6 +1317,16 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('Settings, laptop: a category switches the panel', await shows(q, 'main[data-cat="about"]') && (await q.locator('main[data-cat="about"]').textContent()).includes("What the lock can't do"));
   check('Settings, About: what changed, newest first, from the running version down', (await q.locator('main[data-cat="about"] [data-a="changes"] .nm').allInnerTexts()).join(' ') === '0.1.0'
     && (await q.locator('main[data-cat="about"] [data-a="changes"]').innerText()).includes('The first version on this phone.'));
+  // the phone stacks every group, so About's list is on the page without choosing it
+  await h.open(p, 's=settings&t=13:00');
+  await shows(p, '.settings');
+  check('Settings, phone: what changed shows the running version and its line', (await p.locator('[data-a="changes"] .nm').allInnerTexts()).join(' ') === '0.1.0'
+    && (await p.locator('[data-a="changes"]').innerText()).includes('The first version on this phone.'));
+  await h.open(p, 's=settings&t=13:00&ver=9.9.9');
+  await shows(p, '.settings');
+  check('Settings, phone: a version with no line shows no What changed at all', (await p.locator('[data-a="changes"]').count()) === 0
+    && !(await p.locator('.settings').innerText()).toLowerCase().includes('what changed')
+    && (await p.locator('.settings').innerText()).includes('9.9.9'));
 
   const untilText = (page, needle) => page.waitForFunction(t => document.body.innerText.includes(t), needle, { timeout: 8000 }).then(() => true, () => false);
   await h.open(p, 's=old');
