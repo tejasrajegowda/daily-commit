@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { countHeavy, GB, mayStart } from '../../scripts/android/memory.ts';
+import { countHeavy, GB, grantCovers, mayStart } from '../../scripts/android/memory.ts';
 
 test('a Gradle client or a Kotlin daemon is a build; an idle Gradle daemon is not; qemu and emulator are emulators', () => {
   assert.deepEqual(countHeavy([
@@ -28,4 +28,22 @@ test('Gradle needs 4 GB free, the emulator 6 GB, and neither starts while anythi
 test('the reason names only counts and amounts, never a process\'s command line', () => {
   const r = mayStart('gradle', { freeBytes: 3 * GB, gradleBuilds: 1, emulators: 0 });
   assert.ok(!r.ok && /^[0-9 .,a-zA-Z()]+$/.test(r.why), r.ok ? '' : r.why);
+});
+
+test('a slot the machine granted to this owner, of this kind, is the answer; anything else falls back to this gate', () => {
+  const budget = JSON.stringify({ grants: [
+    { pid: 4100, owner: 'a job', kind: 'emulator', need: 4000 },
+    { pid: 4200, owner: 'another job', kind: 'build', need: 6000 },
+  ] });
+  assert.equal(grantCovers('emulator', budget, 4100), true);
+  assert.equal(grantCovers('gradle', budget, 4200), true);
+  assert.equal(grantCovers('gradle', budget, 4100), false);     // an emulator slot is not a build slot
+  assert.equal(grantCovers('emulator', budget, 4200), false);
+  assert.equal(grantCovers('emulator', budget, 4300), false);   // someone else's grant is not ours
+  assert.equal(grantCovers('emulator', budget, 0), false);
+  assert.equal(grantCovers('emulator', budget, Number.NaN), false);
+  assert.equal(grantCovers('emulator', JSON.stringify({ grants: [] }), 4100), false);
+  assert.equal(grantCovers('emulator', '{"free":true}', 4100), false);
+  assert.equal(grantCovers('emulator', 'not json', 4100), false);
+  assert.equal(grantCovers('emulator', JSON.stringify({ grants: [{ pid: '4100', kind: 'emulator' }] }), 4100), false);
 });

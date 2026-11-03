@@ -239,3 +239,59 @@ test('RF1: the phone checks refuse a record that is not the test one', () => {
   assert.deepEqual(open.notes, ['opening check: the lock did not open with the test passphrase']);
   assert.doesNotMatch(open.commands.join('\n'), /ZEDHABIT|CANARY habit/);
 });
+
+/** The argument list of one call, starting at its opening paren. Quotes are not counted as nesting. */
+function callText(src: string, open: number): string {
+  let depth = 0;
+  let quote = '';
+  for (let i = open; i < src.length; i++) {
+    const ch = src[i] ?? '';
+    if (quote !== '') {
+      if (ch === '\\') { i++; continue; }
+      if (ch === quote) quote = '';
+      continue;
+    }
+    if (ch === '\'' || ch === '"' || ch === '`') { quote = ch; continue; }
+    if (ch === '(') depth++;
+    else if (ch === ')') {
+      depth--;
+      if (depth === 0) return src.slice(open, i + 1);
+    }
+  }
+  return src.slice(open);
+}
+
+test('RF1: smoke and the emulator checks reach only emulator-5556', () => {
+  assert.equal(SERIAL, 'emulator-5556');
+  assert.equal(TEST_SERIAL, 'emulator-5556');
+  const files = [
+    'scripts/android/smoke.ts',
+    'scripts/android/checks/a.ts',
+    'scripts/android/checks/b.ts',
+    'scripts/android/checks/u6.ts',
+  ];
+  const problems: string[] = [];
+  for (const rel of files) {
+    const src = readScript(rel);
+    const adbCall = /(?<![\w.])adb\s*\(/g;
+    let found: RegExpExecArray | null;
+    while ((found = adbCall.exec(src)) !== null) {
+      const call = callText(src, found.index + found[0].length - 1);
+      if (!call.includes('SERIAL') && !call.includes('TEST_SERIAL')) problems.push(`${rel}: adb call without SERIAL`);
+    }
+    const spawned = /spawnSync\s*\(/g;
+    while ((found = spawned.exec(src)) !== null) {
+      const call = callText(src, found.index + found[0].length - 1);
+      if (!/\badb\b/.test(call)) continue;
+      if (!call.includes('SERIAL') && !call.includes('TEST_SERIAL')) problems.push(`${rel}: spawnSync adb without SERIAL`);
+    }
+  }
+  assert.deepEqual(problems, []);
+  const u6 = readScript('scripts/android/checks/u6.ts');
+  assert.match(u6, /\[\s*'run'\s*,\s*'phone'\s*,\s*'--'\s*,\s*'--serial'\s*,\s*'emulator-5556'\s*\]/);
+  assert.equal(u6.includes('emulator-5554'), false);
+  assert.equal(/child_process/.test(u6), false);
+  assert.equal(u6.includes('paths.adb'), false);
+  assert.equal(u6.includes('.adb,'), false);
+  assert.equal(/toolPaths\s*\([^)]*\)\s*\.adb/.test(u6), false);
+});

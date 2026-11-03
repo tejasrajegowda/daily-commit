@@ -22,6 +22,7 @@
     "android:emulator": "node scripts/android/emulator.ts",
     "android:smoke": "node scripts/android/smoke.ts",
     "android:emu-checks": "node scripts/android/checks/run.ts",
+    "android:u6": "node scripts/android/checks/u6.ts",
     "phone": "node scripts/android/phone.ts",
     "phone:checks": "node scripts/android/checks/sitting.ts"
   },

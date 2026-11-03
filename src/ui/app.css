@@ -257,11 +257,17 @@ svg.i{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.6;stro
 .group > .eb{display:flex;align-items:center;justify-content:space-between;margin:0 4px 10px}
 .row{
   position:relative;isolation:isolate;
-  display:grid;grid-template-columns:22px minmax(0,1fr) auto;align-items:center;column-gap:12px;
+  --row-cols:22px minmax(0,1fr) auto;
+  display:grid;grid-template-columns:var(--row-cols);align-items:center;column-gap:12px;
   min-height:var(--row);padding:8px 16px 8px 12px;border-radius:14px;
   background:var(--p2);box-shadow:var(--ring),var(--lit);cursor:pointer;text-align:left;width:100%;
   transition:background var(--t-state) linear,box-shadow var(--t-state) linear,transform var(--t-release) var(--e-settle);
 }
+/* the row's tap area: its own button, laid out on the row's columns; the choices sit beside it */
+/* a habit row's tap area carries the row's padding, so the whole row, not just its words, is the target */
+.row.has-hit{padding:0}
+.row-hit{grid-column:1/-1;align-self:stretch;display:grid;grid-template-columns:var(--row-cols);align-items:center;column-gap:12px;min-width:0;padding:8px 16px 8px 12px;border-radius:inherit}
+.row.has-hit > .opts{margin:4px 16px 12px 12px}
 .row:active{transform:scale(.985);transition:transform var(--t-press) var(--e-in)}
 .row:hover{background:color-mix(in oklab,var(--p2),rgb(var(--lift)) 2%)}
 .row .dot{width:10px;height:10px;border-radius:50%;justify-self:center;box-shadow:inset 0 0 0 1.5px rgb(var(--lift)/.36);transition:box-shadow var(--t-release) var(--e-settle),background var(--t-state) linear}
@@ -648,6 +654,9 @@ input.inp{border:0}
   .today .side > .group:first-child,.today .side > .panel:first-child{margin-top:0}
   .today .rows{gap:6px}
   .today .row{padding:6px 14px 6px 12px}
+  .today .row.has-hit{padding:0}
+  .today .row-hit{padding:6px 14px 6px 12px}
+  .today .row.has-hit > .opts{margin:6px 14px 10px 12px}
   .today .row .sub{margin-top:0}
   .today .here{margin-top:4px}
   .closed-card{margin-top:24px}

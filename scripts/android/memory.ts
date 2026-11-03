@@ -2,6 +2,7 @@
 // Gradle build or an emulator starts only when nothing else heavy is running (in any project) and
 // enough memory is free. It waits and re-checks; it never stops, suspends or signals anything.
 // It prints counts and amounts only, never a process's command line.
+import { readFileSync } from 'node:fs';
 import { freemem } from 'node:os';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { runSync } from './proc.ts';
@@ -60,8 +61,35 @@ export function readHeavy(): Heavy {
   return { freeBytes: freemem(), ...countHeavy(rows) };
 }
 
-/** Waits until mayStart says yes: re-checks every 30 s, one line a minute (counts only), gives up after 30 minutes. */
+/**
+ * Whether the PC's shared RAM budget (a JSON file kept by the machine's own slot script, outside this repo) already
+ * grants this job's owner a slot of this kind. That script measures and reserves memory across every project, so a
+ * held grant is the answer; this gate's own bar applies only when no grant is held. Kinds there: build, emulator.
+ */
+export function grantCovers(kind: 'gradle' | 'emulator', budgetText: string, ownerPid: number): boolean {
+  if (!Number.isInteger(ownerPid) || ownerPid <= 0) return false;
+  let parsed: unknown;
+  try { parsed = JSON.parse(budgetText); } catch { return false; }
+  const grants = typeof parsed === 'object' && parsed !== null && 'grants' in parsed && Array.isArray(parsed.grants) ? parsed.grants : [];
+  const want = kind === 'gradle' ? 'build' : 'emulator';
+  return grants.some((g: unknown) => typeof g === 'object' && g !== null
+    && 'pid' in g && g.pid === ownerPid && 'kind' in g && g.kind === want);
+}
+
+/** The grant named by DC_RAM_BUDGET (the budget file) and DC_RAM_OWNER_PID (who holds it); false when either is unset or unreadable. */
+function machineGrant(kind: 'gradle' | 'emulator'): boolean {
+  const file = process.env.DC_RAM_BUDGET;
+  const pid = Number(process.env.DC_RAM_OWNER_PID);
+  if (!file) return false;
+  try { return grantCovers(kind, readFileSync(file, 'utf8'), pid); } catch { return false; }
+}
+
+/** Waits until mayStart says yes, or at once when the machine's slot script already grants this job: re-checks every 30 s, one line a minute (counts only), gives up after 30 minutes. */
 export async function waitForRoom(kind: 'gradle' | 'emulator'): Promise<boolean> {
+  if (machineGrant(kind)) {
+    console.log(`memory gate: the machine's ${kind === 'gradle' ? 'build' : 'emulator'} slot is held for this job`);
+    return true;
+  }
   const start = Date.now();
   let lastSaid = -Infinity;
   for (;;) {

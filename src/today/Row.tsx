@@ -97,12 +97,16 @@ export function Row({ row, open, fresh, sub, showKey = true, ask = false, onActi
     );
   }
   return (
-    <div className={`row${open ? ' is-open' : ''}${fresh ? ' fresh' : ''}`} data-s={state} data-a="row" data-x={habit.id} role="button" tabIndex={0}
-      onClick={e => { if (!(e.target as Element).closest('.opts')) onAction({ kind: 'tap' }); }}
-      onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onAction({ kind: 'tap' }); } }}>
-      <span className="dot" />
-      <span><span className="nm">{habit.name}</span><span className="sub">{open && ask ? 'What time was it?' : sub ?? habit.sub}</span></span>
-      <span className="val">{val}{showKey && row.key !== undefined && <span className="kbd">{row.key}</span>}</span>
+    // The tap area is the button; the choices sit beside it, never inside it. A button's contents are presentational,
+    // so choices inside one would be invisible to a screen reader (and to anything that reads the phone's screen).
+    <div className={`row has-hit${open ? ' is-open' : ''}${fresh ? ' fresh' : ''}`} data-s={state} data-a="row" data-x={habit.id}
+      onClick={e => { if (!(e.target as Element).closest('.opts')) onAction({ kind: 'tap' }); }}>
+      <div className="row-hit" role="button" tabIndex={0}
+        onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && e.target === e.currentTarget) { e.preventDefault(); onAction({ kind: 'tap' }); } }}>
+        <span className="dot" />
+        <span><span className="nm">{habit.name}</span><span className="sub">{open && ask ? 'What time was it?' : sub ?? habit.sub}</span></span>
+        <span className="val">{val}{showKey && row.key !== undefined && <span className="kbd">{row.key}</span>}</span>
+      </div>
       {opts}
     </div>
   );

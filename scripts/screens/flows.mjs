@@ -398,6 +398,12 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('Today: tapping an empty time row records now', await until(() => document.querySelector('.row[data-x="h-wake"] .val')?.textContent?.includes('06:05')));
   await p.tap('.row[data-x="h-plan"]');
   check('Today: a three-way row opens three choices', (await p.locator('.row[data-x="h-plan"] .opt').count()) === 3);
+  // A button's contents are presentational: a choice inside one is missing from the accessibility tree on Android
+  check('Today: the choices are their own buttons, not inside the row\'s button', await p.evaluate(() => {
+    const opts = [...document.querySelectorAll('.row[data-x="h-plan"] .opt')];
+    return opts.length === 3 && opts.every(o => o.parentElement?.closest('button,[role="button"]') === null)
+      && document.querySelector('.row[data-x="h-plan"] [role="button"]') !== null;
+  }));
   await p.tap('.row[data-x="h-plan"] .opt >> text=Partly');
   check('Today: a choice sets partly', await until(() => document.querySelector('.row[data-x="h-plan"]')?.getAttribute('data-s') === 'partly'));
   await p.tap('[data-a="sheet"]');
