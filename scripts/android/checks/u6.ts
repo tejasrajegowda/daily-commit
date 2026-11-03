@@ -18,7 +18,7 @@ import { startEmulator, stopEmulator } from '../emulator.ts';
 import { runSync } from '../proc.ts';
 import { isDcTestPhone } from '../smoke.ts';
 import {
-  aboutOrder, CHANGED_HEADING, clockReadback, clockStamp, dateSetArg, dayNumberFrom, installWhy, nameBox, namePoint, patchAppVersion,
+  aboutOrder, CHANGED_HEADING, clockReadback, OLDEST_LINE, clockStamp, dateSetArg, dayNumberFrom, installWhy, nameBox, namePoint, patchAppVersion,
   patchChanges, patchPackageVersion, preupgradeNames, recoveryFromLabels, REHEARSAL_DAY,
   todayClosed, versionIs, yesterdayClosed,
 } from './u6Read.ts';
@@ -597,7 +597,7 @@ async function main(): Promise<number> {
         }
         // The list sits under its heading, often below the fold: bring the oldest line into view, then read
         if (aboutOrder(labels) === 'missing') {
-          try { scrollTo(phone, /^0\.1\.0\b/); } catch { /* read what is there */ }
+          try { scrollTo(phone, OLDEST_LINE); } catch { /* read what is there */ }
           labels = texts();
         }
         const order = aboutOrder(labels);

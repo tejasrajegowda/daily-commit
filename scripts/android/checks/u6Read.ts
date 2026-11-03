@@ -103,6 +103,10 @@ export function changeVersions(labels: readonly string[]): string[] {
   return out;
 }
 
+/** The oldest "What changed" line. The phone runs the next sentence on with no space ("0.1.0The first…"), so only
+ * another digit ends the match, never a word boundary. */
+export const OLDEST_LINE = /^0\.1\.0(?!\d)/;
+
 /** The "What changed" heading. An eyebrow heading is set in capitals, and the phone reads it out that way. */
 export const CHANGED_HEADING = /^What changed$/i;
 

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
-  aboutOrder, changeVersions, clockReadback, clockStamp, dateSetArg, dateSetCommands, dayNumberFrom, nameBox, namePoint,
+  aboutOrder, changeVersions, OLDEST_LINE, clockReadback, clockStamp, dateSetArg, dateSetCommands, dayNumberFrom, nameBox, namePoint,
   installWhy, patchAppVersion, patchChanges, patchPackageVersion, preupgradeNames, recoveryFromLabels,
   REHEARSAL_DAY, todayClosed, versionIs, yesterdayClosed,
 } from '../../scripts/android/checks/u6Read.ts';
@@ -102,4 +102,12 @@ test('the rehearsal scripts hold no control characters (a lost word boundary in 
     const text = readFileSync(new URL(`../../${file}`, import.meta.url), 'utf8');
     assert.equal(/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text), false, file);
   }
+});
+
+test('the About scroll finds the oldest line as the phone reads it, and not a longer number', () => {
+  assert.equal(OLDEST_LINE.test('0.1.0The first version on this phone.'), true);   // the next sentence runs on
+  assert.equal(OLDEST_LINE.test('0.1.0 The first version on this phone.'), true);
+  assert.equal(OLDEST_LINE.test('0.1.0'), true);
+  assert.equal(OLDEST_LINE.test('0.1.00'), false);
+  assert.equal(OLDEST_LINE.test('version 0.1.0'), false);
 });
