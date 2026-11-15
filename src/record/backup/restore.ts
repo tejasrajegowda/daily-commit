@@ -6,6 +6,7 @@ import type { RecordDb, Schema } from '../db.ts';
 import { upgradeTables } from '../upgrade.ts';
 import type { SnapshotFiles } from '../files.ts';
 import { plainOf, rowId } from '../payload.ts';
+import { LOG_BASELINE, PENDING_RESTORE } from '../changes.ts';
 import type { VaultRow } from '../rows.ts';
 import { BODY_TABLES, gunzip, gzip, parseBody, readRaw, type StoredRows } from './body.ts';
 import { SAFETY, keepCopy } from './copies.ts';
@@ -200,6 +201,11 @@ async function replaceAll(core: RecordCore, header: BackupHeader, tables: Stored
       for (const t of BODY_TABLES) await db.table(t).bulkAdd([...tables[t]]);
       await db.wrappers.bulkAdd([header.wrappers.passphrase, header.wrappers.recovery]);
       if (!(await db.device.get('device_id'))) await db.device.add({ key: 'device_id', value: deviceId });
+      // restore runs locked, with no key to seal a line with: a plain marker waits for the next unlock,
+      // and the baseline runs again for any row the file brought without a line (design §2.3)
+      const rows = BODY_TABLES.reduce((n, t) => n + tables[t].length, 0);
+      await db.device.put({ key: PENDING_RESTORE, value: JSON.stringify({ schema_version: header.schema_version, rows }) });
+      await db.device.put({ key: LOG_BASELINE, value: '' });
       return { kind: 'Restored' };
     });
   } catch (e) {

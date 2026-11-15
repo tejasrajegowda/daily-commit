@@ -87,6 +87,16 @@ test('a full disk is reported as QuotaFull, and nothing changes in storage or in
   assert.equal(core.session?.model.settings.wakePlan, 390);
 });
 
+test('a full disk on the change line itself is QuotaFull too, and the change is not stored (review 4 #9)', async () => {
+  const db = freshDb();
+  db.use(failAtRow(18, () => new DOMException('disk full', 'QuotaExceededError')));   // first run 16; the setting's row 17, its line 18
+  const { core } = await opened(db);
+  const before = await db.settings.get('wake_plan');
+  assert.deepEqual(await setSetting(core, 'wakePlan', 400), { kind: 'QuotaFull' });
+  assert.deepEqual(await db.settings.get('wake_plan'), before);
+  assert.equal(core.session?.model.settings.wakePlan, 390);
+});
+
 test('a change stamp never goes backwards, even with the clock set back a day', async () => {
   const { core, db, clock } = await opened();
   await setSetting(core, 'wakePlan', 400);

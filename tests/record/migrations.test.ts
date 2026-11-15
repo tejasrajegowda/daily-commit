@@ -49,14 +49,16 @@ test('a locked-value change reaches every live row once, keeps the stamps, skips
 
 test('stopped part-way, it carries on from its cursor and changes nothing twice', async () => {
   const { core, db } = await withNotYet();
+  const before = await db.changes.count();
   const rows = guarded(stubCipher());
   let seals = 0;
   const flaky: RowCipher = {
     open: rows.open,
-    seal: (ctx, plain) => { if (++seals === 3) throw new Error('stopped'); return rows.seal(ctx, plain); },
+    seal: (ctx, plain) => { if (++seals === 4) throw new Error('stopped'); return rows.seal(ctx, plain); },   // batch 1: two rows and its line
   };
   await assert.rejects(runMigrations(core, flaky, [TEST_V2], 2), /stopped/);
   assert.ok((await db.migrations.get(TEST_V2.id))?.cursor, 'the first batch and its cursor were kept');
+  assert.equal(await db.changes.count() - before, 1, 'the first batch left one line');
   assert.equal(await runMigrations(core, guarded(stubCipher()), [TEST_V2], 2), 1);
   for (const id of LIVE) assert.doesNotMatch((await words(db, id))?.text ?? '', /\(v2\).*\(v2\)/, id);
 });

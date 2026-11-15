@@ -6,7 +6,7 @@ import { lockMachine } from '../../src/app/lockMachine.ts';
 import { restoreBackup } from '../../src/app/restoreFlow.ts';
 import { openRecord, type RecordCore } from '../../src/record/core.ts';
 import type { RecordDb } from '../../src/record/db.ts';
-import { BODY_TABLES } from '../../src/record/backup/body.ts';
+import { BODY_TABLES, gunzip, parseBody } from '../../src/record/backup/body.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { frame, headerBytes, readFrame } from '../../src/record/backup/format.ts';
 import { restore } from '../../src/record/backup/restore.ts';
@@ -74,13 +74,23 @@ test('round trip with the real cipher: every row and envelope, the vault, and th
   assert.deepEqual(sessionOf(b.core)?.model, sessionOf(a.core)?.model);
 });
 
-test('export, restore, export again with the real cipher: the same bytes, with the time and the IV fixed', async () => {
+test('export, restore, export again with the real cipher: every row the same, and the log one restore line longer', async () => {
   const a = await filledReal();
   const first = await exportOf(a.core);
   const b = emptyRecord(a.clock.now);
   await restore(b.core, { file: first, secret: PASS, backupCipher: backupCipher() });
   await unlock(b.core, PASS);
-  assert.deepEqual(await exportOf(b.core), first);                                           // sense 6
+  const tablesOf = async (file: Uint8Array) => {
+    const f = readFrame(file);
+    const opened = await backupCipher().openBody(f.headerBytes, f.iv, f.ct, f.header.wrappers, PASS);
+    return parseBody(await gunzip(opened.body), f.header.schema_version);
+  };
+  const before = await tablesOf(first), after = await tablesOf(await exportOf(b.core));
+  for (const t of BODY_TABLES) if (t !== 'changes') assert.deepEqual(after[t], before[t], t);   // sense 6
+  // the first unlock after a restore adds the restore's own line (design §2.3); every earlier line is kept as it was
+  const ids = new Set((before.changes as { id: string }[]).map(l => l.id));
+  assert.deepEqual((after.changes as { id: string }[]).filter(l => ids.has(l.id)), before.changes);
+  assert.equal(after.changes.length, before.changes.length + 1);
 });
 
 test('the real v1 fixture still opens: by the golden passphrase and by the golden code, every table, and the record unlocks', async () => {

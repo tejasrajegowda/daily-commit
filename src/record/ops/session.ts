@@ -5,15 +5,18 @@ import { MIGRATIONS, runMigrations, type PayloadMigration } from '../migrations.
 import type { BackupOptions } from '../backup/export.ts';
 import { SNAPSHOT_CAP_MS, sealSnapshot, writeSnapshot, type SealedSnapshot, type SnapshotOutcome } from '../backup/snapshot.ts';
 import { sweepTrash } from './words.ts';
+import { finishRestore, runBaseline } from '../changes.ts';
 
 /**
  * Unlocks the record. Any change to the shape of locked values runs first, so the record opens in
- * the current shape; then anything whose 7 days in the trash are over is wiped. The app unlocks
- * through this.
+ * the current shape; then a restore gets its line in the change log, rows with no line yet get their
+ * baseline line, and anything whose 7 days in the trash are over is wiped. The app unlocks through this.
  */
 export async function openSession(core: RecordCore, cipher: RowCipher, backup?: BackupCipher, migrations: readonly PayloadMigration[] = MIGRATIONS): Promise<void> {
   await runMigrations(core, cipher, migrations);
   await core.unlock(cipher, backup);
+  await finishRestore(core);
+  await runBaseline(core);
   await sweepTrash(core);
 }
 

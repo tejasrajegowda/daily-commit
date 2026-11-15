@@ -124,6 +124,10 @@ export function openRecord(deps: RecordDeps): RecordCore {
 
   async function commit(tables: readonly TableName[], puts: readonly Put[], check?: Plan<unknown>['check'], log?: CommitLog): Promise<CommitOutcome> {
     if (log) {
+      // the check first (storage only, so safe outside the transaction): a refusal is told as itself, and
+      // costs no opening or sealing; it runs again inside the transaction
+      const early = await check?.();
+      if (early) return early;
       const lines = await changeRows({ db, cipher: log.cipher, puts, stamp: log.stamp, newId: () => uuidv7(now()) });
       puts = [...puts, ...lines.map((row): Put => ({ table: 'changes', row }))];
       tables = withLog(tables);
@@ -132,7 +136,8 @@ export function openRecord(deps: RecordDeps): RecordCore {
       return await db.transaction('rw', tables.map(t => db.table(t)), async () => {
         const refusal = await check?.();
         if (refusal) throw new Refused(refusal);
-        for (const p of puts) await db.table(p.table).put(p.row);
+        // a change line is only ever added: an id that already exists aborts the whole write
+        for (const p of puts) await (p.table === 'changes' ? db.table(p.table).add(p.row) : db.table(p.table).put(p.row));
         return 'committed' as const;
       });
     } catch (e) {

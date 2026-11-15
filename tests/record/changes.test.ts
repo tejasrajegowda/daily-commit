@@ -5,7 +5,9 @@ import assert from 'node:assert/strict';
 import { openLine, type ChangeLine } from '../../src/record/changes.ts';
 import type { ChangeRow } from '../../src/record/rows.ts';
 import { createHabit, editHabit, type NewHabit } from '../../src/record/ops/habits.ts';
-import { clearObservation, logObservation } from '../../src/record/ops/observations.ts';
+import { clearObservation, logObservation, planDay } from '../../src/record/ops/observations.ts';
+import { saveCue } from '../../src/record/ops/cues.ts';
+import { saveEntry } from '../../src/record/ops/words.ts';
 import { saveDayWords } from '../../src/record/ops/days.ts';
 import { setSetting } from '../../src/record/ops/settings.ts';
 import { SYNCED } from '../../src/record/db.ts';
@@ -148,4 +150,36 @@ test('every row a filled record stored has a line, and every line opens', async 
 
 test('unlock reads nothing from the log', () => {
   assert.ok(!(SYNCED as readonly string[]).includes('changes'));
+});
+
+test('review 4 #4: a line moved in time by its plain time refuses to open', async () => {
+  const { core, db } = await openedRecord();
+  await createHabit(core, walk);
+  const row = (await db.changes.where('ref').equals('habits|h-walk').first())!;
+  await assert.rejects(openLine(core.session!.cipher, { ...row, at: 1 }), { name: 'CipherError' });
+});
+
+test('review 4 #6: a reminder going private and back logs its text only under the words key', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, { ...walk, cues: [{ id: 'c-1', text: 'CANARY-TEST cue', times: { at: [600] }, private: false }] });
+  const cue = core.session!.model.cues.get('c-1')!;
+  await saveCue(core, { id: cue.id, habitId: cue.habitId, kind: cue.kind, text: 'CANARY-TEST cue', times: cue.times, fade: cue.fade, enabled: cue.enabled, private: true });
+  await saveCue(core, { id: cue.id, habitId: cue.habitId, kind: cue.kind, text: 'CANARY-TEST cue two', times: cue.times, fade: cue.fade, enabled: cue.enabled, private: false });
+  // made public, its text was stored (and logged) under the record key; each flip touches the words key, so its text goes there
+  const flips = (await about(core, 'cues|c-1')).filter(x => x.kind === 'update');
+  assert.ok(flips.some(l => l.slot === 'w' && 'text' in (l.field_changes ?? {})));
+  for (const l of flips.filter(x => x.slot === 'r')) assert.ok(!('text' in (l.field_changes ?? {})), 'a cue text reached an r line');
+});
+
+test('review 4 #6: a page deleted from the trash leaves its words only in words-key lines', async () => {
+  const { core } = await openedRecord();
+  await saveEntry(core, { id: 'e-1', body: 'CANARY-TEST page' });
+  for (const l of await about(core, 'entries|e-1')) if (l.slot === 'r') assert.ok(!JSON.stringify(l).includes('CANARY-TEST'));
+});
+
+test('review 4 #7: the same habit planned twice in one write is refused', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, walk);
+  assert.deepEqual(await planDay(core, { date: '2026-01-07', plans: [{ habitId: 'h-walk', reason: 'unwell' }, { habitId: 'h-walk', reason: 'travelling' }] }),
+    { kind: 'Invalid', reason: 'a habit planned twice' });
 });

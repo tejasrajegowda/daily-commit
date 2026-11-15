@@ -158,10 +158,15 @@ describe('the change log', () => {
     for (const f of all) {
       const src = readFileSync(f, 'utf8');
       const writes = [...src.matchAll(/\.changes\.(put|add|bulkPut|bulkAdd|delete|bulkDelete|clear|modify|update)\b/g)];
-      assert.deepEqual(writes.map(m => m[0]), [], `${rel(f)} writes to the change log`);
+      // migrations add one line per batch in their own transaction (they run before unlock, outside the core's writes)
+      if (rel(f) !== 'record/migrations.ts') assert.deepEqual(writes.map(m => m[0]), [], `${rel(f)} writes to the change log`);
+      else assert.deepEqual(writes.map(m => m[0]), ['.changes.add'], 'migrations only add');
       if (!['record/core.ts', 'record/changes.ts'].includes(rel(f))) {
         assert.ok(!/table:\s*'changes'/.test(src), `${rel(f)} puts rows into the change log`);
+        assert.ok(!/table\(\s*['"]changes['"]\s*\)/.test(src), `${rel(f)} reaches the change log by name`);
       }
+      // outside record/, nothing so much as names the table: screens can't read it for display (§8 #22)
+      if (area(f) !== 'record') assert.ok(!/\.changes\b/.test(src), `${rel(f)} reaches the change log`);
     }
   });
   it('nothing outside record/ imports it', () => {

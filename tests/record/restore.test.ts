@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Secret } from '../../src/vault/cipher.ts';
 import { openRecord, type RecordCore } from '../../src/record/core.ts';
-import type { RecordDb } from '../../src/record/db.ts';
+import { SYNCED, type RecordDb } from '../../src/record/db.ts';
 import { jsonBytes } from '../../src/record/bytes.ts';
 import { firstRun } from '../../src/record/ops/firstRun.ts';
 import { setSetting } from '../../src/record/ops/settings.ts';
@@ -15,7 +15,9 @@ import { exportBackup } from '../../src/record/backup/export.ts';
 import { frame, readFrame } from '../../src/record/backup/format.ts';
 import { RAW_EXT, restore } from '../../src/record/backup/restore.ts';
 import { LATEST } from '../../src/record/backup/snapshot.ts';
-import { closeSession } from '../../src/record/ops/session.ts';
+import { closeSession, openSession } from '../../src/record/ops/session.ts';
+import { LOG_BASELINE, openLine, refOf, runBaseline } from '../../src/record/changes.ts';
+import { plainOf } from '../../src/record/payload.ts';
 import { filledRecord, freshDb } from './helpers.ts';
 import { failAtRow } from './faults.ts';
 import { SETTINGS, VAULT, WRAPPERS, testClock } from './fixtures.ts';
@@ -266,4 +268,34 @@ test('the change log travels with a backup; a file with a damaged line is refuse
   assert.ok(await isEmpty(c.db));
   const twoSlots = await refile(file, tables => { const line = tables.changes?.[0] as Record<string, unknown>; line.w = line.r; });
   assert.deepEqual(await restore(emptyRecord().core, { file: twoSlots, secret: PASS, backupCipher: opener() }), { kind: 'Refused', reason: 'damaged' });
+});
+
+test('a backup from before the log: every live row gets its baseline line at the next unlock, once, and the restore its own line', async () => {
+  const a = await filledRecord();
+  const v1 = await refile(await exportOf(a.core), (tables, header) => { delete tables.changes; header.schema_version = 1; });
+  const b = emptyRecord();
+  assert.deepEqual(await restore(b.core, { file: v1, secret: PASS, backupCipher: opener() }), { kind: 'Restored' });
+  assert.equal(await b.db.changes.count(), 0);
+  await openSession(b.core, guarded(stubCipher()));
+  const cipher = b.core.session!.cipher;
+  const lines = await Promise.all((await b.db.changes.toArray()).map(row => openLine(cipher, row)));
+  assert.equal(lines.filter(l => l.kind === 'restore').length, 1);
+  assert.deepEqual(lines.find(l => l.kind === 'restore')?.detail?.schema_version, 1);
+  const baselined = new Set(lines.filter(l => l.kind === 'baseline').map(l => l.ref));
+  for (const table of SYNCED) {
+    for (const row of (await b.db.table(table).toArray()) as Record<string, unknown>[]) {
+      if (row.deleted_at !== undefined) continue;
+      assert.ok(baselined.has(refOf(table, plainOf(table, row))), `${table} row without a baseline line`);
+    }
+  }
+  // a page's words are baselined under the words key only
+  const page = (await b.db.changes.where('ref').equals('entries|e-page').toArray());
+  assert.ok(page.some(r => r.w));
+  for (const r of page.filter(x => x.r)) assert.ok(!('body' in ((await openLine(cipher, r)).field_changes ?? {})));
+  const count = await b.db.changes.count();
+  await b.db.device.put({ key: LOG_BASELINE, value: '' });             // as if it had stopped part-way
+  assert.equal(await runBaseline(b.core), 0);
+  await b.core.lock();
+  await openSession(b.core, guarded(stubCipher()));
+  assert.equal(await b.db.changes.count(), count);                    // nothing written twice, no second restore line
 });

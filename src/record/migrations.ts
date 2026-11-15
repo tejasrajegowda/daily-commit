@@ -3,6 +3,8 @@ import { TABLE_TAGS, type LockedTable } from '../vault/tags.ts';
 import { jsonBytes, parseJsonBytes } from './bytes.ts';
 import type { RecordCore } from './core.ts';
 import { KEY_FIELDS, plainOf, rowId, type Fields } from './payload.ts';
+import { migrationLine } from './changes.ts';
+import { uuidv7 } from './ids.ts';
 
 // Changes to the shape of locked values, made after unlock, row by row. Each one reads values of
 // one payload version and writes the next. Progress is saved with each batch, so a stop part-way
@@ -48,8 +50,13 @@ async function migrateBatch(core: RecordCore, cipher: RowCipher, m: PayloadMigra
   }
   const last = rows[rows.length - 1];
   const done = rows.length < batch;
-  await db.transaction('rw', [table, db.migrations], async () => {
+  // one line per batch that changed anything: which migration and how many rows, never the values
+  const at = core.now();
+  const line = puts.length === 0 ? undefined
+    : await migrationLine(cipher, { id: uuidv7(at), migration: m.id, rows: puts.length, at, device: String((await db.device.get('device_id'))?.value ?? '') });
+  await db.transaction('rw', [table, db.migrations, db.changes], async () => {
     for (const row of puts) await table.put(row);
+    if (line) await db.changes.add(line);
     await db.migrations.put(done || last === undefined ? { id: m.id, done_at: core.now() } : { id: m.id, cursor: JSON.stringify(primaryKey(m.table, last)) });
   });
   return { changed: puts.length, done };

@@ -105,6 +105,7 @@ export function planDay(core: RecordCore, input: DayPlan): Promise<Result<void>>
       const goneKeys = new Set(gone.map(o => `${o.habitId}|${o.date}`));
       const counts = ahead && restCounts(restMarks(s.model, goneKeys), input.date);
       const planned: ObservationRecord[] = [];
+      if (new Set((input.plans ?? []).map(p => p.habitId)).size !== (input.plans ?? []).length) return invalid('a habit planned twice');
       for (const p of input.plans ?? []) {
         const h = s.model.habits.get(p.habitId);
         if (!h || !isAsked(h, input.date)) return invalid('not asked that day');
