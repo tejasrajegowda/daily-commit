@@ -91,11 +91,11 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
   const openFocus = part === 'evening' ? keyed(focus.filter(r => !answered(r))) : [];
   const earlier = part === 'evening' ? keyed(focus.filter(answered)) : [];
   const restDays = [...model.days.values()].filter(d => d.restDay).map(d => d.date);
-  const left = restDaysLeft(restDays, today, model.settings.journeyStart);
+  const left = restDaysLeft(restDays, today);
   return {
     part, past, dayNumber: dayNumber(model.settings.journeyStart, today),
     morningRows, eveningRows, openFocus, earlier, ahead,
-    restOffer: !past && !day?.restDay && restOffered({ evening: part === 'evening', openFocus: openFocus.length, left }),
+    restOffer: !past && !day?.restDay && restOffered({ evening: part === 'evening', left, already: false }),
     closedAt: day?.closedAt, intent: day?.intent, remark: day?.remark,
   };
 }

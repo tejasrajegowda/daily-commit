@@ -1,23 +1,28 @@
 import type { LocalDate } from './types.ts';
-import { dayNumber } from './journey.ts';
 
-// Rest days (§8 #14): two in each calendar month, from day 14 of the journey, offered in the evening
-// only while something in Focus is still unanswered. A rest day keeps the day as planned rest, a
-// marked square in Look back, never an empty one.
+// Rest days (§8 #14, as amended by D-24 and D-30..D-31): marked in advance, before their day begins,
+// at most two in each calendar month, counted per day by the marked day's month. A whole rest day and
+// any one-habit plans made in advance for the same day use one of the two between them. Offered in the
+// evening, for tomorrow, and from Plan for any later day. A rest day keeps the day as planned rest, a
+// marked square in Look back, never an empty one, and a run carries on through it.
 
 export const REST_DAYS_A_MONTH = 2;
-export const REST_FROM_DAY = 14;
 
-/** Rest days left in `today`'s calendar month: two a month, none before day 14. */
-export function restDaysLeft(restDays: Iterable<LocalDate>, today: LocalDate, journeyStart: LocalDate): number {
-  if (dayNumber(journeyStart, today) < REST_FROM_DAY) return 0;
-  const month = today.slice(0, 7);
-  let used = 0;
-  for (const d of restDays) if (d.slice(0, 7) === month) used++;
-  return Math.max(0, REST_DAYS_A_MONTH - used);
+/** Days left in `date`'s calendar month. `used`: the dates that already hold a counted mark. */
+export function restDaysLeft(used: Iterable<LocalDate>, date: LocalDate): number {
+  const month = date.slice(0, 7);
+  const days = new Set<LocalDate>();
+  for (const d of used) if (d.slice(0, 7) === month) days.add(d);
+  return Math.max(0, REST_DAYS_A_MONTH - days.size);
 }
 
-/** Offered in the evening only, while some Focus habit asked today is still unanswered, and one is left. */
-export function restOffered(input: { readonly evening: boolean; readonly openFocus: number; readonly left: number }): boolean {
-  return input.evening && input.openFocus > 0 && input.left > 0;
+/** Whether a new mark on `date` counts: its day already counts, or its month has one left. */
+export function restCounts(used: Iterable<LocalDate>, date: LocalDate): boolean {
+  const list = [...used];
+  return list.includes(date) || restDaysLeft(list, date) > 0;
+}
+
+/** Offered in the evening, for tomorrow, while tomorrow's month has one left and tomorrow is not one already. */
+export function restOffered(input: { readonly evening: boolean; readonly left: number; readonly already: boolean }): boolean {
+  return input.evening && input.left > 0 && !input.already;
 }

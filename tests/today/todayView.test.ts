@@ -210,9 +210,9 @@ test("R2-9: yesterday's time rows ask for their time, since the clock is today's
   assert.equal(asksForTime(walk, 'evening', true), false);
 });
 
-test('no rest day before day 14', async () => {
+test('rest days are offered from the first days, with no day-14 wait', async () => {
   const { view } = await viewAt('#age=10&t=21:30');
-  assert.equal(view().restOffer, false);
+  assert.equal(view().restOffer, true);
 });
 
 test('invariant 4: the morning screen holds nothing from a day before today', async () => {

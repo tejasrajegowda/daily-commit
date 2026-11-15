@@ -29,8 +29,8 @@ export const rise = habit({ id: 'rise', kind: 'time', target: { band: 420, part:
 export const reps = habit({ id: 'reps', kind: 'count', target: { bar: 10 } });
 export const mood = habit({ id: 'mood', kind: 'mood', tierHistory: [{ tier: 'log', from: START }] });
 
-/** One day of one habit: never answered, an answer, or a planned "not today". */
-export type Cell = null | { readonly value: number | TriValue } | { readonly planned: PlannedReason };
+/** One day of one habit: never answered, an answer, or a planned "not today" (keeping the run or not). */
+export type Cell = null | { readonly value: number | TriValue } | { readonly planned: PlannedReason; readonly keepsRun?: boolean };
 
 /** Observations for one habit, one cell per day starting at `from`. */
 export function history(habitId: string, cells: readonly Cell[], from: LocalDate = START): Observation[] {
@@ -38,16 +38,21 @@ export function history(habitId: string, cells: readonly Cell[], from: LocalDate
   cells.forEach((c, i) => {
     if (c === null) return;
     const date = addDays(from, i);
-    out.push('planned' in c ? { habitId, date, planned: c.planned } : { habitId, date, value: c.value });
+    out.push('planned' in c
+      ? { habitId, date, planned: c.planned, ...(c.keepsRun !== undefined && { keepsRun: c.keepsRun }) }
+      : { habitId, date, value: c.value });
   });
   return out;
 }
 
-/** Shorthand for tri habits: d = did, p = partly, n = not today, . = never answered, r = planned rest. */
+/**
+ * Shorthand for tri habits: d = did, p = partly, n = not today, . = never answered,
+ * r = a rest day marked in advance (keeps the run), x = a plan made on the day (doesn't).
+ */
 export function tri(pattern: string): Cell[] {
   return [...pattern].map(ch =>
     ch === 'd' ? { value: 'did' } : ch === 'p' ? { value: 'partly' } : ch === 'n' ? { value: 'not' }
-      : ch === 'r' ? { planned: 'rest' } : null);
+      : ch === 'r' ? { planned: 'rest', keepsRun: true } : ch === 'x' ? { planned: 'chose' } : null);
 }
 
 // ─── generators ───
@@ -69,7 +74,7 @@ export function arbCell(kind: HabitKind): fc.Arbitrary<Cell> {
   return fc.oneof(
     { arbitrary: fc.constant(null), weight: 2 },
     { arbitrary: arbValue(kind).map(value => ({ value })), weight: 6 },
-    { arbitrary: arbReason.map(planned => ({ planned })), weight: 1 },
+    { arbitrary: fc.tuple(arbReason, fc.boolean()).map(([planned, keepsRun]) => ({ planned, keepsRun })), weight: 1 },
   );
 }
 

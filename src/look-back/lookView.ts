@@ -129,9 +129,7 @@ export function sentence(input: RulesInput, model: Model, today: LocalDate): Wor
     for (const d of datesFrom(addDays(today, -29), today)) if (stateOf(habit, lookup(input.index, habit.id, d), d) === 'did') last30++;
     out.push({ text: ` since ${longDay(start)} — ` }, { text: String(last30), bold: true }, { text: ' of them in the last thirty days.' });
   }
-  if (n.gaps > 0 && n.cameBack === n.gaps) {
-    out.push({ text: n.gaps === 1 ? ' There was one gap, and you were back the next day.' : ` There were ${countWord(n.gaps)} gaps, and ${n.gaps > 2 ? 'every time' : 'both times'} you were back the next day.` });
-  } else if (n.cameBack > 0) {
+  if (n.cameBack > 0) {
     out.push({ text: ' You came back the day after a gap ' }, { text: `${countWord(n.cameBack)} ${n.cameBack === 1 ? 'time' : 'times'}`, bold: true }, { text: '.' });
   }
   return out;

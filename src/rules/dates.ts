@@ -29,6 +29,14 @@ export function weekdayOf(date: LocalDate): Weekday {
   return ((new Date(toUtcMs(date)).getUTCDay() + 6) % 7) as Weekday;
 }
 
+/**
+ * The seal's date rule: today and yesterday stay open, and anything older is sealed for good. The
+ * record refuses writes to a sealed day, and a run reads a quiet day as final only once it is sealed.
+ */
+export function isSealed(date: LocalDate, today: LocalDate): boolean {
+  return date < addDays(today, -1);
+}
+
 /** Every date from `from` to `to`, inclusive. */
 export function datesFrom(from: LocalDate, to: LocalDate): LocalDate[] {
   const out: LocalDate[] = [];

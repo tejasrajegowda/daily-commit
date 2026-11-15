@@ -11,32 +11,43 @@ function numbers(pattern: string) {
   return habitNumbers(walk, idx, START, addDays(START, pattern.length - 1));
 }
 
-test('one quiet day never ends a run; two in a row do', () => {
-  assert.deepEqual(numbers('dd.d'), { did: 3, minutes: 0, longestRun: 3, currentRun: 3, cameBack: 1, gaps: 1 });
-  assert.deepEqual(numbers('dd..d'), { did: 3, minutes: 0, longestRun: 2, currentRun: 1, cameBack: 0, gaps: 1 });
+test('a quiet day ends a run once it has sealed', () => {
+  assert.deepEqual(numbers('dd.ddd'), { did: 5, minutes: 0, longestRun: 3, currentRun: 3, cameBack: 1 });
 });
 
 test('"not today" and never answered are the same quiet day', () => {
-  assert.deepEqual(numbers('ddnd'), numbers('dd.d'));
-  assert.deepEqual(numbers('ddnnd'), numbers('dd..d'));
+  assert.deepEqual(numbers('ddnddd'), numbers('dd.ddd'));
+  assert.deepEqual(numbers('ddd.n'), numbers('ddd..'));
+});
+
+test('a quiet yesterday holds the run until it seals: alive, and not lengthened across it', () => {
+  assert.deepEqual(numbers('ddd..'), { did: 3, minutes: 0, longestRun: 3, currentRun: 3, cameBack: 0 });
+  assert.deepEqual(numbers('ddd.d'), { did: 4, minutes: 0, longestRun: 3, currentRun: 3, cameBack: 0 });
+  assert.equal(numbers('ddd...').currentRun, 0);
+  assert.equal(numbers('ddd...').longestRun, 3);
 });
 
 test('partly keeps a run alive but does not lengthen it', () => {
   assert.equal(numbers('dpd').currentRun, 2);
-  assert.equal(numbers('d.p.d').currentRun, 2);        // the partly day breaks up the two quiet days
-  assert.equal(numbers('d.p.d').gaps, 2);
-  assert.equal(numbers('d.p.d').cameBack, 1);          // only the second gap was followed by a done day
+  assert.equal(numbers('dpdd').longestRun, 3);
 });
 
-test('planned days and rest days are skipped, not counted as quiet', () => {
+test('a rest day marked in advance is skipped; a plan made on the day is a quiet day', () => {
+  assert.equal(numbers('ddrd').currentRun, 3);
   assert.equal(numbers('ddrrrd').currentRun, 3);
-  assert.equal(numbers('dd.r.d').currentRun, 1);       // quiet, rest, quiet is still two quiet days
+  assert.deepEqual(numbers('ddxdd'), { did: 4, minutes: 0, longestRun: 2, currentRun: 2, cameBack: 0 });
+  assert.equal(numbers('ddxddd').cameBack, 1);
 });
 
 test('today is never held against a run until the day is over', () => {
-  assert.equal(numbers('dd.').currentRun, 2);          // yesterday done, today not yet answered
-  assert.equal(numbers('d..').currentRun, 1);          // yesterday quiet, today not yet: still one quiet day
-  assert.equal(numbers('d...').currentRun, 0);
+  assert.equal(numbers('dd.').currentRun, 2);
+  assert.equal(numbers('ddn').currentRun, 2);
+});
+
+test('came back counts only days that have sealed', () => {
+  assert.equal(numbers('d.dd').cameBack, 0);          // the done day after the gap is yesterday, still open
+  assert.equal(numbers('d.ddd').cameBack, 1);
+  assert.equal(numbers('d..ddd').cameBack, 0);         // two quiet days are not a single gap
 });
 
 test('minutes add up only on minutes habits, and planned days add nothing', () => {
@@ -56,6 +67,5 @@ test('time away from the plan is skipped like a rest day, so a run carries acros
   const idx = indexObservations(history('walk', tri('dd...d')));
   const n = habitNumbers(away, idx, START, addDays(START, 5));
   assert.equal(n.currentRun, 3);
-  assert.equal(n.gaps, 0);
   assert.deepEqual(doneAndAsked(away, idx, START, addDays(START, 5)), { done: 3, asked: 3 });
 });

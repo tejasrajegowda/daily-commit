@@ -317,7 +317,7 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
     // a chip tapped open is drawn as its row again, in its place among the Focus rows, until it is answered or closed
     const focusRows = [...view.openFocus, ...view.earlier.filter(r => r.habit.id === open)].sort((a, b) => a.habit.order - b.habit.order);
     const chips = view.earlier.filter(r => r.habit.id !== open);
-    const left = restDaysLeft([...model.days.values()].filter(d => d.restDay).map(d => d.date), day, model.settings.journeyStart);
+    const left = restDaysLeft([...model.days.values()].filter(d => d.restDay).map(d => d.date), day);
     const isRest = model.days.get(day)?.restDay === true;
     main = (
       <>

@@ -76,6 +76,11 @@ export interface Observation {
   /** a DayMinute for a time habit; minutes, a count or a mood 1–5; or a three-way answer */
   readonly value?: number | TriValue;
   readonly planned?: PlannedReason;
+  /**
+   * On a plan: whether it keeps the habit's run. Decided once, when the plan was saved: marked before
+   * its day began, and within the month's two. Otherwise a planned day counts like a blank one for runs.
+   */
+  readonly keepsRun?: boolean;
 }
 
 /**

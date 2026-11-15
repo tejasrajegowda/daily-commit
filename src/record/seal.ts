@@ -1,5 +1,5 @@
 import type { LocalDate } from '../rules/types.ts';
-import { addDays } from '../rules/dates.ts';
+import { addDays, isSealed } from '../rules/dates.ts';
 
 /** What a write puts on a day: a recorded value or words, or only a plan made in advance. */
 export type WriteKind = 'value' | 'plan';
@@ -10,7 +10,7 @@ export type WriteKind = 'value' | 'plan';
  * between midnight and the boundary, goes to the day ahead (`morningAhead`).
  */
 export function isOpen(date: LocalDate, kind: WriteKind, today: LocalDate, morningAhead: boolean): boolean {
-  if (date < addDays(today, -1)) return false;
+  if (isSealed(date, today)) return false;
   if (date <= today) return true;
   if (kind === 'plan') return true;
   return morningAhead && date === addDays(today, 1);

@@ -1,23 +1,28 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { restDaysLeft, restOffered } from '../../src/rules/rest.ts';
+import { restCounts, restDaysLeft, restOffered } from '../../src/rules/rest.ts';
 
-const START = '2026-01-05';
-
-test('no rest day before day 14', () => {
-  assert.equal(restDaysLeft([], '2026-01-17', START), 0);       // day 13
-  assert.equal(restDaysLeft([], '2026-01-18', START), 2);       // day 14
+test('two a calendar month, from the first day: none used leaves two', () => {
+  assert.equal(restDaysLeft([], '2026-01-05'), 2);
 });
 
-test('two in a calendar month: one used leaves one, two used leave none, and a new month starts again', () => {
-  assert.equal(restDaysLeft(['2026-01-20'], '2026-01-25', START), 1);
-  assert.equal(restDaysLeft(['2026-01-20', '2026-01-24'], '2026-01-25', START), 0);
-  assert.equal(restDaysLeft(['2026-01-20', '2026-01-24'], '2026-02-01', START), 2);
+test('counted per day, by the marked day\'s month: one used leaves one, two leave none, a new month starts again', () => {
+  assert.equal(restDaysLeft(['2026-01-20'], '2026-01-25'), 1);
+  assert.equal(restDaysLeft(['2026-01-20', '2026-01-20'], '2026-01-25'), 1);
+  assert.equal(restDaysLeft(['2026-01-20', '2026-01-24'], '2026-01-25'), 0);
+  assert.equal(restDaysLeft(['2026-01-20', '2026-01-24'], '2026-02-01'), 2);
 });
 
-test('offered only in the evening, only with something in Focus still open, and only with one left', () => {
-  assert.equal(restOffered({ evening: true, openFocus: 1, left: 1 }), true);
-  assert.equal(restOffered({ evening: false, openFocus: 2, left: 2 }), false);
-  assert.equal(restOffered({ evening: true, openFocus: 0, left: 2 }), false);
-  assert.equal(restOffered({ evening: true, openFocus: 2, left: 0 }), false);
+test('a new mark counts when its day already counts or its month has one left', () => {
+  assert.equal(restCounts(['2026-01-20', '2026-01-24'], '2026-01-24'), true);
+  assert.equal(restCounts(['2026-01-20', '2026-01-24'], '2026-01-27'), false);
+  assert.equal(restCounts(['2026-01-20'], '2026-01-27'), true);
+  assert.equal(restCounts([], '2026-01-27'), true);
+});
+
+test('offered in the evening, for tomorrow, while tomorrow has one left and is not one already', () => {
+  assert.equal(restOffered({ evening: true, left: 1, already: false }), true);
+  assert.equal(restOffered({ evening: false, left: 2, already: false }), false);
+  assert.equal(restOffered({ evening: true, left: 0, already: false }), false);
+  assert.equal(restOffered({ evening: true, left: 2, already: true }), false);
 });

@@ -27,7 +27,7 @@ function indexOf(world: readonly { habit: Habit; cells: readonly Cell[] }[]) {
   return indexObservations(world.flatMap(w => history(w.habit.id, w.cells)));
 }
 
-const LIFETIME = ['did', 'minutes', 'longestRun', 'cameBack', 'gaps'] as const;
+const LIFETIME = ['did', 'minutes', 'longestRun', 'cameBack'] as const;
 
 test('1 · adding a habit never lowers any number', () => {
   fc.assert(fc.property(arbWorld, arbTracked('extra', DAYS), arbToday, (world, extra, today) => {
@@ -113,29 +113,54 @@ test('6 · mood is never joined to a habit before day 60', () => {
     }), RUNS);
 });
 
+/** Sets one day's cell, leaving every other day as it was. */
+function withCell(cells: readonly Cell[], day: number, cell: Cell): Cell[] {
+  return cells.map((c, i) => (i === day ? cell : c));
+}
+
+test('3b · filling in a blank open day never lowers the longest run, the done days or the comebacks', () => {
+  fc.assert(fc.property(arbTracked('h', DAYS), fc.integer({ min: 1, max: DAYS - 1 }), fc.boolean(), fc.nat(), (t, todayAt, yesterday, pick) => {
+    const day = yesterday ? todayAt - 1 : todayAt;
+    if (t.cells[day] !== null) return;
+    const today = addDays(START, todayAt);
+    const before = habitNumbers(t.habit, indexObservations(history('h', t.cells)), START, today);
+    const fills: Cell[] = [{ value: 'did' }, { value: 'partly' }, { value: 'not' }, { value: 0 }, { value: 420 }, { planned: 'chose' }];
+    const after = habitNumbers(t.habit, indexObservations(history('h', withCell(t.cells, day, fills[pick % fills.length]!))), START, today);
+    for (const k of ['did', 'longestRun', 'cameBack'] as const) assert.ok(after[k] >= before[k], `${k} went down`);
+  }), RUNS);
+});
+
+test('3c · the run in progress is never longer than the longest run', () => {
+  fc.assert(fc.property(arbTracked('h', DAYS), arbToday, (t, today) => {
+    const n = habitNumbers(t.habit, indexObservations(history('h', t.cells)), START, today);
+    assert.ok(n.currentRun <= n.longestRun);
+  }), RUNS);
+});
+
 const walkDaily = habit({ id: 'w', kind: 'tri' });
 
-test('7 · a run survives any single quiet day', () => {
+test('7 · a quiet day ends a run only once it has sealed', () => {
   fc.assert(fc.property(fc.integer({ min: 3, max: DAYS }), fc.nat(), (n, k) => {
     const quiet = k % (n - 1);                                 // any day but today
     const cells: Cell[] = Array.from({ length: n }, (_, i) => (i === quiet ? null : { value: 'did' }));
     const r = habitNumbers(walkDaily, indexObservations(history('w', cells)), START, addDays(START, n - 1));
-    assert.equal(r.currentRun, n - 1);
-    assert.equal(r.longestRun, n - 1);
+    if (quiet <= n - 3) {
+      // sealed: the run is the days after it
+      assert.equal(r.currentRun, n - 1 - quiet);
+      assert.equal(r.longestRun, Math.max(quiet, n - 1 - quiet));
+    } else {
+      // yesterday, still open: the run before it is held, alive
+      assert.equal(r.currentRun, n - 2);
+    }
   }), RUNS);
 });
 
-test('7 · with no two quiet days in a row, the run is every done day', () => {
-  const token = fc.constantFrom<'did' | 'partly' | 'quiet' | 'rest'>('did', 'partly', 'quiet', 'rest');
+test('7 · with no quiet day, the run is every done day', () => {
+  const token = fc.constantFrom<'did' | 'partly' | 'rest'>('did', 'partly', 'rest');
   fc.assert(fc.property(fc.array(token, { minLength: 1, maxLength: DAYS }), (tokens) => {
-    let last: string | undefined;
-    const cells: Cell[] = tokens.map(t => {
-      if (t === 'rest') return { planned: 'rest' };
-      const use = t === 'quiet' && last === 'quiet' ? 'did' : t;
-      last = use;
-      return use === 'quiet' ? null : { value: use };
-    });
+    const cells: Cell[] = tokens.map(t => (t === 'rest' ? { planned: 'rest', keepsRun: true } : { value: t }));
     const r = habitNumbers(walkDaily, indexObservations(history('w', cells)), START, addDays(START, cells.length - 1));
     assert.equal(r.currentRun, r.did);
+    assert.equal(r.longestRun, r.did);
   }), RUNS);
 });
