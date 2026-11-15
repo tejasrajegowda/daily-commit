@@ -55,6 +55,8 @@ export interface TodayView {
   readonly restTomorrow: boolean;
   /** rest days left in tomorrow's month */
   readonly restLeft: number;
+  /** tomorrow already counts as one of its month's two, through a plan made for it */
+  readonly restCounted?: boolean;
   /** tomorrow's month, by name, when it is not this month's */
   readonly restMonth?: string;
   readonly closedAt?: number;
@@ -74,7 +76,7 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
       return {
         habit, focus: tierOn(habit, today) === 'focus', asked: askedOn(habit, today) ?? 'evening',
         state: stateOf(habit, obs, today), value: obs?.value, planned: obs?.planned,
-        ...(model.observations.get(`${habit.id}|${today}`)?.inAdvance === true && obs?.planned !== undefined && { fixed: true }),
+        ...(fixedOn(model, habit.id, today, obs?.planned) && { fixed: true }),
       };
     });
   const focus = rows.filter(r => r.focus);
@@ -101,22 +103,35 @@ export function todayView(input: RulesInput, model: Model, today: LocalDate, clo
   const eveningRows = keyed(log.filter(r => r.asked === 'evening'));
   const openFocus = part === 'evening' ? keyed(focus.filter(r => !answered(r))) : [];
   const earlier = part === 'evening' ? keyed(focus.filter(answered)) : [];
-  const restLeft = restDaysLeft(restMarks(model), next);
+  const marks = restMarks(model);
+  const restLeft = restDaysLeft(marks, next);
+  const restCounted = marks.includes(next);
   const restTomorrow = !past && model.days.get(next)?.restDay === true;
   return {
     part, past, dayNumber: dayNumber(model.settings.journeyStart, today),
     morningRows, eveningRows, openFocus, earlier, ahead,
-    restOffer: !past && restOffered({ evening: part === 'evening', left: restLeft, already: restTomorrow }),
-    restTomorrow, restLeft,
+    restOffer: !past && restOffered({ evening: part === 'evening', left: restLeft, counted: restCounted, already: restTomorrow }),
+    restTomorrow, restLeft, ...(restCounted && { restCounted }),
     ...(next.slice(0, 7) !== today.slice(0, 7) && { restMonth: new Intl.DateTimeFormat('en-GB', { month: 'long', timeZone: 'UTC' }).format(new Date(`${next}T00:00:00Z`)) }),
     closedAt: day?.closedAt, intent: day?.intent, remark: day?.remark,
   };
 }
 
+/**
+ * Whether a planned row is fixed on its day: a plan made before the day began, or a rest day marked in
+ * advance (nothing is stored for its habits). Neither can be taken back once the day has begun.
+ */
+function fixedOn(model: Model, habitId: string, date: LocalDate, planned: PlannedReason | undefined): boolean {
+  if (planned === undefined) return false;
+  const stored = model.observations.get(`${habitId}|${date}`);
+  return stored ? stored.inAdvance === true : model.days.get(date)?.restInAdvance === true;
+}
+
 /** The evening's rest-day offer, for tomorrow: how many are free, and what marking it does. Nothing about losing. */
-export function restOfferWords(view: Pick<TodayView, 'restLeft' | 'restMonth'>): string {
+export function restOfferWords(view: Pick<TodayView, 'restLeft' | 'restMonth' | 'restCounted'>): string {
   const when = view.restMonth === undefined ? 'this month' : `in ${view.restMonth}`;
-  const free = view.restLeft > 1 ? `There are two free ${when}.` : `There's one free ${when}.`;
+  const free = view.restCounted ? `Tomorrow already counts as one of the two ${when}, so this uses none.`
+    : view.restLeft > 1 ? `There are two free ${when}.` : `There's one free ${when}.`;
   return `${free} Marking it now keeps tomorrow as planned rest, a marked square, and your runs carry on through it.`;
 }
 

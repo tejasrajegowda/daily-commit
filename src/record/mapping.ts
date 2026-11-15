@@ -1,6 +1,6 @@
 import type { HabitKind, HabitPeriod, LocalDate, Observation, PlannedReason, ScheduleEntry, Target, TierPeriod, TriValue } from '../rules/types.ts';
 import type { Cue, CueSettings, CueTimes } from '../rules/cues.ts';
-import { indexObservations } from '../rules/state.ts';
+import { indexObservations, isAsked } from '../rules/state.ts';
 import type { CueRecord, DayRecord, EntryRecord, HabitRecord, Model, NotYetRecord, ObservationRecord, ReviewRecord, Settings } from './model.ts';
 import type { Fields, Opened, Parts, Plain } from './payload.ts';
 
@@ -192,11 +192,17 @@ export function withRestDays(
 
 /**
  * The days holding a mark that uses one of the month's two (D-30): rest days marked in advance, and
- * days with a one-habit plan that keeps its run. A day appears once however many marks it holds.
+ * days with a one-habit plan that keeps its run, while that habit is still asked that day (a plan
+ * left behind by a schedule change or a retirement uses nothing). A day appears once however many
+ * marks it holds. `without`: plans (`<habit id>|<date>`) to leave out, as if already taken back.
  */
-export function restMarks(model: Model): LocalDate[] {
+export function restMarks(model: Model, without: ReadonlySet<string> = new Set()): LocalDate[] {
   const days = new Set<LocalDate>();
   for (const d of model.days.values()) if (d.restDay && d.restInAdvance === true) days.add(d.date);
-  for (const o of model.observations.values()) if (o.planned !== undefined && o.keepsRun === true) days.add(o.date);
+  for (const o of model.observations.values()) {
+    if (o.planned === undefined || o.keepsRun !== true || without.has(`${o.habitId}|${o.date}`)) continue;
+    const h = model.habits.get(o.habitId);
+    if (h && isAsked(h, o.date)) days.add(o.date);
+  }
   return [...days].sort();
 }

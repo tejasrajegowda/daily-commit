@@ -341,7 +341,7 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
             <p className="eb">A rest day tomorrow</p>
             <p className="body">{restOfferWords(view)}</p>
             <div className="two">
-              <button type="button" className="btn btn--secondary" data-a="rest" data-x="use" onClick={() => void run(c => planDay(c, { date: addDays(day, 1), restDay: true, sheet }))}>Use it</button>
+              <button type="button" className="btn btn--secondary" data-a="rest" data-x="use" onClick={() => void run(c => planDay(c, { date: addDays(day, 1), restDay: true }))}>Use it</button>
               <button type="button" className="btn btn--secondary" data-a="rest" data-x="leave" onClick={() => setRestLeft(true)}>Leave it</button>
             </div>
           </div>
@@ -351,7 +351,7 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
           <div className="panel rest" data-a="rest-tomorrow">
             <p className="eb">A rest day tomorrow</p>
             <p className="body">Tomorrow is kept as planned rest.</p>
-            <button type="button" className="btn btn--secondary" data-a="rest" data-x="back" onClick={() => void run(c => planDay(c, { date: addDays(day, 1), restDay: false, sheet }))}>Take it back</button>
+            <button type="button" className="btn btn--secondary" data-a="rest" data-x="back" onClick={() => void run(c => planDay(c, { date: addDays(day, 1), restDay: false }))}>Take it back</button>
           </div>
         )}
         <div style={{ marginTop: 20 }}>

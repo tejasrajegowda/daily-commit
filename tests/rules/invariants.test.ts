@@ -130,6 +130,30 @@ test('3b · filling in a blank open day never lowers the longest run, the done d
   }), RUNS);
 });
 
+test('R0b · over any mix of answers filled in and days going by, the longest run, the done days and the comebacks never go down', () => {
+  const step = fc.oneof(
+    fc.constant({ tick: true as const }),
+    fc.record({ yesterday: fc.boolean(), cell: fc.constantFrom<Cell>({ value: 'did' }, { value: 'partly' }, { value: 'not' }, { planned: 'chose' }, { planned: 'rest', keepsRun: true }) }),
+  );
+  fc.assert(fc.property(fc.array(step, { minLength: 1, maxLength: 80 }), (steps) => {
+    const h = habit({ id: 'w', kind: 'tri' });
+    const cells: Cell[] = Array.from({ length: DAYS }, () => null);
+    let at = 0;
+    let prev = habitNumbers(h, indexObservations(history('w', cells)), START, START);
+    for (const s of steps) {
+      if ('tick' in s) at = Math.min(at + 1, DAYS - 1);
+      else {
+        const day = s.yesterday ? at - 1 : at;
+        if (day >= 0 && cells[day] === null) cells[day] = s.cell;
+      }
+      const now = habitNumbers(h, indexObservations(history('w', cells)), START, addDays(START, at));
+      for (const k of ['did', 'longestRun', 'cameBack'] as const) assert.ok(now[k] >= prev[k], `${k} went down`);
+      assert.ok(now.currentRun <= now.longestRun);
+      prev = now;
+    }
+  }), RUNS);
+});
+
 test('3c · the run in progress is never longer than the longest run', () => {
   fc.assert(fc.property(arbTracked('h', DAYS), arbToday, (t, today) => {
     const n = habitNumbers(t.habit, indexObservations(history('h', t.cells)), START, today);
@@ -149,8 +173,9 @@ test('7 · a quiet day ends a run only once it has sealed', () => {
       assert.equal(r.currentRun, n - 1 - quiet);
       assert.equal(r.longestRun, Math.max(quiet, n - 1 - quiet));
     } else {
-      // yesterday, still open: the run before it is held, alive
+      // yesterday, still open: the run before it is held, alive, and it is the longest
       assert.equal(r.currentRun, n - 2);
+      assert.equal(r.longestRun, n - 2);
     }
   }), RUNS);
 });

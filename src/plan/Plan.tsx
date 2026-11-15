@@ -1,10 +1,10 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { resultWords, shapesOf, useApp, useBackLayer, useModel, useNav, useToday } from '../app/context.ts';
 import type { HabitRecord } from '../record/model.ts';
 import { deleteCue, saveCue } from '../record/ops/cues.ts';
 import { createHabit, editHabit, retireHabit, returnHabit, swapFocus } from '../record/ops/habits.ts';
-import { clearObservation, planDay } from '../record/ops/observations.ts';
+import { planDay } from '../record/ops/observations.ts';
 import type { Result } from '../record/results.ts';
 import type { RecordCore } from '../record/core.ts';
 import { position, type DayShape } from '../rules/dayLine.ts';
@@ -136,7 +136,7 @@ export function Plan() {
       </div>
       {ahead !== undefined && (
         <Layer>
-          <AheadSheet days={days} start={ahead} model={model} store={store} onClose={() => setAhead(undefined)} />
+          <AheadSheet key={ahead} days={days} start={ahead} model={model} store={store} onClose={() => setAhead(undefined)} />
         </Layer>
       )}
       {!wide && editing !== undefined && (
@@ -165,6 +165,9 @@ function AheadSheet(p: {
   const [reason, setReason] = useState<PlannedReason | undefined>(undefined);
   const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
   const day = p.days.find(d => d.date === date);
+  const { onClose } = p;
+  // at the day boundary the chosen day can become today, and drop out of the days ahead: close
+  useEffect(() => { if (!day) onClose(); }, [day, onClose]);
   if (!day) return null;
   const pick = (d: DayAhead) => { setDate(d.date); setRest(d.rest); setOn(new Set(d.plans.map(x => x.habitId))); setNote(undefined); };
   const toggle = (id: string) => setOn(prev => {
@@ -174,7 +177,9 @@ function AheadSheet(p: {
     return next;
   });
   const restOpen = day.rest || day.counted || day.left > 0;
-  const habits = focusOn(p.model, date);
+  // today's Focus habits for the day, and any other habit with a plan on it, so every plan can be taken back
+  const habits = [...focusOn(p.model, date), ...day.plans.map(x => p.model.habits.get(x.habitId)).filter(h => h !== undefined)]
+    .filter((h, i, all) => all.findIndex(x => x.id === h.id) === i);
   const run = async (write: (c: RecordCore) => Promise<Result<void>>) => {
     try {
       const result = await p.store.run(write);
@@ -189,10 +194,9 @@ function AheadSheet(p: {
     const was = new Set(day.plans.map(x => x.habitId));
     const plans = rest ? [] : [...on].filter(id => !was.has(id)).map(habitId => ({ habitId, reason: reason ?? 'chose' }));
     const unplan = rest ? [] : [...was].filter(id => !on.has(id));
-    let ok = true;
-    for (const habitId of unplan) if (ok) ok = await run(c => clearObservation(c, { habitId, date }));
-    if (ok && (plans.length > 0 || rest !== day.rest)) ok = await run(c => planDay(c, { date, plans, ...(rest !== day.rest && { restDay: rest }) }));
-    if (ok) p.onClose();
+    if (plans.length === 0 && unplan.length === 0 && rest === day.rest) { onClose(); return; }
+    // one write: plans made and taken back, and the rest day, stored together or not at all
+    if (await run(c => planDay(c, { date, plans, unplan, ...(rest !== day.rest && { restDay: rest }) }))) onClose();
   };
   return (
     <>

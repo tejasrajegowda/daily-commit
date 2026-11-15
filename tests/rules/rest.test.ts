@@ -21,8 +21,9 @@ test('a new mark counts when its day already counts or its month has one left', 
 });
 
 test('offered in the evening, for tomorrow, while tomorrow has one left and is not one already', () => {
-  assert.equal(restOffered({ evening: true, left: 1, already: false }), true);
-  assert.equal(restOffered({ evening: false, left: 2, already: false }), false);
-  assert.equal(restOffered({ evening: true, left: 0, already: false }), false);
-  assert.equal(restOffered({ evening: true, left: 2, already: true }), false);
+  assert.equal(restOffered({ evening: true, left: 1, counted: false, already: false }), true);
+  assert.equal(restOffered({ evening: false, left: 2, counted: false, already: false }), false);
+  assert.equal(restOffered({ evening: true, left: 0, counted: false, already: false }), false);
+  assert.equal(restOffered({ evening: true, left: 0, counted: true, already: false }), true);     // it uses none
+  assert.equal(restOffered({ evening: true, left: 2, counted: false, already: true }), false);
 });

@@ -22,7 +22,10 @@ export function restCounts(used: Iterable<LocalDate>, date: LocalDate): boolean 
   return list.includes(date) || restDaysLeft(list, date) > 0;
 }
 
-/** Offered in the evening, for tomorrow, while tomorrow's month has one left and tomorrow is not one already. */
-export function restOffered(input: { readonly evening: boolean; readonly left: number; readonly already: boolean }): boolean {
-  return input.evening && input.left > 0 && !input.already;
+/**
+ * Offered in the evening, for tomorrow, while marking it would count: tomorrow's month has one left,
+ * or tomorrow already counts through a plan made for it. Never when tomorrow is a rest day already.
+ */
+export function restOffered(input: { readonly evening: boolean; readonly left: number; readonly counted: boolean; readonly already: boolean }): boolean {
+  return input.evening && (input.left > 0 || input.counted) && !input.already;
 }

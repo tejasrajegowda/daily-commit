@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHabit, type NewHabit } from '../../src/record/ops/habits.ts';
+import { createHabit, editHabit, type NewHabit } from '../../src/record/ops/habits.ts';
 import { clearObservation, logObservation, planDay } from '../../src/record/ops/observations.ts';
 import { sheetNow } from '../../src/record/ops/common.ts';
 import { rulesInput } from '../../src/record/read.ts';
@@ -164,4 +164,62 @@ test('a rest day or an advance plan can be taken back until its day begins, then
   assert.equal((await logObservation(core, { habitId: 'h-walk', date: '2026-01-06', value: 'did' })).kind, 'Saved');   // did still wins
   const o = core.session!.model.observations.get('h-walk|2026-01-06')!;
   assert.deepEqual([o.value, o.planned, o.inAdvance, o.keepsRun], ['did', undefined, undefined, undefined]);
+});
+
+test('review 1: a day that comes to count carries every plan made for it in advance', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, habit());
+  await createHabit(core, habit({ id: 'h-read', kind: 'min', tier: 'log', target: { bar: 15 } }));
+  await planDay(core, { date: '2026-01-10', restDay: true });
+  await planDay(core, { date: '2026-01-20', restDay: true });
+  await planDay(core, { date: '2026-01-25', plans: [{ habitId: 'h-walk', reason: 'meeting' }] });
+  assert.equal(core.session!.model.observations.get('h-walk|2026-01-25')?.keepsRun, false);    // past the two
+  assert.equal((await planDay(core, { date: '2026-01-20', restDay: false })).kind, 'Saved');
+  assert.equal((await planDay(core, { date: '2026-01-25', plans: [{ habitId: 'h-read', reason: 'chose' }] })).kind, 'Saved');
+  assert.equal(core.session!.model.observations.get('h-walk|2026-01-25')?.keepsRun, true);     // the day counts now
+  assert.deepEqual(restMarksOf(core), ['2026-01-10', '2026-01-25']);
+});
+
+test('review 1: marking a whole rest day carries a plan already made for that day', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, habit());
+  await planDay(core, { date: '2026-01-10', restDay: true });
+  await planDay(core, { date: '2026-01-20', restDay: true });
+  await planDay(core, { date: '2026-01-25', plans: [{ habitId: 'h-walk', reason: 'meeting' }] });
+  await planDay(core, { date: '2026-01-20', restDay: false });
+  assert.equal((await planDay(core, { date: '2026-01-25', restDay: true })).kind, 'Saved');
+  assert.equal(core.session!.model.observations.get('h-walk|2026-01-25')?.keepsRun, true);
+  assert.equal(rulesInput(core.session!.model).index.get('h-walk|2026-01-25')?.keepsRun, true);
+});
+
+test('taking a rest day back leaves a plan on that day as it was', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, habit());
+  await planDay(core, { date: '2026-01-10', restDay: true, plans: [{ habitId: 'h-walk', reason: 'chose' }] });
+  assert.equal((await planDay(core, { date: '2026-01-10', restDay: false })).kind, 'Saved');
+  assert.equal(core.session!.model.observations.get('h-walk|2026-01-10')?.keepsRun, true);
+  assert.deepEqual(restMarksOf(core), ['2026-01-10']);                                        // still counts, through its plan
+});
+
+test('review 2: a plan left behind by a schedule change or a retirement uses none of the two, and can be taken back', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, habit());
+  await planDay(core, { date: '2026-01-07', plans: [{ habitId: 'h-walk', reason: 'meeting' }] });   // a Wednesday
+  assert.deepEqual(restMarksOf(core), ['2026-01-07']);
+  assert.equal((await editHabit(core, { id: 'h-walk', days: [0, 1, 3, 4, 5, 6] })).kind, 'Saved');
+  assert.deepEqual(restMarksOf(core), []);
+  assert.equal((await planDay(core, { date: '2026-01-07', unplan: ['h-walk'] })).kind, 'Saved');
+  assert.equal(core.session!.model.observations.get('h-walk|2026-01-07'), undefined);
+});
+
+test('one write plans, takes back and marks rest together', async () => {
+  const { core, db } = await openedRecord();
+  await createHabit(core, habit());
+  await createHabit(core, habit({ id: 'h-read', kind: 'min', tier: 'focus', target: { bar: 15 } }));
+  await planDay(core, { date: '2026-01-08', plans: [{ habitId: 'h-walk', reason: 'meeting' }] });
+  assert.equal((await planDay(core, { date: '2026-01-08', plans: [{ habitId: 'h-read', reason: 'unwell' }], unplan: ['h-walk'] })).kind, 'Saved');
+  assert.equal(core.session!.model.observations.get('h-walk|2026-01-08'), undefined);
+  assert.equal(core.session!.model.observations.get('h-read|2026-01-08')?.keepsRun, true);
+  assert.notEqual((await db.observations.get(['h-walk', '2026-01-08']))?.deleted_at, undefined);
+  assert.deepEqual(await planDay(core, { date: '2026-01-08', unplan: ['h-walk'] }), { kind: 'Invalid', reason: 'nothing to clear' });
 });

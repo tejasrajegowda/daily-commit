@@ -31,6 +31,8 @@ export interface DayPlan {
   readonly plans?: readonly { readonly habitId: string; readonly reason: PlannedReason }[];
   /** the whole day as a rest day, or not */
   readonly restDay?: boolean;
+  /** habits whose plan for the day is taken back, in the same write */
+  readonly unplan?: readonly string[];
   readonly sheet?: Sheet;
 }
 
@@ -92,7 +94,16 @@ export function planDay(core: RecordCore, input: DayPlan): Promise<Result<void>>
       if (refused) return refused;
       const { today } = judgedNow(core, s, input.sheet);
       const ahead = input.date > today;
-      const counts = ahead && restCounts(restMarks(s.model), input.date);
+      // plans taken back in this write: only plans, and an advance one only before its day begins
+      const gone: ObservationRecord[] = [];
+      for (const habitId of input.unplan ?? []) {
+        const existing = s.model.observations.get(`${habitId}|${input.date}`);
+        if (existing?.planned === undefined || existing.value !== undefined) return invalid('nothing to clear');
+        if (existing.inAdvance === true && !ahead) return invalid('too late');
+        gone.push(existing);
+      }
+      const goneKeys = new Set(gone.map(o => `${o.habitId}|${o.date}`));
+      const counts = ahead && restCounts(restMarks(s.model, goneKeys), input.date);
       const planned: ObservationRecord[] = [];
       for (const p of input.plans ?? []) {
         const h = s.model.habits.get(p.habitId);
@@ -108,8 +119,6 @@ export function planDay(core: RecordCore, input: DayPlan): Promise<Result<void>>
             inAdvance: ahead, markedOn: today, keepsRun: counts,
           });
       }
-      const puts: Put[] = await Promise.all(planned.map(async (o): Promise<Put> =>
-        ({ table: 'observations', row: await storedRow(s.cipher, 'observations', observationToParts(o), stamp) })));
       let day: DayRecord | undefined;
       const before = s.model.days.get(input.date) ?? { date: input.date, restDay: false, reopenedCount: 0 };
       if (input.restDay === true && !before.restDay) {
@@ -120,12 +129,30 @@ export function planDay(core: RecordCore, input: DayPlan): Promise<Result<void>>
         if (!ahead) return invalid('too late');
         day = defined({ ...before, restDay: false, restInAdvance: undefined, restMarkedOn: undefined });
       }
+      // a day that counts carries every plan made for it in advance (review 1): counting is per day
+      const restAfter = day ? day.restDay : before.restDay && before.restInAdvance === true;
+      const asked = (o: ObservationRecord) => { const h = s.model.habits.get(o.habitId); return h !== undefined && isAsked(h, o.date); };
+      const planCounts = [...s.model.observations.values(), ...planned].some(o =>
+        o.date === input.date && o.planned !== undefined && o.keepsRun === true && !goneKeys.has(`${o.habitId}|${o.date}`) && asked(o));
+      const dayCounts = ahead && (restAfter || planCounts);
+      if (dayCounts) {
+        for (const o of s.model.observations.values()) {
+          const k = `${o.habitId}|${o.date}`;
+          if (o.date !== input.date || o.planned === undefined || o.inAdvance !== true || o.keepsRun === true || goneKeys.has(k)) continue;
+          if (!planned.some(p => p.habitId === o.habitId)) planned.push({ ...o, keepsRun: true });
+        }
+        for (const [i, o] of planned.entries()) if (o.inAdvance === true && o.keepsRun !== true) planned[i] = { ...o, keepsRun: true };
+      }
+      const puts: Put[] = await Promise.all(planned.map(async (o): Promise<Put> =>
+        ({ table: 'observations', row: await storedRow(s.cipher, 'observations', observationToParts(o), stamp) })));
+      for (const o of gone) puts.push({ table: 'observations', row: tombstone(observationToParts(o), stamp) });
       if (day) puts.push({ table: 'days', row: await storedRow(s.cipher, 'days', dayToParts(day), stamp) });
       if (puts.length === 0) return invalid('nothing to plan');
       return {
         puts,
         check,
         apply: m => {
+          for (const o of gone) m.observations.delete(`${o.habitId}|${o.date}`);
           for (const o of planned) m.observations.set(`${o.habitId}|${o.date}`, o);
           if (day) m.days.set(day.date, day);
         },

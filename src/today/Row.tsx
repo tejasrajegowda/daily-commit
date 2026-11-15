@@ -32,6 +32,8 @@ const STATE: Record<string, string> = { did: 'did', partly: 'partly', planned: '
 
 export function Row({ row, open, fresh, sub, showKey = true, ask = false, onAction }: RowProps) {
   const { habit, value } = row;
+  // a plan fixed on its day (made before it began) can't be cleared, so nothing offers to
+  const clearable = !(row.fixed && value === undefined);
   if (habit.kind === 'mood') {
     return (
       <div className="row mood-row">
@@ -71,7 +73,7 @@ export function Row({ row, open, fresh, sub, showKey = true, ask = false, onActi
         {([[15, '+15m'], [30, '+30m'], [60, '+1h']] as const).map(([m, label]) => (
           <button key={m} type="button" className="opt" data-a="addmin" data-x={`${habit.id}:${m}`} onClick={() => onAction({ kind: 'add', by: m })}>{label}</button>
         ))}
-        <button type="button" className="opt" data-a="clear" data-x={habit.id} onClick={() => onAction({ kind: 'clear' })}>Clear</button>
+        {clearable && <button type="button" className="opt" data-a="clear" data-x={habit.id} onClick={() => onAction({ kind: 'clear' })}>Clear</button>}
       </div>
     );
   }
@@ -80,7 +82,7 @@ export function Row({ row, open, fresh, sub, showKey = true, ask = false, onActi
       <div className="opts">
         <button type="button" className="opt" data-a="addcount" data-x={`${habit.id}:-1`} onClick={() => onAction({ kind: 'add', by: -1 })}>−1</button>
         <button type="button" className="opt" data-a="addcount" data-x={`${habit.id}:1`} onClick={() => onAction({ kind: 'add', by: 1 })}>+1</button>
-        <button type="button" className="opt" data-a="clear" data-x={habit.id} onClick={() => onAction({ kind: 'clear' })}>Clear</button>
+        {clearable && <button type="button" className="opt" data-a="clear" data-x={habit.id} onClick={() => onAction({ kind: 'clear' })}>Clear</button>}
       </div>
     );
   }
@@ -92,7 +94,7 @@ export function Row({ row, open, fresh, sub, showKey = true, ask = false, onActi
         <button type="button" className="opt" data-a="nudge" data-x={`${habit.id}:-5`} onClick={() => onAction({ kind: 'nudge', minutes: -5 })}>−5m</button>
         <button type="button" className="opt" data-a="nudge" data-x={`${habit.id}:5`} onClick={() => onAction({ kind: 'nudge', minutes: 5 })}>+5m</button>
         <button type="button" className="opt" data-a="setnow" data-x={habit.id} onClick={() => onAction({ kind: 'now' })}>Now</button>
-        <button type="button" className="opt" data-a="clear" data-x={habit.id} onClick={() => onAction({ kind: 'clear' })}>Clear</button>
+        {clearable && <button type="button" className="opt" data-a="clear" data-x={habit.id} onClick={() => onAction({ kind: 'clear' })}>Clear</button>}
       </div>
     );
   }

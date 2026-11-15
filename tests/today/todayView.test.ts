@@ -295,3 +295,20 @@ test('the shape list ends at lights out once, whether or not the shape has a ste
   assert.deepEqual(ownRows.at(-1), { at: plain.lightsOut, end: 1440, label: 'Bed' });
   assert.equal(new Set(ownRows.map(r => r.at)).size, ownRows.length);
 });
+
+test('review 3: when tomorrow already counts through a plan, the offer stays and says it uses none', async () => {
+  const { core, view } = await viewAt('#age=17&t=21:30');
+  assert.equal((await planDay(core, { date: dateOfDay(20), restDay: true })).kind, 'Saved');
+  assert.equal((await planDay(core, { date: dateOfDay(18), plans: [{ habitId: 'h-walk', reason: 'meeting' }] })).kind, 'Saved');
+  const v = view();
+  assert.deepEqual([v.restOffer, v.restLeft, v.restCounted], [true, 0, true]);
+  assert.ok(restOfferWords(v).startsWith('Tomorrow already counts as one of the two this month, so this uses none.'));
+  assert.equal((await planDay(core, { date: dateOfDay(18), restDay: true })).kind, 'Saved');
+});
+
+test('review 5: on a rest day marked in advance, every row it rests is fixed, so the Not-today sheet leaves them out', async () => {
+  const { view } = await viewAt('#age=17&t=21:30&v=resttoday');
+  const rows = [...view().openFocus, ...view().earlier];
+  assert.ok(rows.length > 0);
+  for (const r of rows.filter(x => x.planned === 'rest')) assert.equal(r.fixed, true);
+});
