@@ -6,7 +6,7 @@ import { closeDay, reopenDay } from '../../src/record/ops/days.ts';
 import { sheetNow } from '../../src/record/ops/common.ts';
 import { logObservation, planDay } from '../../src/record/ops/observations.ts';
 import { toDayMinute } from '../../src/rules/clock.ts';
-import { asksForTime, fromHm, shownDay, todayView, shapeRows, skyWords, valueText, wakesAhead, yesterdayOf, type TodayRow } from '../../src/today/todayView.ts';
+import { asksForTime, fromHm, restOfferWords, shownDay, todayView, shapeRows, skyWords, valueText, wakesAhead, yesterdayOf, type TodayRow } from '../../src/today/todayView.ts';
 import { freshDb } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
 import { seedRecord } from '../screens/harness/seed.ts';
@@ -72,15 +72,51 @@ test('B-2: a habit planned "not today" in the morning and done in the evening is
   assert.equal(walk?.state, 'did');
 });
 
-test('the rest day used, a Focus habit done anyway keeps its value', async () => {
-  const { core, today, view } = await viewAt('#age=17&t=21:30');
-  assert.equal((await planDay(core, { date: today, restDay: true })).kind, 'Saved');
-  assert.deepEqual(names(view().openFocus), []);
-  assert.equal(view().earlier.find(r => r.habit.id === 'h-practice')?.planned, 'rest');
-  assert.equal((await logObservation(core, { habitId: 'h-practice', date: today, value: 30 })).kind, 'Saved');
-  const practice = view().earlier.find(r => r.habit.id === 'h-practice');
+test('a rest day marked for tomorrow: tomorrow reads planned rest, and a Focus habit done anyway keeps its value', async () => {
+  const { core, clock, model, today, view } = await viewAt('#age=17&t=21:30');
+  const next = dateOfDay(18);
+  assert.equal((await planDay(core, { date: next, restDay: true })).kind, 'Saved');
+  assert.equal(view().restTomorrow, true);
+  assert.equal(view().restOffer, false);
+  clock.set(clock.now() + 24 * 60 * 60_000);   // 21:30, day 18
+  const tomorrow = () => todayView(rulesInput(model), model, next, 21 * 60 + 30);
+  assert.deepEqual(names(tomorrow().openFocus), []);
+  assert.equal(tomorrow().earlier.find(r => r.habit.id === 'h-practice')?.planned, 'rest');
+  assert.equal((await logObservation(core, { habitId: 'h-practice', date: next, value: 30 })).kind, 'Saved');
+  const practice = tomorrow().earlier.find(r => r.habit.id === 'h-practice');
   assert.equal(practice?.value, 30);
   assert.equal(practice?.planned, undefined);
+  assert.equal(today, dateOfDay(17));
+});
+
+test("tomorrow's rest day is offered in the evening only, while its month has one left, and can be taken back", async () => {
+  const { core, view } = await viewAt('#age=17&t=21:30');
+  assert.deepEqual([view().restOffer, view().restLeft, view().restMonth], [true, 2, undefined]);
+  assert.equal((await viewAt('#age=17&t=09:00')).view().restOffer, false);
+  assert.equal((await planDay(core, { date: dateOfDay(18), restDay: true })).kind, 'Saved');
+  assert.equal((await planDay(core, { date: dateOfDay(18), restDay: false })).kind, 'Saved');
+  assert.deepEqual([view().restOffer, view().restTomorrow], [true, false]);
+  assert.equal((await planDay(core, { date: dateOfDay(20), restDay: true })).kind, 'Saved');
+  assert.equal((await planDay(core, { date: dateOfDay(22), restDay: true })).kind, 'Saved');
+  assert.deepEqual([view().restOffer, view().restLeft], [false, 0]);
+});
+
+test("on the last evening of a month, tomorrow's rest comes from the next month's two, and the words say so", async () => {
+  const { core, view } = await viewAt('#age=27&t=21:30');
+  assert.equal((await planDay(core, { date: dateOfDay(25), restDay: true })).kind, 'Sealed');
+  const v = view();
+  assert.deepEqual([v.restOffer, v.restLeft, v.restMonth], [true, 2, 'February']);
+  assert.equal(restOfferWords(v), 'There are two free in February. Marking it now keeps tomorrow as planned rest, a marked square, and your runs carry on through it.');
+  assert.equal(restOfferWords({ restLeft: 1 }), "There's one free this month. Marking it now keeps tomorrow as planned rest, a marked square, and your runs carry on through it.");
+});
+
+test('a plan made before its day began is fixed on the day, so the Not-today sheet leaves it out', async () => {
+  const { core, clock, model } = await viewAt('#age=17&t=21:30');
+  const next = dateOfDay(18);
+  assert.equal((await planDay(core, { date: next, plans: [{ habitId: 'h-walk', reason: 'travelling' }] })).kind, 'Saved');
+  clock.set(clock.now() - 13 * 60 * 60_000 + 24 * 60 * 60_000);   // 08:30, day 18
+  const walk = todayView(rulesInput(model), model, next, 8 * 60 + 30).morningRows.find(r => r.habit.id === 'h-walk');
+  assert.deepEqual([walk?.planned, walk?.fixed], ['travelling', true]);
 });
 
 test('in the evening a morning time row, or a planned one, asks for its time; an evening one tapped at night takes now', async () => {

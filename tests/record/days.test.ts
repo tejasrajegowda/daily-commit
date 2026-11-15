@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { closeDay, reopenDay, saveDayWords } from '../../src/record/ops/days.ts';
 import { createHabit } from '../../src/record/ops/habits.ts';
-import { logObservation } from '../../src/record/ops/observations.ts';
+import { logObservation, planDay } from '../../src/record/ops/observations.ts';
+import { rulesInput } from '../../src/record/read.ts';
 import { openParts } from '../../src/record/payload.ts';
 import { openedRecord } from './helpers.ts';
 import { stubCipher } from './stubCipher.ts';
@@ -43,4 +44,15 @@ test('a day\'s words are locked under the words key, apart from the rest of the 
   assert.equal(opened.w?.remark, 'CANARY-TEST remark');
   assert.equal(opened.r?.intent, undefined);
   assert.equal(opened.r?.rest_day, false);
+});
+
+test('closing a rest day keeps what was decided when it was marked, so the run is still kept (review #12)', async () => {
+  const { core, clock } = await openedRecord();
+  await createHabit(core, { id: 'h-walk', name: 'CANARY-TEST walk', kind: 'tri', days: [0, 1, 2, 3, 4, 5, 6], asked: 'evening', target: {}, tier: 'focus', startedOn: '2026-01-01' });
+  assert.equal((await planDay(core, { date: '2026-01-06', restDay: true })).kind, 'Saved');
+  clock.set('2026-01-06T21:00:00Z');
+  assert.equal((await closeDay(core, { date: '2026-01-06' })).kind, 'Saved');
+  const day = core.session!.model.days.get('2026-01-06')!;
+  assert.deepEqual([day.restDay, day.restInAdvance, day.restMarkedOn], [true, true, '2026-01-05']);
+  assert.equal(rulesInput(core.session!.model).index.get('h-walk|2026-01-06')?.keepsRun, true);
 });

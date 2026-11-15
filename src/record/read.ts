@@ -57,7 +57,7 @@ export interface RulesInput {
 
 export function rulesInput(model: Model): RulesInput {
   const habits = [...model.habits.values()];
-  const restDays = [...model.days.values()].filter(d => d.restDay).map(d => d.date);
+  const restDays = [...model.days.values()].filter(d => d.restDay).map(d => ({ date: d.date, inAdvance: d.restInAdvance === true }));
   return {
     habits,
     index: withRestDays(model.observations.values(), restDays, habits.map(h => h.id)),

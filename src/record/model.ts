@@ -25,6 +25,10 @@ export interface ObservationRecord extends Observation {
   readonly isBackfill: boolean;
   /** changed after its day was closed */
   readonly editedAfterClose: boolean;
+  /** a plan: whether it was made before its day began, judged once when first saved */
+  readonly inAdvance?: boolean;
+  /** a plan: the app day it was first saved on */
+  readonly markedOn?: LocalDate;
 }
 
 export interface DayRecord {
@@ -32,6 +36,10 @@ export interface DayRecord {
   readonly closedAt?: number;
   readonly lightsOut?: DayMinute;
   readonly restDay: boolean;
+  /** a rest day: marked before its day began (always, since D-31; absent on one from before the rule) */
+  readonly restInAdvance?: boolean;
+  /** a rest day: the app day it was marked on */
+  readonly restMarkedOn?: LocalDate;
   readonly reopenedCount: number;
   readonly intent?: string;
   readonly remark?: string;

@@ -430,20 +430,26 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   await fillIf('.row[data-x="h-wake"] [data-a="time-at"]', '07:10');
   await tapIf('.row[data-x="h-wake"] [data-a="time-save"]');
   check('R2-2: the time typed in is the one kept', await until(() => document.querySelector('.earlier .chip[data-x="h-wake"]')?.textContent?.includes('07:10')));
-  check('Today: a hard evening offers the rest day', (await p.locator('[data-a="rest"]').count()) === 2);
+  check('Today: the evening offers tomorrow as a rest day', (await p.locator('[data-a="rest"]').count()) === 2
+    && (await p.locator('.panel.rest .eb').innerText()).toLowerCase().includes('tomorrow'));
   await p.tap('[data-a="rest"][data-x="use"]');
-  check('Today: the rest day marks only the Focus still unanswered', await until(() => (document.querySelector('.earlier')?.textContent?.split('planned rest').length ?? 0) - 1 === 2)
-    && !(await p.locator('.earlier').innerText()).includes('wake upplanned'));
-  await tapIf('.chip[data-x="h-walk"]');
-  await tapIf('.row[data-x="h-walk"] .opt >> text=Did it');
-  check('R2-2: the rest day used, a Focus habit done anyway is recorded as done', await until(() => {
-    const c = document.querySelector('.chip[data-x="h-walk"]');
-    return c !== null && !c.classList.contains('idle') && !c.textContent?.includes('planned');
-  }));
+  check('Today: Use it keeps tomorrow as planned rest, and leaves today as it was', await shows(p, '[data-a="rest-tomorrow"]')
+    && !(await p.locator('.earlier').innerText()).includes('planned rest'));
+  await p.tap('[data-a="rest"][data-x="back"]');
+  check('Today: Take it back offers tomorrow again', await shows(p, '[data-a="rest"][data-x="use"]') && (await p.locator('[data-a="rest-tomorrow"]').count()) === 0);
   await p.tap('[data-a="close"]');
   check("Today: That's the day closes it", await until(() => document.querySelector('h1.t-xl')?.textContent?.includes("That's the day")));
   await p.tap('[data-a="reopen"]');
   check('Today: Open today again returns to the evening', await until(() => !document.querySelector('h1.t-xl')?.textContent?.includes("That's the day")) && await shows(p, '[data-a="close"]'));
+
+  await h.open(p, 's=today&t=21:30&v=resttoday');
+  check('Today: a rest day marked the evening before marks the Focus still unanswered', await until(() => (document.querySelector('.earlier')?.textContent?.split('planned rest').length ?? 0) - 1 === 3));
+  await tapIf('.chip[data-x="h-walk"]');
+  await tapIf('.row[data-x="h-walk"] .opt >> text=Did it');
+  check('R2-2: on a rest day, a Focus habit done anyway is recorded as done', await until(() => {
+    const c = document.querySelector('.chip[data-x="h-walk"]');
+    return c !== null && !c.classList.contains('idle') && !c.textContent?.includes('planned');
+  }));
 
   await h.open(p, 's=today&t=10:30&age=20');
   await shows(p, '.today .row');
@@ -640,10 +646,8 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('Today, laptop: key 1 marks the first row', await q.waitForFunction(() => document.querySelector('.row[data-x="h-wake"] .val')?.textContent?.includes('06:05'), null, { timeout: 8000 }).then(() => true, () => false));
   check('Today, laptop: the shape of today is there', await q.locator('.shape .sh').count() > 3);
 
-  // R2-2: laptop keys reach the evening chips too: the rest day used, Walk's key records it done
-  await h.open(q, 's=today&t=21:30');
-  await shows(q, '[data-a="rest"][data-x="use"]');
-  await q.click('[data-a="rest"][data-x="use"]');
+  // R2-2: laptop keys reach the evening chips too: on a rest day, Walk's key records it done
+  await h.open(q, 's=today&t=21:30&v=resttoday');
   await q.waitForFunction(() => document.querySelectorAll('.earlier .chip').length === 3, null, { timeout: 8000 }).catch(() => {});
   const walkKey = await q.locator('.chip[data-x="h-walk"] .kbd').innerText({ timeout: 2000 }).catch(() => '');
   check('R2-2, laptop: an evening chip shows its key', /^[1-9]$/.test(walkKey));

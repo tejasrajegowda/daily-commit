@@ -175,7 +175,8 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
     if (rest && d <= 14) {
       const wake = valueFor(HABITS[0]!, next);            // kept random; only Walk's own days matter here
       if (restDay(d)) observations.push(await storedRow(cipher, 'observations', observationToParts(
-        { habitId: 'h-walk', date, kind: 'tri', planned: 'rest', loggedAt: evening, isBackfill: false, editedAfterClose: false }), stamp));
+        // marked the evening before, so it keeps the run (D-31)
+        { habitId: 'h-walk', date, kind: 'tri', planned: 'rest', loggedAt: evening, isBackfill: false, editedAfterClose: false, inAdvance: true, markedOn: dateOfDay(d - 1, state.start), keepsRun: true }), stamp));
       else observations.push(await storedRow(cipher, 'observations', observationToParts(
         { habitId: 'h-walk', date, kind: 'tri', value: 'did', loggedAt: evening, isBackfill: false, editedAfterClose: false }), stamp));
       if (typeof wake === 'number') observations.push(await storedRow(cipher, 'observations', observationToParts(
@@ -195,6 +196,12 @@ export async function seedRecord(db: RecordDb, state: HarnessState): Promise<See
     const day: DayRecord = { date, closedAt: Date.parse(`${date}T22:30:00Z`), lightsOut, restDay: false, reopenedCount: 0, intent };
     days.push(await storedRow(cipher, 'days', dayToParts(day), stamp));
     if (d % 4 === 0) entries.push(await storedRow(cipher, 'entries', entryToParts({ id: `harness-page-${d}`, date, body: `CANARY page for day ${d}` }), stamp));
+  }
+  // v=resttoday: today is a rest day, marked the evening before (D-31)
+  if (state.variant === 'resttoday') {
+    const date = dateOfDay(state.day, state.start);
+    const day: DayRecord = { date, restDay: true, restInAdvance: true, restMarkedOn: dateOfDay(state.day - 1, state.start), reopenedCount: 0 };
+    days.push(await storedRow(cipher, 'days', dayToParts(day), stamp));
   }
   await db.observations.bulkPut(observations as never[]);
   await db.days.bulkPut(days as never[]);

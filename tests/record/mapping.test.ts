@@ -30,7 +30,11 @@ const bed: HabitRecord = {
 };
 const late: ObservationRecord = { habitId: 'h2', date: START, kind: 'time', value: 1470, loggedAt: 9, isBackfill: false, editedAfterClose: false };
 const planned: ObservationRecord = { habitId: 'h1', date: START, kind: 'tri', planned: 'travelling', loggedAt: 9, isBackfill: true, editedAfterClose: true };
-const day: DayRecord = { date: START, closedAt: 1, lightsOut: 1470, restDay: true, reopenedCount: 1, intent: 'CANARY-TEST intent', badNightNote: 'CANARY-TEST note' };
+const ahead: ObservationRecord = { ...planned, isBackfill: false, editedAfterClose: false, inAdvance: true, markedOn: '2026-01-04', keepsRun: true };
+const day: DayRecord = {
+  date: START, closedAt: 1, lightsOut: 1470, restDay: true, restInAdvance: true, restMarkedOn: '2026-01-04', reopenedCount: 1,
+  intent: 'CANARY-TEST intent', badNightNote: 'CANARY-TEST note',
+};
 const entry: EntryRecord = { id: 'e1', date: START, body: 'CANARY-TEST body', trashedAt: 3 };
 const item: NotYetRecord = { id: 'n1', text: 'CANARY-TEST', why: 'CANARY-TEST why', startedAt: 5 };
 const cue: CueRecord = {
@@ -54,6 +58,7 @@ test('every kind of record comes back from storage exactly as it went in', async
   assert.deepEqual(await roundTrip('habits', habitToParts, habitFromParts, bed), bed);
   assert.deepEqual(await roundTrip('observations', observationToParts, observationFromParts, late), late);
   assert.deepEqual(await roundTrip('observations', observationToParts, observationFromParts, planned), planned);
+  assert.deepEqual(await roundTrip('observations', observationToParts, observationFromParts, ahead), ahead);
   assert.deepEqual(await roundTrip('days', dayToParts, dayFromParts, day), day);
   assert.deepEqual(await roundTrip('entries', entryToParts, entryFromParts, entry), entry);
   assert.deepEqual(await roundTrip('notyet', notYetToParts, notYetFromParts, item), item);
@@ -93,8 +98,13 @@ test('settings are stored one row each, under their stored names, the contact un
 });
 
 test('a rest day gives each habit without a stored observation a planned rest, and leaves a value alone', () => {
-  const index = withRestDays([{ habitId: 'h1', date: START, value: 'did' }], [START], ['h1', 'h2']);
+  const index = withRestDays([{ habitId: 'h1', date: START, value: 'did' }], [{ date: START, inAdvance: true }], ['h1', 'h2']);
   assert.deepEqual(index.get(`h1|${START}`), { habitId: 'h1', date: START, value: 'did' });
-  assert.deepEqual(index.get(`h2|${START}`), { habitId: 'h2', date: START, planned: 'rest' });
+  assert.deepEqual(index.get(`h2|${START}`), { habitId: 'h2', date: START, planned: 'rest', keepsRun: true });
   assert.equal(index.size, 2);
+});
+
+test('a rest day not marked in advance (from before the rule) keeps no run', () => {
+  const index = withRestDays([], [{ date: START, inAdvance: false }], ['h1']);
+  assert.deepEqual(index.get(`h1|${START}`), { habitId: 'h1', date: START, planned: 'rest', keepsRun: false });
 });

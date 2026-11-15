@@ -4,6 +4,7 @@ import { createHabit, type NewHabit } from '../../src/record/ops/habits.ts';
 import { clearObservation, logObservation, planDay } from '../../src/record/ops/observations.ts';
 import { sheetNow } from '../../src/record/ops/common.ts';
 import { rulesInput } from '../../src/record/read.ts';
+import { restMarks } from '../../src/record/mapping.ts';
 import { openedRecord } from './helpers.ts';
 
 const habit = (over: Partial<NewHabit> = {}): NewHabit => ({
@@ -93,4 +94,74 @@ test('a day is planned ahead for habits and as a rest day, and a plan never cove
   await logObservation(core, { habitId: 'h-walk', date: '2026-01-05', value: 'did' });
   assert.deepEqual(await planDay(core, { date: '2026-01-05', plans: [{ habitId: 'h-walk', reason: 'unwell' }] }), { kind: 'Invalid', reason: 'already logged that day' });
   assert.deepEqual(await planDay(core, { date: '2026-01-03', restDay: true }), { kind: 'Sealed' });
+});
+
+// Rest days and plans made in advance (D-30, D-31): judged once, when saved. Today is 2026-01-05.
+
+const restMarksOf = (core: { session?: { model: Parameters<typeof restMarks>[0] } }) => restMarks(core.session!.model);
+
+test('a rest day is marked only before its day begins, and keeps what was decided then', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, habit());
+  assert.equal((await planDay(core, { date: '2026-01-06', restDay: true })).kind, 'Saved');
+  const day = core.session?.model.days.get('2026-01-06');
+  assert.equal(day?.restInAdvance, true);
+  assert.equal(day?.restMarkedOn, '2026-01-05');
+  assert.equal(rulesInput(core.session!.model).index.get('h-walk|2026-01-06')?.keepsRun, true);
+  assert.deepEqual(await planDay(core, { date: '2026-01-05', restDay: true }), { kind: 'Invalid', reason: 'too late' });
+});
+
+test('two a month, per day: a third rest day is refused, a plan past the limit saves without keeping the run', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, habit());
+  await createHabit(core, habit({ id: 'h-read', kind: 'min', tier: 'log', target: { bar: 15 } }));
+  assert.equal((await planDay(core, { date: '2026-02-03', restDay: true })).kind, 'Saved');
+  assert.equal((await planDay(core, { date: '2026-02-10', plans: [{ habitId: 'h-walk', reason: 'meeting' }, { habitId: 'h-read', reason: 'meeting' }] })).kind, 'Saved');
+  assert.deepEqual(restMarksOf(core).filter(d => d === '2026-02-10').length, 1);      // two habits, one day
+  assert.equal(core.session?.model.observations.get('h-read|2026-02-10')?.keepsRun, true);
+  assert.deepEqual(await planDay(core, { date: '2026-02-17', restDay: true }), { kind: 'Invalid', reason: 'none left this month' });
+  assert.equal((await planDay(core, { date: '2026-02-17', plans: [{ habitId: 'h-walk', reason: 'travelling' }] })).kind, 'Saved');
+  const past = core.session?.model.observations.get('h-walk|2026-02-17');
+  assert.equal(past?.inAdvance, true);
+  assert.equal(past?.keepsRun, false);
+  assert.equal((await planDay(core, { date: '2026-02-03', plans: [{ habitId: 'h-walk', reason: 'chose' }] })).kind, 'Saved');
+  assert.equal(core.session?.model.observations.get('h-walk|2026-02-03')?.keepsRun, true);    // its day already counts
+  assert.equal((await planDay(core, { date: '2026-03-02', restDay: true })).kind, 'Saved');         // a new month
+});
+
+test('4b: a plan re-saved on its own day keeps what its first save decided', async () => {
+  const { core, clock } = await openedRecord();
+  await createHabit(core, habit());
+  assert.equal((await planDay(core, { date: '2026-01-06', plans: [{ habitId: 'h-walk', reason: 'meeting' }] })).kind, 'Saved');
+  const first = core.session!.model.observations.get('h-walk|2026-01-06')!;
+  clock.set('2026-01-06T09:00:00Z');
+  assert.equal((await planDay(core, { date: '2026-01-06', plans: [{ habitId: 'h-walk', reason: 'unwell' }] })).kind, 'Saved');
+  const again = core.session!.model.observations.get('h-walk|2026-01-06')!;
+  assert.equal(again.planned, 'unwell');
+  assert.deepEqual([again.loggedAt, again.inAdvance, again.markedOn, again.keepsRun], [first.loggedAt, true, '2026-01-05', true]);
+});
+
+test('a plan made on its own day is kept, but not in advance, and uses none of the two', async () => {
+  const { core } = await openedRecord();
+  await createHabit(core, habit());
+  assert.equal((await planDay(core, { date: '2026-01-05', plans: [{ habitId: 'h-walk', reason: 'unwell' }] })).kind, 'Saved');
+  const o = core.session!.model.observations.get('h-walk|2026-01-05')!;
+  assert.deepEqual([o.inAdvance, o.keepsRun], [false, false]);
+  assert.deepEqual(restMarksOf(core), []);
+});
+
+test('a rest day or an advance plan can be taken back until its day begins, then it is fixed', async () => {
+  const { core, clock } = await openedRecord();
+  await createHabit(core, habit());
+  assert.equal((await planDay(core, { date: '2026-01-07', restDay: true })).kind, 'Saved');
+  assert.equal((await planDay(core, { date: '2026-01-07', restDay: false })).kind, 'Saved');
+  assert.deepEqual(restMarksOf(core), []);
+  assert.equal(core.session?.model.days.get('2026-01-07')?.restInAdvance, undefined);
+  assert.equal((await planDay(core, { date: '2026-01-06', restDay: true, plans: [{ habitId: 'h-walk', reason: 'chose' }] })).kind, 'Saved');
+  clock.set('2026-01-06T09:00:00Z');
+  assert.deepEqual(await planDay(core, { date: '2026-01-06', restDay: false }), { kind: 'Invalid', reason: 'too late' });
+  assert.deepEqual(await clearObservation(core, { habitId: 'h-walk', date: '2026-01-06' }), { kind: 'Invalid', reason: 'too late' });
+  assert.equal((await logObservation(core, { habitId: 'h-walk', date: '2026-01-06', value: 'did' })).kind, 'Saved');   // did still wins
+  const o = core.session!.model.observations.get('h-walk|2026-01-06')!;
+  assert.deepEqual([o.value, o.planned, o.inAdvance, o.keepsRun], ['did', undefined, undefined, undefined]);
 });

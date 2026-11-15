@@ -1,7 +1,7 @@
 import type { HabitKind, HabitPeriod, LocalDate, Observation, PlannedReason, ScheduleEntry, Target, TierPeriod, TriValue } from '../rules/types.ts';
 import type { Cue, CueSettings, CueTimes } from '../rules/cues.ts';
 import { indexObservations } from '../rules/state.ts';
-import type { CueRecord, DayRecord, EntryRecord, HabitRecord, NotYetRecord, ObservationRecord, ReviewRecord, Settings } from './model.ts';
+import type { CueRecord, DayRecord, EntryRecord, HabitRecord, Model, NotYetRecord, ObservationRecord, ReviewRecord, Settings } from './model.ts';
 import type { Fields, Opened, Parts, Plain } from './payload.ts';
 
 // The one place stored names meet the rules' names. Rows use snake_case; the app and the rules use
@@ -40,7 +40,10 @@ export function habitFromParts(plain: Plain, opened: Opened): HabitRecord {
 export function observationToParts(o: ObservationRecord): Parts {
   return {
     plain: { habit_id: o.habitId, local_date: o.date },
-    r: { kind: o.kind, value: o.value, planned: o.planned, logged_at: o.loggedAt, is_backfill: o.isBackfill, edited_after_close: o.editedAfterClose },
+    r: {
+      kind: o.kind, value: o.value, planned: o.planned, logged_at: o.loggedAt, is_backfill: o.isBackfill, edited_after_close: o.editedAfterClose,
+      in_advance: o.inAdvance, marked_on: o.markedOn, keeps_run: o.keepsRun,
+    },
   };
 }
 export function observationFromParts(plain: Plain, opened: Opened): ObservationRecord {
@@ -49,13 +52,17 @@ export function observationFromParts(plain: Plain, opened: Opened): ObservationR
     habitId: key(plain, 'habit_id'), date: key(plain, 'local_date'), kind: r.kind as HabitKind,
     value: r.value as number | TriValue | undefined, planned: r.planned as PlannedReason | undefined,
     loggedAt: r.logged_at as number, isBackfill: r.is_backfill === true, editedAfterClose: r.edited_after_close === true,
+    inAdvance: r.in_advance as boolean | undefined, markedOn: r.marked_on as LocalDate | undefined, keepsRun: r.keeps_run as boolean | undefined,
   });
 }
 
 export function dayToParts(d: DayRecord): Parts {
   return {
     plain: { local_date: d.date },
-    r: { closed_at: d.closedAt, lights_out: d.lightsOut, rest_day: d.restDay, reopened_count: d.reopenedCount },
+    r: {
+      closed_at: d.closedAt, lights_out: d.lightsOut, rest_day: d.restDay, rest_in_advance: d.restInAdvance, rest_marked_on: d.restMarkedOn,
+      reopened_count: d.reopenedCount,
+    },
     w: { intent: d.intent, remark: d.remark, bad_night_note: d.badNightNote },
   };
 }
@@ -63,7 +70,8 @@ export function dayFromParts(plain: Plain, opened: Opened): DayRecord {
   const r = opened.r ?? NONE, w = opened.w ?? NONE;
   return defined({
     date: key(plain, 'local_date'), closedAt: r.closed_at as number | undefined, lightsOut: r.lights_out as number | undefined,
-    restDay: r.rest_day === true, reopenedCount: (r.reopened_count as number | undefined) ?? 0,
+    restDay: r.rest_day === true, restInAdvance: r.rest_in_advance as boolean | undefined, restMarkedOn: r.rest_marked_on as LocalDate | undefined,
+    reopenedCount: (r.reopened_count as number | undefined) ?? 0,
     intent: w.intent as string | undefined, remark: w.remark as string | undefined, badNightNote: w.bad_night_note as string | undefined,
   });
 }
@@ -164,15 +172,31 @@ export function cueSettingsOf(s: Settings): CueSettings {
 
 /**
  * Observations for the rules. On a rest day each habit with nothing stored that day gets a planned
- * rest. Nothing is stored for it, and a habit with a value keeps its value.
+ * rest, which keeps its run when the rest day was marked in advance. Nothing is stored for it, and a
+ * habit with a value or its own plan keeps it.
  */
-export function withRestDays(observations: Iterable<Observation>, restDays: Iterable<LocalDate>, habitIds: readonly string[]): Map<string, Observation> {
+export function withRestDays(
+  observations: Iterable<Observation>,
+  restDays: Iterable<{ readonly date: LocalDate; readonly inAdvance: boolean }>,
+  habitIds: readonly string[],
+): Map<string, Observation> {
   const index = indexObservations([...observations]);
-  for (const date of restDays) {
+  for (const { date, inAdvance } of restDays) {
     for (const habitId of habitIds) {
       const k = `${habitId}|${date}`;
-      if (!index.has(k)) index.set(k, { habitId, date, planned: 'rest' });
+      if (!index.has(k)) index.set(k, { habitId, date, planned: 'rest', keepsRun: inAdvance });
     }
   }
   return index;
+}
+
+/**
+ * The days holding a mark that uses one of the month's two (D-30): rest days marked in advance, and
+ * days with a one-habit plan that keeps its run. A day appears once however many marks it holds.
+ */
+export function restMarks(model: Model): LocalDate[] {
+  const days = new Set<LocalDate>();
+  for (const d of model.days.values()) if (d.restDay && d.restInAdvance === true) days.add(d.date);
+  for (const o of model.observations.values()) if (o.planned !== undefined && o.keepsRun === true) days.add(o.date);
+  return [...days].sort();
 }

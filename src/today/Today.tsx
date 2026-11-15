@@ -10,7 +10,6 @@ import { rulesInput } from '../record/read.ts';
 import { clockOfDay, toDayMinute } from '../rules/clock.ts';
 import { addDays, clockMinuteOf, toUtcMs, weekdayOf } from '../rules/dates.ts';
 import { shapeFor } from '../rules/dayLine.ts';
-import { restDaysLeft } from '../rules/rest.ts';
 import type { PlannedReason } from '../rules/types.ts';
 import { HandOffNote } from '../ui/HandOffNote.tsx';
 import { I } from '../ui/icons.tsx';
@@ -18,7 +17,7 @@ import { useWide } from '../ui/useWide.ts';
 import { draft } from './draft.ts';
 import { Horizon } from './Horizon.tsx';
 import { Row, type RowAction } from './Row.tsx';
-import { asksForTime, hm, shapeRows, shownDay, skyWords, todayView, valueText, wakesAhead, yesterdayOf, type TodayRow } from './todayView.ts';
+import { asksForTime, hm, restOfferWords, shapeRows, shownDay, skyWords, todayView, valueText, wakesAhead, yesterdayOf, type TodayRow } from './todayView.ts';
 
 // Today: the morning (what today is going to be), the evening (what it was), and the closed day.
 // Every save goes through the store; a save that didn't go through says so and keeps what was typed.
@@ -317,7 +316,6 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
     // a chip tapped open is drawn as its row again, in its place among the Focus rows, until it is answered or closed
     const focusRows = [...view.openFocus, ...view.earlier.filter(r => r.habit.id === open)].sort((a, b) => a.habit.order - b.habit.order);
     const chips = view.earlier.filter(r => r.habit.id !== open);
-    const left = restDaysLeft([...model.days.values()].filter(d => d.restDay).map(d => d.date), day);
     const isRest = model.days.get(day)?.restDay === true;
     main = (
       <>
@@ -340,15 +338,22 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
         </div>
         {view.restOffer && !restLeft && (
           <div className="panel rest">
-            <p className="eb">A rest day</p>
-            <p className="body">{left > 1 ? 'There are two free this month.' : "There's one free this month."} Using it keeps today as planned rest in Look back — a marked square, not an empty one.</p>
+            <p className="eb">A rest day tomorrow</p>
+            <p className="body">{restOfferWords(view)}</p>
             <div className="two">
-              <button type="button" className="btn btn--secondary" data-a="rest" data-x="use" onClick={() => void run(c => planDay(c, { date: day, restDay: true, sheet }))}>Use it</button>
+              <button type="button" className="btn btn--secondary" data-a="rest" data-x="use" onClick={() => void run(c => planDay(c, { date: addDays(day, 1), restDay: true, sheet }))}>Use it</button>
               <button type="button" className="btn btn--secondary" data-a="rest" data-x="leave" onClick={() => setRestLeft(true)}>Leave it</button>
             </div>
           </div>
         )}
         {isRest && <div className="panel rest"><p className="eb">A rest day</p><p className="body" style={{ marginBottom: 0 }}>{past ? 'Yesterday' : 'Today'} is kept as planned rest.</p></div>}
+        {view.restTomorrow && (
+          <div className="panel rest" data-a="rest-tomorrow">
+            <p className="eb">A rest day tomorrow</p>
+            <p className="body">Tomorrow is kept as planned rest.</p>
+            <button type="button" className="btn btn--secondary" data-a="rest" data-x="back" onClick={() => void run(c => planDay(c, { date: addDays(day, 1), restDay: false, sheet }))}>Take it back</button>
+          </div>
+        )}
         <div style={{ marginTop: 20 }}>
           <button type="button" className="btn btn--primary wide" data-a="close" disabled={busy} onClick={guarded(async () => {
             // yesterday closes as it is: its lights out was then, not now
@@ -412,7 +417,7 @@ export function Today({ asked = '' }: { readonly asked?: string }) {
         </main>
         <aside className="col side">{side}</aside>
       </div>
-      {sheetOpen && <Layer><NotTodaySheet rows={[...view.morningRows, ...view.openFocus].filter(r => r.focus && (r.value === undefined))}
+      {sheetOpen && <Layer><NotTodaySheet rows={[...view.morningRows, ...view.openFocus].filter(r => r.focus && r.value === undefined && !r.fixed)}
         note={note}
         onClose={() => { setSheetOpen(false); setNote(undefined); }}
         onPlan={async (plans, unplan) => {
