@@ -20,10 +20,10 @@ test('the checked-in v1 backup still reads: its frame, its header, both secrets,
   const byPass = await backup.openBody(f.headerBytes, f.iv, f.ct, f.header.wrappers, { method: 'passphrase', text: STUB_SECRETS.passphrase });
   const byCode = await backup.openBody(f.headerBytes, f.iv, f.ct, f.header.wrappers, { method: 'recovery', text: STUB_SECRETS.recovery });
   assert.deepEqual(byPass.body, byCode.body);
-  const tables = parseBody(await gunzip(byPass.body));
+  const tables = parseBody(await gunzip(byPass.body), f.header.schema_version);
   assert.deepEqual(
     Object.fromEntries(BODY_TABLES.map(t => [t, tables[t].length])),
-    { vault: 1, settings: 6, habits: 1, observations: 2, days: 0, entries: 1, notyet: 1, cues: 1, reviews: 1 },
+    { vault: 1, settings: 6, habits: 1, observations: 2, days: 0, entries: 1, notyet: 1, cues: 1, reviews: 1, changes: 0 },   // a v1 file: no log
   );
   const vault = tables.vault[0] as VaultRow;
   for (const row of tables.settings as readonly SettingRow[]) {

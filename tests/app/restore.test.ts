@@ -95,7 +95,7 @@ test('the real v1 fixture still opens: by the golden passphrase and by the golde
   assert.deepEqual(await restore(b.core, { file, secret: { method: 'recovery', text: GOLDEN_CODE }, backupCipher: backupCipher() }), { kind: 'Restored' });
   assert.deepEqual(
     Object.fromEntries(await Promise.all(BODY_TABLES.map(async t => [t, await b.db.table(t).count()] as const))),
-    { vault: 1, settings: 6, habits: 1, observations: 2, days: 0, entries: 1, notyet: 1, cues: 1, reviews: 1 },
+    { vault: 1, settings: 6, habits: 1, observations: 2, days: 0, entries: 1, notyet: 1, cues: 1, reviews: 1, changes: 0 },   // a v1 file: no log
   );
   assert.equal(await unlock(b.core, { method: 'passphrase', text: GOLDEN_PASSPHRASE }), 'Unlocked');
   assert.deepEqual([...(sessionOf(b.core)?.model.entries.values() ?? [])].map(e => e.body), ['CANARY-TEST page']);

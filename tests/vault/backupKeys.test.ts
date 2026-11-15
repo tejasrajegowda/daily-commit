@@ -23,7 +23,7 @@ const PASS = 'CANARY passphrase';
 const NOW = 1_767_603_600_000;
 
 const tablesOf = (vault: StoredVault): StoredRows => ({
-  vault: [vault], settings: [], habits: [], observations: [], days: [], entries: [], notyet: [], cues: [], reviews: [],
+  vault: [vault], settings: [], habits: [], observations: [], days: [], entries: [], notyet: [], cues: [], reviews: [], changes: [],
 });
 
 async function fileOf(vault: StoredVault, wrappers: readonly [StoredWrap, StoredWrap], backupKey: CryptoKey, tables: StoredRows): Promise<Uint8Array> {

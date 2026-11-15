@@ -48,11 +48,11 @@ const isEmpty = async (db: RecordDb) => (await Promise.all(db.tables.map(t => t.
 async function refile(file: Uint8Array, edit: (tables: Record<string, object[]>, header: Record<string, unknown>) => void): Promise<Uint8Array> {
   const f = readFrame(file);
   const opened = await stubBackup().openBody(f.headerBytes, f.iv, f.ct, f.header.wrappers, PASS);
-  const tables = structuredClone(parseBody(await gunzip(opened.body))) as unknown as Record<string, object[]>;
+  const tables = structuredClone(parseBody(await gunzip(opened.body), f.header.schema_version)) as unknown as Record<string, object[]>;
   const header = structuredClone(f.header) as unknown as Record<string, unknown>;
   edit(tables, header);
   const head = jsonBytes(header);
-  return frame(head, await stubBackup().sealBody(await gzip(bodyJson(tables as unknown as StoredRows)), head, f.iv));
+  return frame(head, await stubBackup().sealBody(await gzip(bodyJson(tables as unknown as StoredRows, Number(header.schema_version))), head, f.iv));
 }
 
 test('a backup restores into an empty database: every row, both wrappers, a new device id, and the same record once unlocked', async () => {
@@ -126,7 +126,7 @@ test('"replace everything" keeps a safety copy first, then replaces every row an
   assert.match(copies[0] ?? '', /^safety\/\d{13}\.dcbak$/);
   const safety = readFrame(m.store.get(copies[0] ?? '') ?? new Uint8Array());
   const opened = await stubBackup().openBody(safety.headerBytes, safety.iv, safety.ct, safety.header.wrappers, PASS);
-  assert.deepEqual(parseBody(await gunzip(opened.body)), before);
+  assert.deepEqual(parseBody(await gunzip(opened.body), safety.header.schema_version), before);
 });
 
 test('"replace everything" needs the record open; nothing changes while it is locked', async () => {
@@ -248,4 +248,22 @@ test('a private copy dated well ahead of the clock goes too; one only a little a
   await keepCopy(m.files, 'safety', t0 + 3_600_000, 'dcbak', Uint8Array.of(2));         // the clock since set back an hour
   await pruneCopies(m.files, 'safety', t0);
   assert.deepEqual([...m.store.keys()], [`safety/${t0 + 3_600_000}.dcbak`]);
+});
+test('the change log travels with a backup; a file with a damaged line is refused before anything is written', async () => {
+  const a = await filledRecord();
+  const file = await exportOf(a.core);
+  assert.ok((await a.db.changes.count()) > 0);
+  const b = emptyRecord();
+  assert.deepEqual(await restore(b.core, { file, secret: PASS, backupCipher: opener() }), { kind: 'Restored' });
+  assert.deepEqual(await b.db.changes.toArray(), await a.db.changes.toArray());
+  const bad = await refile(file, tables => {
+    const line = tables.changes?.[0] as { r?: { ct: string }; w?: { ct: string } } | undefined;
+    const env = line?.r ?? line?.w;
+    if (env) env.ct = 'AAAA';
+  });
+  const c = emptyRecord();
+  assert.deepEqual(await restore(c.core, { file: bad, secret: PASS, backupCipher: opener() }), { kind: 'Refused', reason: 'damaged' });
+  assert.ok(await isEmpty(c.db));
+  const twoSlots = await refile(file, tables => { const line = tables.changes?.[0] as Record<string, unknown>; line.w = line.r; });
+  assert.deepEqual(await restore(emptyRecord().core, { file: twoSlots, secret: PASS, backupCipher: opener() }), { kind: 'Refused', reason: 'damaged' });
 });

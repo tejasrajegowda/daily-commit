@@ -1,15 +1,22 @@
 import { BackupError } from '../../vault/cipher.ts';
 import { jsonBytes, parseJsonBytes } from '../bytes.ts';
-import type { RecordDb } from '../db.ts';
+import { SCHEMA_VERSION, type RecordDb } from '../db.ts';
 import type { WrapperRow } from '../rows.ts';
 
 // A backup's body: every table a restore needs, in a fixed order, each row exactly as stored and
 // in primary-key order, so the same record always makes the same bytes. `device` and `migrations`
-// stay on this phone; the wrappers travel in the header instead.
+// stay on this phone; the wrappers travel in the header instead. Which tables a body holds follows
+// the header's schema version: version 2 adds the change log at the end.
 
-export const BODY_TABLES = ['vault', 'settings', 'habits', 'observations', 'days', 'entries', 'notyet', 'cues', 'reviews'] as const;
+export const BODY_TABLES_V1 = ['vault', 'settings', 'habits', 'observations', 'days', 'entries', 'notyet', 'cues', 'reviews'] as const;
+export const BODY_TABLES = [...BODY_TABLES_V1, 'changes'] as const;
 export type BodyTable = (typeof BODY_TABLES)[number];
 export type StoredRows = Readonly<Record<BodyTable, readonly object[]>>;
+
+/** The tables a body of this schema version holds, in order. */
+export function bodyTables(schemaVersion: number): readonly BodyTable[] {
+  return schemaVersion >= 2 ? BODY_TABLES : BODY_TABLES_V1;
+}
 
 export interface RawRecord {
   readonly tables: StoredRows;
@@ -25,13 +32,16 @@ export function readRaw(db: RecordDb): Promise<RawRecord> {
   });
 }
 
-/** The body's plain bytes: UTF-8 JSON `{tables: {…}}`, the tables in the fixed order. */
-export function bodyJson(tables: StoredRows): Uint8Array {
-  return jsonBytes({ tables: Object.fromEntries(BODY_TABLES.map(t => [t, tables[t]])) });
+/** The body's plain bytes: UTF-8 JSON `{tables: {…}}`, the tables of that schema version in their fixed order. */
+export function bodyJson(tables: StoredRows, schemaVersion: number = SCHEMA_VERSION): Uint8Array {
+  return jsonBytes({ tables: Object.fromEntries(bodyTables(schemaVersion).map(t => [t, tables[t]])) });
 }
 
-/** A body's bytes back to its tables. Anything that isn't exactly a v1 body is damaged. */
-export function parseBody(bytes: Uint8Array): StoredRows {
+/**
+ * A body's bytes back to its tables, read as the body of its header's schema version. Anything that
+ * isn't exactly such a body is damaged. A body from before the change log comes back with none.
+ */
+export function parseBody(bytes: Uint8Array, schemaVersion: number): StoredRows {
   let value: unknown;
   try {
     value = parseJsonBytes(bytes);
@@ -39,11 +49,11 @@ export function parseBody(bytes: Uint8Array): StoredRows {
     throw new BackupError('damaged');
   }
   const tables = typeof value === 'object' && value !== null ? (value as { tables?: unknown }).tables : undefined;
-  if (typeof tables !== 'object' || tables === null || Object.keys(tables).join() !== BODY_TABLES.join()) throw new BackupError('damaged');
+  if (typeof tables !== 'object' || tables === null || Object.keys(tables).join() !== bodyTables(schemaVersion).join()) throw new BackupError('damaged');
   for (const rows of Object.values(tables)) {
     if (!Array.isArray(rows) || !rows.every(row => typeof row === 'object' && row !== null && !Array.isArray(row))) throw new BackupError('damaged');
   }
-  return tables as StoredRows;
+  return (schemaVersion >= 2 ? tables : { ...tables, changes: [] }) as StoredRows;
 }
 
 async function through(bytes: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {

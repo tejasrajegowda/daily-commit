@@ -1,5 +1,5 @@
 import { BackupError, CipherError, type BackupCipher, type BackupFailure, type Envelope, type EnvelopeContext, type Secret } from '../../vault/cipher.ts';
-import { TABLE_TAGS, type LockedTable } from '../../vault/tags.ts';
+import { CHANGE_TAG, TABLE_TAGS, type LockedTable } from '../../vault/tags.ts';
 import { isQuotaFull, type RecordCore } from '../core.ts';
 import { jsonBytes } from '../bytes.ts';
 import type { RecordDb, Schema } from '../db.ts';
@@ -35,7 +35,7 @@ const isEnvelope = (v: unknown): v is Envelope =>
 export async function checkBackup(file: Uint8Array, secret: Secret, backupCipher: BackupCipher): Promise<CheckedBackup> {
   const { header, headerBytes, iv, ct } = readFrame(file);
   const opened = await backupCipher.openBody(headerBytes, iv, ct, header.wrappers, secret);
-  const tables = parseBody(await gunzip(opened.body));
+  const tables = parseBody(await gunzip(opened.body), header.schema_version);
   const vault = tables.vault[0] as VaultRow | undefined;
   if (tables.vault.length !== 1 || vault?.key !== 'main' || vault.vault_id !== header.vault_id || vault.kid !== header.kid
     || vault.generation !== header.generation || header.wrappers.passphrase.kid !== vault.kid || header.wrappers.recovery.kid !== vault.kid) throw damaged();
@@ -57,6 +57,16 @@ export async function checkBackup(file: Uint8Array, secret: Secret, backupCipher
         values.push({ ctx: { table: TABLE_TAGS[table], id, slot }, env });
       }
     }
+  }
+  // the change log: each line has its id, exactly one sealed slot, and plain ref and time of the right kind
+  for (const row of tables.changes as readonly Record<string, unknown>[]) {
+    const slots = (['r', 'w'] as const).filter(slot => row[slot] !== undefined);
+    if (typeof row.id !== 'string' || row.id === '' || slots.length !== 1) throw damaged();
+    if ((row.ref !== undefined && typeof row.ref !== 'string') || (row.at !== undefined && typeof row.at !== 'number')) throw damaged();
+    const slot = slots[0] ?? 'r';
+    const env = row[slot];
+    if (!isEnvelope(env)) throw damaged();
+    values.push({ ctx: { table: CHANGE_TAG, id: row.id, slot }, env });
   }
   try {
     // W and R are opened even when the file holds no locked value, so a file whose keys can't be

@@ -64,9 +64,16 @@ test('a later format or a later schema needs a newer app', () => {
 test('the body lists its tables in the fixed order and survives gzip; anything else is damaged', async () => {
   const tables = Object.fromEntries([...BODY_TABLES].reverse().map(t => [t, t === 'habits' ? [{ id: 'h-1', updated_at: 1, updated_by: 'd' }] : []])) as unknown as StoredRows;
   const bytes = bodyJson(tables);
-  assert.deepEqual(Object.keys(parseBody(bytes)), [...BODY_TABLES]);
+  assert.deepEqual(Object.keys(parseBody(bytes, SCHEMA_VERSION)), [...BODY_TABLES]);
   assert.deepEqual(await gunzip(await gzip(bytes)), bytes);
   await assert.rejects(gunzip(Uint8Array.of(1, 2, 3)), { reason: 'damaged' });
-  assert.throws(() => parseBody(jsonBytes({ tables: { habits: [] } })), { reason: 'damaged' });
-  assert.throws(() => parseBody(Uint8Array.of(0xff)), { reason: 'damaged' });
+  assert.throws(() => parseBody(jsonBytes({ tables: { habits: [] } }), SCHEMA_VERSION), { reason: 'damaged' });
+  assert.throws(() => parseBody(Uint8Array.of(0xff), SCHEMA_VERSION), { reason: 'damaged' });
+});
+
+test('a body holds the change log from schema 2 on, and only then', () => {
+  const empty = (names: readonly string[]) => Object.fromEntries(names.map(t => [t, []])) as unknown as StoredRows;
+  assert.deepEqual(Object.keys(parseBody(bodyJson(empty(BODY_TABLES), 1), 1)), [...BODY_TABLES]);     // a v1 body reads back with an empty log
+  assert.throws(() => parseBody(bodyJson(empty(BODY_TABLES), 1), 2), { reason: 'damaged' });        // a v2 header over a v1 body
+  assert.throws(() => parseBody(bodyJson(empty(BODY_TABLES), 2), 1), { reason: 'damaged' });        // a v1 header over a v2 body
 });

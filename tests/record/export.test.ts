@@ -24,7 +24,7 @@ async function exported(core: RecordCore, options: BackupOptions = OPTS) {
 async function openFile(bytes: Uint8Array, secret: Secret = PASS) {
   const f = readFrame(bytes);
   const opened = await stubBackup().openBody(f.headerBytes, f.iv, f.ct, f.header.wrappers, secret);
-  return { ...f, tables: parseBody(await gunzip(opened.body)) };
+  return { ...f, tables: parseBody(await gunzip(opened.body), f.header.schema_version) };
 }
 
 test('export needs the record unlocked', async () => {

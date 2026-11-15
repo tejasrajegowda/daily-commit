@@ -43,7 +43,7 @@ export async function sealBackup(db: RecordDb, session: Session, now: number, op
     wrappers: { passphrase, recovery },
   };
   const head = headerBytes(header);
-  const ct = await backup.sealBody(await gzip(bodyJson(raw.tables)), head, iv);
+  const ct = await backup.sealBody(await gzip(bodyJson(raw.tables, header.schema_version)), head, iv);
   return { bytes: frame(head, ct), header };
 }
 
