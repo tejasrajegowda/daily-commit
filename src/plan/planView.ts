@@ -1,9 +1,11 @@
 import type { HabitRecord, Model } from '../record/model.ts';
+import { restMarks } from '../record/mapping.ts';
 import { MAX_FOCUS, type HabitChange, type NewHabit } from '../record/ops/habits.ts';
 import { clockOfDay, DEFAULT_BOUNDARY, toDayMinute } from '../rules/clock.ts';
 import { addDays } from '../rules/dates.ts';
-import { askedOn, inPlan, isRetired, scheduleOn, tierOn } from '../rules/state.ts';
-import type { Asked, ClockMinute, HabitKind, LocalDate, ScheduleEntry, Target, Tier, Weekday } from '../rules/types.ts';
+import { restDaysLeft } from '../rules/rest.ts';
+import { askedOn, inPlan, isAsked, isRetired, scheduleOn, tierOn } from '../rules/state.ts';
+import type { Asked, ClockMinute, HabitKind, LocalDate, PlannedReason, ScheduleEntry, Target, Tier, Weekday } from '../rules/types.ts';
 
 // Plan, the back of house: Focus as three slots you can see, Log beside it, and the editor's form.
 // The form is checked here, before any save, so the screen can say what's missing in words.
@@ -147,3 +149,52 @@ export const PLAN_WORDS = {
   backInLog: 'Focus is full, so it came back into Log. It can move to Focus once a slot is free.',
   fromTomorrow: 'Today already has a value, so this starts tomorrow. Today keeps the days it was logged under.',
 } as const;
+
+/** How far ahead Plan offers days: tomorrow and the thirteen after it. */
+export const DAYS_AHEAD = 14;
+
+export interface DayAhead {
+  readonly date: LocalDate;
+  /** the whole day is a rest day */
+  readonly rest: boolean;
+  /** one-habit plans made for it, and whether each keeps its habit's run */
+  readonly plans: readonly { readonly habitId: string; readonly reason: PlannedReason; readonly keepsRun: boolean }[];
+  /** the day already uses one of its month's two */
+  readonly counted: boolean;
+  /** rest days left in its month */
+  readonly left: number;
+}
+
+/** The days Plan can plan ahead (D-30, D-31): from tomorrow, each with what is already planned on it. */
+export function daysAhead(model: Model, today: LocalDate, count: number = DAYS_AHEAD): DayAhead[] {
+  const marks = restMarks(model);
+  return Array.from({ length: count }, (_, i) => {
+    const date = addDays(today, i + 1);
+    const plans = [...model.observations.values()]
+      .filter(o => o.date === date && o.planned !== undefined && o.value === undefined)
+      .sort((a, b) => (model.habits.get(a.habitId)?.order ?? 0) - (model.habits.get(b.habitId)?.order ?? 0))
+      .map(o => ({ habitId: o.habitId, reason: o.planned as PlannedReason, keepsRun: o.keepsRun === true }));
+    return { date, rest: model.days.get(date)?.restDay === true, plans, counted: marks.includes(date), left: restDaysLeft(marks, date) };
+  });
+}
+
+/** What the days-ahead sheet says about the month's two rest days. Plain, and nothing about losing. */
+export function aheadWords(day: Pick<DayAhead, 'left' | 'counted'>, month: string): string {
+  if (day.counted) return `This day is one of ${month}'s two rest days. A run carries on through it.`;
+  if (day.left > 1) return `Two rest days are free in ${month}. A run carries on through them.`;
+  if (day.left === 1) return `One rest day is free in ${month}. A run carries on through it.`;
+  return `${month}'s two rest days are planned. A habit can still be marked off here: its reminder stays quiet and the day is kept as planned. Runs carry on through the month's two only.`;
+}
+
+/** The Focus habits asked on a day: the ones a day ahead can mark off one at a time. */
+export function focusOn(model: Model, date: LocalDate): HabitRecord[] {
+  return [...model.habits.values()].filter(h => isAsked(h, date) && tierOn(h, date) === 'focus').sort((a, b) => a.order - b.order);
+}
+
+const words = (date: LocalDate, o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat('en-GB', { ...o, timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`));
+/** A day ahead in a list: "Friday 23 January". */
+export const aheadLabel = (date: LocalDate) => words(date, { weekday: 'long', day: 'numeric', month: 'long' });
+/** A day ahead as a small choice: "Fri 23". */
+export const aheadChip = (date: LocalDate) => words(date, { weekday: 'short', day: 'numeric' });
+/** A day's month, by name. */
+export const monthOf = (date: LocalDate) => words(date, { month: 'long' });

@@ -4,16 +4,22 @@ import { resultWords, shapesOf, useApp, useBackLayer, useModel, useNav, useToday
 import type { HabitRecord } from '../record/model.ts';
 import { deleteCue, saveCue } from '../record/ops/cues.ts';
 import { createHabit, editHabit, retireHabit, returnHabit, swapFocus } from '../record/ops/habits.ts';
+import { clearObservation, planDay } from '../record/ops/observations.ts';
 import type { Result } from '../record/results.ts';
 import type { RecordCore } from '../record/core.ts';
 import { position, type DayShape } from '../rules/dayLine.ts';
-import type { Weekday } from '../rules/types.ts';
+import { addDays } from '../rules/dates.ts';
+import type { LocalDate, PlannedReason, Weekday } from '../rules/types.ts';
 import { I } from '../ui/icons.tsx';
 import { useWide } from '../ui/useWide.ts';
-import { changeOf, EMPTY_FORM, formOf, formProblems, habitLine, newHabitOf, PLAN_WORDS, planLists, slotNote, type HabitForm } from './planView.ts';
+import {
+  aheadChip, aheadLabel, aheadWords, changeOf, daysAhead, EMPTY_FORM, focusOn, formOf, formProblems, habitLine, monthOf, newHabitOf, PLAN_WORDS,
+  planLists, slotNote, type DayAhead, type HabitForm,
+} from './planView.ts';
 
-// Plan: Focus as three slots, Log beside it, the day's shapes, and the editor. On a phone the
-// editor is a sheet; on a laptop it is the middle panel. A habit's kind is fixed once it exists.
+// Plan: Focus as three slots, Log beside it, days ahead, the day's shapes, and the editor. On a phone
+// the editor is a sheet; on a laptop it is the middle panel. A habit's kind is fixed once it exists.
+// Days ahead is where a rest day, or a Focus habit marked off, is planned before its day begins.
 
 const LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 const KINDS = [['time', 'A time'], ['tri', 'Did / partly'], ['min', 'Minutes'], ['count', 'A count']] as const;
@@ -23,6 +29,7 @@ const fromHm = (s: string) => { const m = /^(\d{1,2}):(\d{2})$/.exec(s); return 
 // A write that fails outright (not a refusal the record itself returned) gets the same shape of
 // words as a refusal, so the editor never goes silent on it.
 const NOT_SAVED = { title: 'Not saved', text: "That couldn't be saved. What you wrote is still here." };
+const REASONS: readonly (readonly [PlannedReason, string])[] = [['meeting', 'meeting'], ['travelling', 'travelling'], ['unwell', 'unwell'], ['chose', 'chose to']];
 
 function Layer({ children }: { readonly children: ReactNode }) {
   const layer = document.getElementById('layer');
@@ -47,12 +54,17 @@ export function Plan() {
   const [editing, setEditing] = useState<string | 'new' | undefined>(undefined);
   const [newId, setNewId] = useState(() => core.newId());
   const [resetAt, setResetAt] = useState(0);
+  const [ahead, setAhead] = useState<LocalDate | undefined>(undefined);
   useBackLayer(!wide && editing !== undefined, () => { setEditing(undefined); setResetAt(n => n + 1); });
+  useBackLayer(ahead !== undefined, () => setAhead(undefined));
   if (!model || !today) return null;
   const lists = planLists(model, today);
   const shapes = shapesOf(model.settings);
   const chosen = editing === 'new' ? undefined : editing ? model.habits.get(editing) : wide ? lists.focus.find(Boolean) ?? lists.log[0] : undefined;
   const filled = lists.focus.filter(Boolean).length;
+  const days = daysAhead(model, today);
+  const planned = days.filter(d => d.rest || d.plans.length > 0);
+  const reasonOf = (r: PlannedReason) => REASONS.find(([k]) => k === r)?.[1] ?? r;
   const open = (id: string | 'new') => setEditing(id);
   // Cancel discards edits by remounting the editor, even one shown by default with nothing chosen
   const cancel = () => { setEditing(undefined); setResetAt(n => n + 1); };
@@ -89,6 +101,17 @@ export function Plan() {
             <button key={h.id} type="button" className="li pl-log" data-a="edit" data-x={h.id} onClick={() => open(h.id)}><span><span className="nm">{h.name}</span><span className="sub">retired · every day it was logged stays in Look back</span></span><span className="end">{I.chev()}</span></button>
           ))}</div></div>
       )}
+      <div className="group" data-a="ahead">
+        <div className="eb"><span>Days ahead · rest and not today</span></div>
+        {planned.length > 0 && <div className="list">{planned.map(d => (
+          <button key={d.date} type="button" className="li pl-log" data-a="ahead-day" data-x={d.date} onClick={() => setAhead(d.date)}>
+            <span><span className="nm">{aheadLabel(d.date)}</span>
+              <span className="sub">{d.rest ? 'rest day' : d.plans.map(x => `${model.habits.get(x.habitId)?.name ?? ''} · ${reasonOf(x.reason)}`).join(', ')}</span></span>
+            <span className="end">{I.chev()}</span>
+          </button>
+        ))}</div>}
+        <button type="button" className="add" data-a="ahead-add" onClick={() => setAhead(addDays(today, 1))}>{I.plus()}Plan a day ahead</button>
+      </div>
       <div className="group">
         <div className="eb"><span>The day's shape · reminder text</span></div>
         <div className="shape-cards">
@@ -111,12 +134,105 @@ export function Plan() {
         <main className="col wide-only">{wide && editor && <div className="panel panel--hero" style={{ padding: '26px 28px' }}>{editor}</div>}</main>
         <aside className="col side wide-only"><p className="meta" style={{ margin: '0 4px' }}>{PLAN_WORDS.nudge}</p></aside>
       </div>
+      {ahead !== undefined && (
+        <Layer>
+          <AheadSheet days={days} start={ahead} model={model} store={store} onClose={() => setAhead(undefined)} />
+        </Layer>
+      )}
       {!wide && editing !== undefined && (
         <Layer>
           <div className="scrim" data-a="plan-x" onClick={cancel} />
           <div className="sheet" role="dialog" aria-label="Edit habit"><div className="grab" />{editor}</div>
         </Layer>
       )}
+    </>
+  );
+}
+
+/**
+ * Plan a day ahead: the whole day as rest, or Focus habits marked off one at a time, with how many of
+ * the month's two rest days are free. Saved before the day begins, so it is judged in advance (D-31).
+ */
+function AheadSheet(p: {
+  readonly days: readonly DayAhead[]; readonly start: LocalDate;
+  readonly model: NonNullable<ReturnType<typeof useModel>>; readonly store: ReturnType<typeof useApp>['store'];
+  onClose(): void;
+}) {
+  const first = p.days.find(d => d.date === p.start) ?? p.days[0];
+  const [date, setDate] = useState(first?.date ?? p.start);
+  const [rest, setRest] = useState(first?.rest ?? false);
+  const [on, setOn] = useState<ReadonlySet<string>>(() => new Set(first?.plans.map(x => x.habitId)));
+  const [reason, setReason] = useState<PlannedReason | undefined>(undefined);
+  const [note, setNote] = useState<{ readonly title: string; readonly text: string } | undefined>(undefined);
+  const day = p.days.find(d => d.date === date);
+  if (!day) return null;
+  const pick = (d: DayAhead) => { setDate(d.date); setRest(d.rest); setOn(new Set(d.plans.map(x => x.habitId))); setNote(undefined); };
+  const toggle = (id: string) => setOn(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+  const restOpen = day.rest || day.counted || day.left > 0;
+  const habits = focusOn(p.model, date);
+  const run = async (write: (c: RecordCore) => Promise<Result<void>>) => {
+    try {
+      const result = await p.store.run(write);
+      setNote(resultWords(result));
+      return result.kind === 'Saved';
+    } catch {
+      setNote(NOT_SAVED);
+      return false;
+    }
+  };
+  const save = async () => {
+    const was = new Set(day.plans.map(x => x.habitId));
+    const plans = rest ? [] : [...on].filter(id => !was.has(id)).map(habitId => ({ habitId, reason: reason ?? 'chose' }));
+    const unplan = rest ? [] : [...was].filter(id => !on.has(id));
+    let ok = true;
+    for (const habitId of unplan) if (ok) ok = await run(c => clearObservation(c, { habitId, date }));
+    if (ok && (plans.length > 0 || rest !== day.rest)) ok = await run(c => planDay(c, { date, plans, ...(rest !== day.rest && { restDay: rest }) }));
+    if (ok) p.onClose();
+  };
+  return (
+    <>
+      <div className="scrim" data-a="ahead-x" onClick={p.onClose} />
+      <div className="sheet" role="dialog" aria-label="Plan a day ahead">
+        <div className="grab" />
+        <p className="eb">Planned ahead</p>
+        <h2 className="t-l" style={{ margin: '8px 0 8px' }}>{aheadLabel(date)}</h2>
+        <div className="opts four" style={{ marginTop: 10 }}>
+          {p.days.map(d => <button key={d.date} type="button" className={`opt${d.date === date ? ' on' : ''}`} data-a="ahead-pick" data-x={d.date} onClick={() => pick(d)}>{aheadChip(d.date)}</button>)}
+        </div>
+        <p className="body" data-a="ahead-words" style={{ margin: '16px 0 14px' }}>{aheadWords(day, monthOf(date))}</p>
+        <div className="rows">
+          <button type="button" className="row" data-s={rest ? 'planned' : ''} data-a="ahead-rest" disabled={!restOpen} onClick={() => setRest(!rest)}>
+            <span className="dot" /><span><span className="nm">The whole day as rest</span><span className="sub">a marked square in Look back</span></span>
+            <span className={`toggle${rest ? ' on' : ''}`} aria-hidden="true" />
+          </button>
+          {!rest && habits.map(h => (
+            <button key={h.id} type="button" className="row" data-s={on.has(h.id) ? 'planned' : ''} data-a="ahead-habit" data-x={h.id} onClick={() => toggle(h.id)}>
+              <span className="dot" /><span><span className="nm">{h.name}</span><span className="sub">{h.sub}</span></span>
+              <span className={`toggle${on.has(h.id) ? ' on' : ''}`} aria-hidden="true" />
+            </button>
+          ))}
+        </div>
+        {!rest && habits.length > 0 && (
+          <>
+            <p className="eb" style={{ margin: '20px 4px 10px' }}>A reason, if you like</p>
+            <div className="opts four" style={{ marginTop: 0 }}>
+              {REASONS.map(([k, label]) => (
+                <button key={k} type="button" className={`opt${reason === k ? ' on' : ''}`} data-a="reason" data-x={k} onClick={() => setReason(reason === k ? undefined : k)}>{label}</button>
+              ))}
+            </div>
+          </>
+        )}
+        {note && <div className="panel note" style={{ marginTop: 12 }}><p className="eb">{note.title}</p><p className="body" style={{ margin: '8px 0 0' }}>{note.text}</p></div>}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 22 }}>
+          <button type="button" className="btn btn--secondary" data-a="ahead-x" onClick={p.onClose}>Leave it</button>
+          <button type="button" className="btn btn--primary" data-a="ahead-ok" onClick={() => void save()}>Plan it</button>
+        </div>
+      </div>
     </>
   );
 }

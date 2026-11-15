@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHabit, editHabit } from '../../src/record/ops/habits.ts';
-import { logObservation } from '../../src/record/ops/observations.ts';
+import { logObservation, planDay } from '../../src/record/ops/observations.ts';
 import { cueForRules } from '../../src/record/mapping.ts';
-import { changeOf, daysText, EMPTY_FORM, formOf, formProblems, habitLine, newHabitOf, PLAN_WORDS, planLists, slotNote } from '../../src/plan/planView.ts';
+import { aheadWords, changeOf, daysAhead, daysText, EMPTY_FORM, formOf, formProblems, habitLine, newHabitOf, PLAN_WORDS, planLists, slotNote } from '../../src/plan/planView.ts';
 import { stateOf } from '../../src/rules/state.ts';
 import { freshDb, openedRecord } from '../record/helpers.ts';
 import { dateOfDay, readState } from '../screens/harness/state.ts';
@@ -140,4 +140,31 @@ test('a private reminder reaches the rules with no words', () => {
 
 test("Plan's words have no exclamation mark or percentage", () => {
   for (const w of Object.values(PLAN_WORDS)) assert.doesNotMatch(w, /[!%]/);
+});
+
+// Days ahead (D-30, D-31): rest days and one-habit plans for any later day.
+
+test('days ahead lists the next two weeks, from tomorrow, with what is planned on each', async () => {
+  const state = readState('#age=17&t=21:30');
+  const { core } = await seedRecord(freshDb(), state);
+  const today = dateOfDay(17);
+  assert.equal((await planDay(core, { date: dateOfDay(19), restDay: true })).kind, 'Saved');
+  assert.equal((await planDay(core, { date: dateOfDay(20), plans: [{ habitId: 'h-walk', reason: 'meeting' }] })).kind, 'Saved');
+  const days = daysAhead(core.session!.model, today);
+  assert.equal(days.length, 14);
+  assert.equal(days[0]?.date, dateOfDay(18));
+  assert.deepEqual(days[1], { date: dateOfDay(19), rest: true, plans: [], counted: true, left: 0 });
+  assert.deepEqual(days[2]?.plans, [{ habitId: 'h-walk', reason: 'meeting', keepsRun: true }]);
+  assert.deepEqual(days.filter(d => d.rest || d.plans.length > 0).map(d => d.date), [dateOfDay(19), dateOfDay(20)]);
+});
+
+test('the words say how many of the month\'s two are free, and what a plan past them still does', () => {
+  assert.equal(aheadWords({ left: 2, counted: false }, 'January'), 'Two rest days are free in January. A run carries on through them.');
+  assert.equal(aheadWords({ left: 1, counted: false }, 'January'), 'One rest day is free in January. A run carries on through it.');
+  assert.equal(aheadWords({ left: 0, counted: true }, 'January'), 'This day is one of January\'s two rest days. A run carries on through it.');
+  assert.equal(aheadWords({ left: 0, counted: false }, 'January'),
+    "January's two rest days are planned. A habit can still be marked off here: its reminder stays quiet and the day is kept as planned. Runs carry on through the month's two only.");
+  for (const s of [aheadWords({ left: 0, counted: false }, 'May'), aheadWords({ left: 2, counted: false }, 'May')]) {
+    assert.ok(!/miss|fail|lost|lose|break|streak|!/i.test(s), s);
+  }
 });

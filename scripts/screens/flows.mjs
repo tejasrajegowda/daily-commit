@@ -1287,6 +1287,32 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('R2-10: the editor says the change starts tomorrow', await shows(p, '.sheet [data-a="from-tomorrow"]')
     && (await p.locator('.sheet [data-a="from-tomorrow"]').innerText()).includes('starts tomorrow'));
   await p.tap('.sheet [data-a="plan-x"]');
+
+  // D-30, D-31: a day ahead, planned before it begins
+  await h.open(p, 's=plan&t=13:00');
+  check('Plan: days ahead starts with nothing planned, and offers a day', await shows(p, '[data-a="ahead-add"]') && (await p.locator('[data-a="ahead-day"]').count()) === 0);
+  await p.tap('[data-a="ahead-add"]');
+  check('Plan: the sheet opens on tomorrow, with two weeks to pick from and two rest days free',
+    await shows(p, '.sheet [data-a="ahead-words"]') && (await p.locator('.sheet [data-a="ahead-pick"]').count()) === 14
+    && (await p.locator('.sheet [data-a="ahead-pick"].on').count()) === 1 && (await p.locator('.sheet [data-a="ahead-words"]').innerText()).startsWith('Two rest days are free'));
+  await p.tap('.sheet [data-a="ahead-pick"] >> nth=2');
+  await p.tap('.sheet [data-a="ahead-rest"]');
+  check('Plan: the whole day as rest hides the habits', (await p.locator('.sheet [data-a="ahead-habit"]').count()) === 0);
+  await p.tap('.sheet [data-a="ahead-ok"]');
+  check('Plan: the rest day is listed under days ahead', await until(() => document.querySelectorAll('[data-a="ahead-day"]').length === 1
+    && (document.querySelector('[data-a="ahead-day"] .sub')?.textContent ?? '') === 'rest day'));
+  await p.tap('[data-a="ahead-add"]');
+  await p.tap('.sheet [data-a="ahead-pick"] >> nth=4');
+  await shows(p, '.sheet [data-a="ahead-habit"][data-x="h-walk"]');
+  await p.tap('.sheet [data-a="ahead-habit"][data-x="h-walk"]');
+  await p.tap('.sheet [data-a="reason"][data-x="meeting"]');
+  await p.tap('.sheet [data-a="ahead-ok"]');
+  check('Plan: a habit marked off ahead is listed with its reason', await until(() => [...document.querySelectorAll('[data-a="ahead-day"] .sub')].some(e => e.textContent === 'Walk · meeting')));
+  await p.tap('[data-a="ahead-add"]');
+  await p.tap('.sheet [data-a="ahead-pick"] >> nth=6');
+  check('Plan: with both of the month\'s rest days planned, the whole day can\'t be taken, and the words say what still works',
+    await p.locator('.sheet [data-a="ahead-rest"]').isDisabled() && (await p.locator('.sheet [data-a="ahead-words"]').innerText()).includes('can still be marked off'));
+  await p.tap('.sheet [data-a="ahead-x"]');
 }
 
 // Settings
