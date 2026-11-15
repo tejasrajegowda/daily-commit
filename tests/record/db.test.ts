@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { IDBDatabase } from 'fake-indexeddb';
 import { freshDb } from './helpers.ts';
 
-test('schema v1 has exactly the tables, keys and indexes of the plan', async () => {
+test('schema v2 has exactly the tables, keys and indexes of the plan: v1 and the change log', async () => {
   const db = freshDb();
   await db.open();
   const shape = Object.fromEntries(db.tables.map(t => [t.name, [t.schema.primKey.keyPath, t.schema.indexes.map(i => i.name).sort()]]));
@@ -20,6 +20,7 @@ test('schema v1 has exactly the tables, keys and indexes of the plan', async () 
     cues: ['id', ['updated_at']],
     reviews: ['key', ['period_start', 'updated_at']],
     migrations: ['id', []],
+    changes: ['id', ['[ref+at]', 'at']],
   });
   db.close();
 });

@@ -12,6 +12,9 @@ export const TABLE_TAGS = Object.freeze({
   reviews: 'rev',
 } as const);
 
+/** The tag bound into every line of the change log. Frozen like the others. */
+export const CHANGE_TAG = 'chg';
+
 /** A table that holds locked values. */
 export type LockedTable = keyof typeof TABLE_TAGS;
-export type TableTag = (typeof TABLE_TAGS)[LockedTable];
+export type TableTag = (typeof TABLE_TAGS)[LockedTable] | typeof CHANGE_TAG;

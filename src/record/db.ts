@@ -1,6 +1,6 @@
 import Dexie, { type Table } from 'dexie';
 import type {
-  CueRow, DayRow, DeviceRow, EntryRow, HabitRow, MigrationRow, NotYetRow, ObservationRow, ReviewRow, SettingRow, VaultRow, WrapperRow,
+  ChangeRow, CueRow, DayRow, DeviceRow, EntryRow, HabitRow, MigrationRow, NotYetRow, ObservationRow, ReviewRow, SettingRow, VaultRow, WrapperRow,
 } from './rows.ts';
 
 // The one door to storage. In each line the first entry is the primary key and the rest are
@@ -22,9 +22,14 @@ export const SCHEMA_V1 = {
   migrations: 'id',
 } as const;
 
-export const SCHEMA_VERSION = 1;
+/** Version 2 adds the change log (D-25): nothing else changes, and no row needs an upgrade. */
+export const SCHEMA_V2_ADDS = {
+  changes: 'id, at, [ref+at]',
+} as const;
 
-export type TableName = keyof typeof SCHEMA_V1;
+export const SCHEMA_VERSION = 2;
+
+export type TableName = keyof typeof SCHEMA_V1 | keyof typeof SCHEMA_V2_ADDS;
 
 /** The tables that are synced, stamped and exported. */
 export const SYNCED = ['settings', 'habits', 'observations', 'days', 'entries', 'notyet', 'cues', 'reviews'] as const;
@@ -43,6 +48,7 @@ export type RecordDb = Dexie & {
   cues: Table<CueRow, string>;
   reviews: Table<ReviewRow, string>;
   migrations: Table<MigrationRow, string>;
+  changes: Table<ChangeRow, string>;
 };
 
 export interface StorageDeps {
@@ -62,7 +68,7 @@ export interface Schema {
 }
 
 /** Every schema version, oldest first. A new version is added at the end, never edited. */
-export const SCHEMAS: readonly Schema[] = [{ version: SCHEMA_VERSION, stores: SCHEMA_V1 }];
+export const SCHEMAS: readonly Schema[] = [{ version: 1, stores: SCHEMA_V1 }, { version: 2, stores: SCHEMA_V2_ADDS }];
 
 /** Applies a plain upgrade to one row. An upgrade runs while the app is locked, so touching a locked value is a mistake. */
 export function upgradeRow(change: PlainUpgrade, row: Readonly<Record<string, unknown>>): Record<string, unknown> {

@@ -6,10 +6,12 @@ import { writeQueue } from './queue.ts';
 import { locked, quotaFull, saved, type Refusal, type Result } from './results.ts';
 import { nextStamp } from './time.ts';
 import { uuidv7 } from './ids.ts';
+import { changeRows, withLog } from './changes.ts';
 
 // The record's one way in and out. Writes run one at a time; each one prepares and locks its rows
 // first, then makes all its changes in one transaction that holds nothing but storage calls, so a
-// save is all or nothing.
+// save is all or nothing. Every write also adds its change-log lines to that same transaction
+// (D-25), so no operation can store a change without its line, or a line without its change.
 
 /** The open record: what was decrypted, the cipher that opened it, and this device. */
 export interface Session {
@@ -75,8 +77,17 @@ export interface RecordCore {
   write<T>(spec: WriteSpec<T>): Promise<Result<T>>;
   /** runs a job in the write queue; for record/'s own first run and restore */
   serial<T>(job: () => Promise<T>): Promise<T>;
-  /** one transaction over the given tables; for record/'s own first run and restore */
-  commit(tables: readonly TableName[], puts: readonly Put[], check?: Plan<unknown>['check']): Promise<CommitOutcome>;
+  /**
+   * One transaction over the given tables; for record/'s own first run and restore. With `log`, the
+   * puts are logged as a write's are, sealed with the cipher passed in (first run has no session).
+   */
+  commit(tables: readonly TableName[], puts: readonly Put[], check?: Plan<unknown>['check'], log?: CommitLog): Promise<CommitOutcome>;
+}
+
+/** What a commit outside a write needs to log its puts. */
+export interface CommitLog {
+  readonly cipher: RowCipher;
+  readonly stamp: Stamp;
 }
 
 export interface RecordDeps {
@@ -111,7 +122,12 @@ export function openRecord(deps: RecordDeps): RecordCore {
   const serial = writeQueue();
   let session: Session | undefined;
 
-  async function commit(tables: readonly TableName[], puts: readonly Put[], check?: Plan<unknown>['check']): Promise<CommitOutcome> {
+  async function commit(tables: readonly TableName[], puts: readonly Put[], check?: Plan<unknown>['check'], log?: CommitLog): Promise<CommitOutcome> {
+    if (log) {
+      const lines = await changeRows({ db, cipher: log.cipher, puts, stamp: log.stamp, newId: () => uuidv7(now()) });
+      puts = [...puts, ...lines.map((row): Put => ({ table: 'changes', row }))];
+      tables = withLog(tables);
+    }
     try {
       return await db.transaction('rw', tables.map(t => db.table(t)), async () => {
         const refusal = await check?.();
@@ -156,7 +172,7 @@ export function openRecord(deps: RecordDeps): RecordCore {
       const plan = await spec.prepare(s, stamp);
       if ('kind' in plan) return plan;
       if (plan.puts.length === 0) return saved(plan.value);   // nothing to store: nothing changes, not even the last-write stamp
-      const outcome = await commit(spec.tables, plan.puts, plan.check);
+      const outcome = await commit(spec.tables, plan.puts, plan.check, { cipher: s.cipher, stamp });
       if (outcome === 'quota-full') return quotaFull();
       if (outcome !== 'committed') return outcome;
       s.lastWriteMs = stamp.updated_at;

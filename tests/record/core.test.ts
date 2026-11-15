@@ -79,7 +79,7 @@ test('a setting saved is in memory and in storage, locked', async () => {
 
 test('a full disk is reported as QuotaFull, and nothing changes in storage or in memory', async () => {
   const db = freshDb();
-  db.use(failAtRow(11, () => new DOMException('disk full', 'QuotaExceededError')));   // first run writes 10 rows
+  db.use(failAtRow(17, () => new DOMException('disk full', 'QuotaExceededError')));   // first run writes 10 rows and 6 log lines
   const { core } = await opened(db);
   const before = await db.settings.get('wake_plan');
   assert.deepEqual(await setSetting(core, 'wakePlan', 400), { kind: 'QuotaFull' });

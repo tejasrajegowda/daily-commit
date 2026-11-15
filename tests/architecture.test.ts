@@ -149,3 +149,24 @@ describe('dependency rule', () => {
     }
   });
 });
+
+// The change log (D-25) only grows: lines are added inside the core's own transactions and nowhere
+// else, and no screen reads it (§8 #22: stored, never shown).
+describe('the change log', () => {
+  const rel = (f: string) => relative(SRC, f).split(sep).join('/');
+  it('only the core and the logger write to it, and only by adding', () => {
+    for (const f of all) {
+      const src = readFileSync(f, 'utf8');
+      const writes = [...src.matchAll(/\.changes\.(put|add|bulkPut|bulkAdd|delete|bulkDelete|clear|modify|update)\b/g)];
+      assert.deepEqual(writes.map(m => m[0]), [], `${rel(f)} writes to the change log`);
+      if (!['record/core.ts', 'record/changes.ts'].includes(rel(f))) {
+        assert.ok(!/table:\s*'changes'/.test(src), `${rel(f)} puts rows into the change log`);
+      }
+    }
+  });
+  it('nothing outside record/ imports it', () => {
+    for (const f of all.filter(f => area(f) !== 'record')) {
+      for (const spec of imports(f)) assert.ok(!/\/changes\.ts$/.test(spec), `${rel(f)} imports ${spec}`);
+    }
+  });
+});

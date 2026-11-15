@@ -31,7 +31,7 @@ import { backupCipher } from '../../src/vault/backupCipher.ts';
 import type { RowCipher, Secret } from '../../src/vault/cipher.ts';
 import { createVault } from '../../src/vault/keys.ts';
 import { systemRandom } from '../../src/vault/random.ts';
-import { TABLE_TAGS } from '../../src/vault/tags.ts';
+import { CHANGE_TAG, TABLE_TAGS } from '../../src/vault/tags.ts';
 import { changePassphrase, sessionCiphers, unlockWithSecret } from '../../src/vault/vault.ts';
 import { filledRecord } from '../record/helpers.ts';
 import { SETTINGS, testClock } from '../record/fixtures.ts';
@@ -87,6 +87,9 @@ function recording(cipher: RowCipher) {
   const carried = new Set<string>();
   const wrapped: RowCipher = {
     async seal(ctx, plain) {
+      // a change-log line is squeezed before it is sealed and repeats fields its row's own seal already
+      // carried; which key a line's words go under is pinned in tests/record/changes.test.ts
+      if (ctx.table === CHANGE_TAG) return cipher.seal(ctx, plain);
       const fields = parseJsonBytes(plain) as Record<string, unknown>;
       for (const [name, value] of Object.entries(fields)) {
         if (name === 'pv') continue;

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { WrapperRow } from '../../src/record/rows.ts';
+import { SCHEMA_VERSION } from '../../src/record/db.ts';
 import { jsonBytes, parseJsonBytes, toBase64url } from '../../src/record/bytes.ts';
 import { FORMAT, frame, headerBytes, readFrame, type BackupHeader } from '../../src/record/backup/format.ts';
 import { BODY_TABLES, bodyJson, gunzip, gzip, parseBody, type StoredRows } from '../../src/record/backup/body.ts';
@@ -55,7 +56,7 @@ test('a file cut short, with a bad frame, or with a header that is not one, is d
 });
 
 test('a later format or a later schema needs a newer app', () => {
-  for (const later of [{ format_version: 2 }, { schema_version: 2 }]) {
+  for (const later of [{ format_version: 2 }, { schema_version: SCHEMA_VERSION + 1 }]) {
     assert.throws(() => readFrame(frame(jsonBytes({ ...HEADER, ...later }), CT)), { reason: 'newer-app' }, JSON.stringify(later));
   }
 });

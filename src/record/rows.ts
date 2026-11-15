@@ -44,6 +44,19 @@ export interface DeviceRow {
   readonly value: string | number | boolean;
 }
 
+/**
+ * One line of the change log (D-25): written once, never edited. `at` and `ref` are plain only on
+ * change lines, for the `[ref+at]` lookup; the line itself is sealed under `r` or `w`, never both.
+ */
+export interface ChangeRow {
+  readonly id: string;
+  readonly at?: number;
+  /** `<table>|<row key>` */
+  readonly ref?: string;
+  readonly r?: Envelope;
+  readonly w?: Envelope;
+}
+
 /** How far a change to locked values has got, so it can carry on after a stop. */
 export interface MigrationRow {
   readonly id: string;

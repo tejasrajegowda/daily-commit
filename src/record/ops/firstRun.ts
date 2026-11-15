@@ -41,7 +41,7 @@ export async function firstRun(core: RecordCore, input: FirstRunInput): Promise<
     { table: 'device', row: { key: 'device_id', value: deviceId } },
   ];
   const outcome = await core.serial(() => core.commit(['wrappers', 'vault', 'settings', 'device'], puts,
-    async () => ((await core.db.vault.count()) > 0 ? invalid('already set up') : undefined)));
+    async () => ((await core.db.vault.count()) > 0 ? invalid('already set up') : undefined), { cipher: input.cipher, stamp }));
   if (outcome === 'quota-full') return quotaFull();
   if (outcome !== 'committed') return outcome;
   await core.unlock(input.cipher, input.backup);

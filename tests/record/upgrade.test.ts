@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import { openRecord } from '../../src/record/core.ts';
-import { openDb, upgradeRow, type StorageDeps } from '../../src/record/db.ts';
+import { openDb, SCHEMA_VERSION, SCHEMAS, upgradeRow, type StorageDeps } from '../../src/record/db.ts';
 import { parseJsonBytes } from '../../src/record/bytes.ts';
 import { openStorage, upgradeTables } from '../../src/record/upgrade.ts';
 import { gunzip } from '../../src/record/backup/body.ts';
@@ -25,7 +25,7 @@ const fixture = () => (JSON.parse(readFileSync(join(FIXTURES, 'db-v1.fixture.jso
 /** A schema v1 database holding the fixture's rows, closed again. */
 async function loadV1(deps: StorageDeps) {
   const tables = fixture();
-  const db = openDb(deps);
+  const db = openDb(deps, SCHEMAS.filter(s => s.version === 1));
   await db.transaction('rw', db.tables, async () => {
     for (const [name, rows] of Object.entries(tables)) await db.table(name).bulkAdd(rows);
   });
@@ -37,7 +37,7 @@ test('a new phone opens at the latest schema, and no copy is kept', async () => 
   const m = memoryFiles();
   const opened = await openStorage(freshDeps(), m.files, now);
   assert.equal(opened.kind, 'Ready');
-  if (opened.kind === 'Ready') assert.equal(opened.db.verno, 1);
+  if (opened.kind === 'Ready') assert.equal(opened.db.verno, SCHEMA_VERSION);
   assert.equal(m.store.size, 0);
 });
 
@@ -47,7 +47,8 @@ test('an older database is copied raw, then upgraded on plain fields only, and e
   const m = memoryFiles();
   const opened = await openStorage(deps, m.files, now, TEST_SCHEMAS);
   if (opened.kind !== 'Ready') throw new Error(opened.kind);
-  assert.equal(opened.db.verno, 2);
+  assert.equal(opened.db.verno, SCHEMA_VERSION + 1);
+  assert.equal(await opened.db.changes.count(), 0);              // v2's change log arrives empty
   assert.deepEqual([...m.store.keys()], [`preupgrade/${T0}.json.gz`]);
   const copy = parseJsonBytes(await gunzip(m.store.get(`preupgrade/${T0}.json.gz`) ?? new Uint8Array())) as { schema_version: number; tables: unknown };
   assert.equal(copy.schema_version, 1);
@@ -68,7 +69,7 @@ test('a database from a newer app is refused, and nothing is copied or changed',
   const m = memoryFiles();
   assert.deepEqual(await openStorage(deps, m.files, now), { kind: 'AppTooOld' });
   assert.equal(m.store.size, 0);
-  assert.deepEqual((await deps.indexedDB.databases()).map(d => d.version), [20]);
+  assert.deepEqual((await deps.indexedDB.databases()).map(d => d.version), [(SCHEMA_VERSION + 1) * 10]);   // Dexie keeps version n as n × 10
 });
 
 test('private copies older than 7 days go at app start', async () => {
@@ -84,7 +85,7 @@ test('a plain upgrade may not touch a locked value, and the importer uses the sa
   assert.throws(() => upgradeRow(row => ({ ...row, r: undefined }), { id: 'x', r: { v: 1 } }), /may not touch a locked value/);
   const tables = { entries: [{ id: 'e', local_date: '2026-02-03' }], habits: [{ id: 'h' }] };
   assert.deepEqual(upgradeTables(tables, 1, TEST_SCHEMAS), { entries: [{ id: 'e', local_date: '2026-02-03', month: '2026-02' }], habits: [{ id: 'h' }] });
-  assert.deepEqual(upgradeTables(tables, 2, TEST_SCHEMAS), tables);
+  assert.deepEqual(upgradeTables(tables, SCHEMA_VERSION + 1, TEST_SCHEMAS), tables);
 });
 
 test('a v1 backup restores into a v2 database, its rows brought up to v2', async () => {

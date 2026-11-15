@@ -40,7 +40,7 @@ test('the header holds the vault, both wrappers as stored, the time and the IV, 
   assert.deepEqual(Object.keys(header), ['format', 'format_version', 'schema_version', 'app_version', 'exported_at', 'vault_id', 'kid', 'generation', 'iv', 'wrappers']);
   assert.deepEqual(
     { format: header.format, format_version: header.format_version, schema_version: header.schema_version, app_version: header.app_version, vault_id: header.vault_id, kid: header.kid, generation: header.generation, iv: header.iv },
-    { format: 'daily-commit-backup', format_version: 1, schema_version: 1, app_version: '0.1.0', vault_id: VAULT.vault_id, kid: VAULT.kid, generation: 1, iv: toBase64url(new Uint8Array(12).fill(7)) },
+    { format: 'daily-commit-backup', format_version: 1, schema_version: 2, app_version: '0.1.0', vault_id: VAULT.vault_id, kid: VAULT.kid, generation: 1, iv: toBase64url(new Uint8Array(12).fill(7)) },
   );
   assert.deepEqual(header.wrappers, { passphrase: await db.wrappers.get('passphrase'), recovery: await db.wrappers.get('recovery') });
   assert.equal(header.exported_at, core.session?.lastWriteMs);     // the change-stamp scale: never behind the newest row
