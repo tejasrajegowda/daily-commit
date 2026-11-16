@@ -46,9 +46,11 @@ export interface LogCursor {
   readonly rewrite: readonly string[];
   /** files a rewrite replaced: removed once a latest naming their replacements is written */
   readonly retired: readonly string[];
+  /** retired files whose removal failed: tried again after each latest written, never a reason to write one */
+  readonly unremoved: readonly string[];
 }
 
-export const NO_CURSOR: LogCursor = { gen: '', before: null, ranges: [], rewrite: [], retired: [] };
+export const NO_CURSOR: LogCursor = { gen: '', before: null, ranges: [], rewrite: [], retired: [], unremoved: [] };
 
 const names = (x: unknown): readonly string[] | undefined =>
   x === undefined ? [] : Array.isArray(x) && x.every(s => typeof s === 'string') ? x : undefined;
@@ -58,16 +60,19 @@ export function parseCursor(raw: unknown): LogCursor {
   try {
     const c = JSON.parse(raw) as Partial<LogCursor>;
     const ranges = Array.isArray(c.ranges) && c.ranges.every(r => typeof r?.name === 'string' && typeof r.from === 'number' && typeof r.before === 'number' && typeof r.sha256 === 'string') ? c.ranges : undefined;
-    const rewrite = names(c.rewrite), retired = names(c.retired);
-    if (typeof c.gen !== 'string' || !(c.before === null || typeof c.before === 'number') || !ranges || !rewrite || !retired) return NO_CURSOR;
-    return { gen: c.gen, before: c.before, ranges, rewrite, retired };
+    const rewrite = names(c.rewrite), retired = names(c.retired), unremoved = names(c.unremoved);
+    if (typeof c.gen !== 'string' || !(c.before === null || typeof c.before === 'number') || !ranges || !rewrite || !retired || !unremoved) return NO_CURSOR;
+    return { gen: c.gen, before: c.before, ranges, rewrite, retired, unremoved };
   } catch {
     return NO_CURSOR;
   }
 }
 
 export const cursorValue = (c: LogCursor): string =>
-  JSON.stringify({ gen: c.gen, before: c.before, ranges: c.ranges, rewrite: c.rewrite, retired: c.retired });
+  JSON.stringify({ gen: c.gen, before: c.before, ranges: c.ranges, rewrite: c.rewrite, retired: c.retired, unremoved: c.unremoved });
+
+/** Files that may hold wiped words, so they are removed, never kept aside: waiting to be sealed again, replaced, or not yet removed. */
+const wordyFiles = (c: LogCursor): readonly string[] => [...c.rewrite, ...c.retired, ...c.unremoved];
 
 /** Inside a wipe's transaction: the listed month files holding a line at any of these times are to be sealed again. */
 export async function markRewrite(db: RecordDb, ats: readonly number[]): Promise<void> {
@@ -143,7 +148,7 @@ export async function sealMonths(db: RecordDb, session: Session, files: Snapshot
   }
   // files still holding wiped words: sealed again from the database, which no longer has them, under a
   // new name, so the file the last latest names stays exactly as it was until a new latest is written
-  const taken = new Set([...names, ...ranges.keys(), ...base.retired]);
+  const taken = new Set([...names, ...ranges.keys(), ...base.retired, ...base.unremoved]);
   for (const name of base.rewrite) {
     const r = ranges.get(name);
     if (budget === 0 || !r || !names.has(name)) continue;  // one that has gone was just made again from the database
@@ -271,29 +276,42 @@ export async function writeMonths(core: RecordCore, files: SnapshotFiles, work: 
       };
   }
   if (cursor !== work.base) await core.db.device.put({ key: LOG_ARCHIVE, value: cursorValue(cursor) });
-  await moveStrays(files, new Set([...cursor.ranges.map(r => r.name), ...cursor.retired]), core.now()).catch(() => {});
+  await moveStrays(files, new Set([...cursor.ranges.map(r => r.name), ...cursor.retired, ...cursor.unremoved]), core.now()).catch(() => {});
   return all;
 }
 
 /**
  * Right after a latest naming their replacements is written, in the same write-queue turn: removes the
  * files rewrites replaced (they may hold wiped words, so they are not kept aside) and drops them from
- * the cursor. One that can't be removed stays listed, and the next lock tries again.
+ * the cursor. One that can't be removed goes to `unremoved`: tried again after the next latest, but
+ * never a reason to write one, since no latest names it any more.
  */
 export async function removeRetired(core: RecordCore, files: SnapshotFiles): Promise<void> {
   const c = parseCursor((await core.db.device.get(LOG_ARCHIVE))?.value);
-  if (c.retired.length === 0) return;
-  const there = new Set(await files.list(LOG_DIR));
+  const due = [...c.retired, ...c.unremoved];
+  if (due.length === 0) return;
+  const there = await files.list(LOG_DIR).then(n => new Set(n), () => undefined);
   const left: string[] = [];
-  for (const name of c.retired) {
-    if (!there.has(name)) continue;
+  for (const name of due) {
+    if (there && !there.has(name)) continue;
     try {
       await files.remove(`${LOG_DIR}/${name}`);
     } catch {
       left.push(name);
     }
   }
-  await core.db.device.put({ key: LOG_ARCHIVE, value: cursorValue({ ...c, retired: left }) });
+  await core.db.device.put({ key: LOG_ARCHIVE, value: cursorValue({ ...c, retired: [], unremoved: left }) });
+}
+
+/**
+ * At a restore, before the old cursor is replaced: removes the files it said may hold wiped words and
+ * the new one doesn't keep. Moving them aside would keep the words; the safety copy holds the replaced
+ * record's lines anyway.
+ */
+export async function removeWordy(files: SnapshotFiles, old: LogCursor, keep: ReadonlySet<string>): Promise<void> {
+  for (const name of wordyFiles(old)) {
+    if (!keep.has(name)) await files.remove(`${LOG_DIR}/${name}`).catch(() => {});
+  }
 }
 
 /** Moves every month file not in `keep` to log-replaced/ (pruned after 7 days, like the safety copies); never deletes one. */

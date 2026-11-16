@@ -6,13 +6,13 @@ import type { RecordDb, Schema } from '../db.ts';
 import { upgradeTables } from '../upgrade.ts';
 import type { SnapshotFiles } from '../files.ts';
 import { plainOf, rowId } from '../payload.ts';
-import { LOG_BASELINE, PENDING_RESTORE, wipedLeftovers } from '../changes.ts';
+import { LOG_BASELINE, LOG_WIPE_CHECK, PENDING_RESTORE, wipedLeftovers } from '../changes.ts';
 import type { ChangeRow, VaultRow } from '../rows.ts';
 import { BODY_TABLES, gunzip, gzip, parseBody, readRaw, type StoredRows } from './body.ts';
 import { SAFETY, keepCopy } from './copies.ts';
 import { sealBackup, type SealedBackup } from './export.ts';
 import { LOG_FORMAT, readFrame, type BackupHeader, type LogFile } from './format.ts';
-import { LOG_ARCHIVE, LOG_DIR, NO_CURSOR, cursorValue, digestOf, moveStrays, parseMonth, type LogCursor, type LogRange } from './monthLog.ts';
+import { LOG_ARCHIVE, LOG_DIR, NO_CURSOR, cursorValue, digestOf, moveStrays, parseCursor, parseMonth, removeWordy, type LogCursor, type LogRange } from './monthLog.ts';
 import { LATEST, writeSnapshot } from './snapshot.ts';
 
 // Restore, in two phases. First everything is checked, outside any transaction: the file opens
@@ -257,11 +257,18 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
     ? { ...NO_CURSOR, gen: core.newId(), before: checked.ownFrom ?? lastJoined, ranges: checked.joined, rewrite: checked.joined.filter(holdsLeftover).map(r => r.name) }
     : { ...NO_CURSOR, gen: core.newId() };
   return core.serial(async () => {
+    const old = parseCursor((await core.db.device.get(LOG_ARCHIVE))?.value);
     const result = await replaceAll(core, checked.header, upgradeTables(tables, checked.header.schema_version, input.schemas), replace !== undefined, detail, cursor);
     if (result.kind !== 'Restored') return result;
-    // every other month file belongs to the record that was replaced: moved aside for 7 days, never deleted
-    if (input.log) await moveStrays(input.log.files, new Set(cursor.ranges.map(r => r.name)), core.now()).catch(() => {});
-    if (replace) await becomeLatest(replace.files, input.file);
+    // every other month file belongs to the record that was replaced: those that may hold wiped words are
+    // removed, the rest moved aside for 7 days
+    const keep = new Set(cursor.ranges.map(r => r.name));
+    if (input.log) {
+      await removeWordy(input.log.files, old, keep);
+      await moveStrays(input.log.files, keep, core.now()).catch(() => {});
+    }
+    // a file that held wiped words is not the record now stored: the next lock writes a clean latest
+    if (replace) await (gone.size > 0 ? replace.files.remove(LATEST).catch(() => {}) : becomeLatest(replace.files, input.file));
     return result;
   });
 }
@@ -311,6 +318,7 @@ async function replaceAll(core: RecordCore, header: BackupHeader, tables: Stored
       const rows = BODY_TABLES.reduce((n, t) => n + tables[t].length, 0);
       await db.device.put({ key: PENDING_RESTORE, value: JSON.stringify({ schema_version: header.schema_version, rows, ...detail }) });
       await db.device.put({ key: LOG_BASELINE, value: '' });
+      await db.device.put({ key: LOG_WIPE_CHECK, value: '' });
       await db.device.put({ key: LOG_ARCHIVE, value: cursorValue(cursor) });
       return { kind: 'Restored' };
     });

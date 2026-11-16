@@ -185,6 +185,8 @@ export interface Wipe {
   readonly ids: readonly string[];
   /** their plain times: the month files holding any of them are sealed again */
   readonly ats: readonly number[];
+  /** every words line the row has (the sweep), not only those older than its wipe */
+  readonly all: boolean;
 }
 
 /** A ref's lines under the words key. */
@@ -211,7 +213,7 @@ export async function wipeRows(input: LogInput): Promise<{ readonly wipes: reado
     const words = await wordLines(db, ref);
     const stored = (await db.table(table).get(keyOf(table, next) as never)) as Record<string, unknown> | undefined;
     if (words.length === 0 && (stored === undefined || stored.deleted_at !== undefined)) continue;   // nothing was there to wipe
-    wipes.push({ ref, ids: words.map(l => l.id), ats: words.flatMap(l => (typeof l.at === 'number' ? [l.at] : [])) });
+    wipes.push({ ref, ids: words.map(l => l.id), ats: words.flatMap(l => (typeof l.at === 'number' ? [l.at] : [])), all: true });
     lines.push(await soloLine(cipher, input.newId(), {
       v: CHANGE_LINE_VERSION, kind: 'wiped', ref, table, changed_at: stamp.updated_at, device: stamp.updated_by, detail: { lines: words.length },
     }));
@@ -226,8 +228,8 @@ export async function wipeRows(input: LogInput): Promise<{ readonly wipes: reado
  */
 export async function wipeLines(db: RecordDb, wipes: readonly Wipe[]): Promise<void> {
   for (const wipe of wipes) {
-    const now = (await wordLines(db, wipe.ref)).map(l => l.id);
-    if (now.length !== wipe.ids.length || now.some(id => !wipe.ids.includes(id))) throw new Error('the log changed while a wipe was prepared');
+    const now = new Set((await wordLines(db, wipe.ref)).map(l => l.id));
+    if (wipe.ids.some(id => !now.has(id)) || (wipe.all && now.size !== wipe.ids.length)) throw new Error('the log changed while a wipe was prepared');
     await db.changes.bulkDelete([...wipe.ids]);
   }
   await markRewrite(db, wipes.flatMap(w => w.ats));
@@ -245,6 +247,64 @@ export function wipedLeftovers(tables: Readonly<Record<string, readonly unknown[
     }
   }
   return wiped.size === 0 ? [] : lines.filter(l => l.w !== undefined && l.ref !== undefined && wiped.has(l.ref));
+}
+
+/** Device row: whether the record has been checked for words the trash wiped; a restore clears it. */
+export const LOG_WIPE_CHECK = 'log_wipe_check';
+
+/**
+ * Once after an upgrade and at the first unlock after any restore, with the keys open: wipes the words
+ * lines the trash's promise says are gone but the record still holds. Those of a tombstoned page or
+ * item (wiped by a build from before the log followed the trash, or brought by a copy made before
+ * its month file was cleaned), and any older than a `wiped` line about the same row (an id saved
+ * again after its wipe, which no row state shows). One write, through the sweep's own wipe, so the
+ * month files holding them are marked too. Returns how many rows it cleaned.
+ */
+export async function cleanWiped(core: RecordCore): Promise<number> {
+  const { db } = core;
+  if ((await db.device.get(LOG_WIPE_CHECK))?.value === 'done') return 0;
+  const result = await core.write({
+    tables: ['changes'],
+    async prepare(s, stamp) {
+      const tombstoned = new Set<string>();
+      const lines: ChangeRow[] = [];
+      for (const table of TRASH_TABLES) {
+        for (const row of (await db.table(table).toArray()) as Record<string, unknown>[]) {
+          if (isWiped(table, row)) tombstoned.add(refOf(table as LockedTable, plainOf(table as LockedTable, row)));
+        }
+        lines.push(...await db.changes.where('[ref+at]').between([`${table}|`, Dexie.minKey], [`${table}|￿`, Dexie.maxKey]).toArray());
+      }
+      // when each row was last wiped: only its `wiped` line says so, and only from inside its seal
+      const wipedAt = new Map<string, number>();
+      for (const row of lines) {
+        if (row.r === undefined || row.ref === undefined) continue;
+        try {
+          const line = await openLine(s.cipher, row);
+          if (line.kind === 'wiped') wipedAt.set(row.ref, Math.max(wipedAt.get(row.ref) ?? -Infinity, line.changed_at));
+        } catch {
+          // a line that won't open says nothing here, and must not stop the unlock
+        }
+      }
+      const byRef = new Map<string, ChangeRow[]>();
+      for (const row of lines) {
+        if (row.w === undefined || row.ref === undefined) continue;
+        const at = wipedAt.get(row.ref);
+        if (tombstoned.has(row.ref) || (at !== undefined && (row.at ?? -Infinity) < at)) byRef.set(row.ref, [...(byRef.get(row.ref) ?? []), row]);
+      }
+      const wipes: Wipe[] = [], puts: Put[] = [];
+      for (const [ref, rows] of byRef) {
+        wipes.push({ ref, ids: rows.map(l => l.id), ats: rows.flatMap(l => (typeof l.at === 'number' ? [l.at] : [])), all: tombstoned.has(ref) });
+        puts.push({ table: 'changes', row: await soloLine(s.cipher, core.newId(), {
+          v: CHANGE_LINE_VERSION, kind: 'wiped', ref, table: ref.slice(0, ref.indexOf('|')) as LockedTable,
+          changed_at: stamp.updated_at, device: stamp.updated_by, detail: { lines: rows.length },
+        }) });
+      }
+      return { puts, wipes, apply: () => {}, value: wipes.length };
+    },
+  });
+  if (result.kind !== 'Saved') return 0;                   // locked or full: the next unlock tries again
+  await db.device.put({ key: LOG_WIPE_CHECK, value: 'done' });
+  return result.value;
 }
 
 

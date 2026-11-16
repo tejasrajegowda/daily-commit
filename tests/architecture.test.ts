@@ -172,6 +172,17 @@ describe('the change log', () => {
       if (area(f) !== 'record') assert.ok(!/\.changes\b/.test(src), `${rel(f)} reaches the change log`);
     }
   });
+  it('only the trash\'s sweep makes a page or a Not yet tombstone, since one wipes their words from the log (D-33)', () => {
+    for (const f of all) {
+      const src = readFileSync(f, 'utf8');
+      const made = [...src.matchAll(/tombstone\(\s*(entryToParts|notYetToParts)\b/g)].length;
+      if (rel(f) === 'record/ops/words.ts') {
+        assert.equal(made, 2, 'the sweep tombstones pages and Not yet items');
+        assert.ok(/export function sweepTrash[\s\S]*tombstone\(entryToParts[\s\S]*tombstone\(notYetToParts/.test(src), 'inside sweepTrash');
+        assert.equal([...src.matchAll(/tombstone\(/g)].length, 2, 'and nowhere else in the file');
+      } else assert.equal(made, 0, `${rel(f)} tombstones a page or a Not yet item`);
+    }
+  });
   it('nothing outside record/ imports it', () => {
     for (const f of all.filter(f => area(f) !== 'record')) {
       for (const spec of imports(f)) assert.ok(!/\/changes\.ts$/.test(spec), `${rel(f)} imports ${spec}`);

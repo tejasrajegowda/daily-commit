@@ -45,6 +45,8 @@ export interface Plan<T> {
   /** brings memory up to date, once the transaction has committed */
   readonly apply: (model: Model) => void;
   readonly value: T;
+  /** words lines to wipe in the same transaction, beside those of the puts' own wiped rows; only changes.ts makes these */
+  readonly wipes?: readonly Wipe[];
 }
 
 export interface WriteSpec<T> {
@@ -93,6 +95,7 @@ export interface RecordCore {
 export interface CommitLog {
   readonly cipher: RowCipher;
   readonly stamp: Stamp;
+  readonly wipes?: readonly Wipe[];
 }
 
 export interface RecordDeps {
@@ -143,7 +146,7 @@ export function openRecord(deps: RecordDeps): RecordCore {
       const input = { db, cipher: log.cipher, puts, stamp: log.stamp, newId: () => uuidv7(now()) };
       const lines = await changeRows(input);
       const wiping = await wipeRows(input);
-      wipes = wiping.wipes;
+      wipes = [...wiping.wipes, ...(log.wipes ?? [])];
       puts = [...puts, ...[...lines, ...wiping.lines].map((row): Put => ({ table: 'changes', row }))];
       tables = withLog(tables);
       // a wipe marks the month files holding the wiped lines, in the cursor on this device
@@ -197,7 +200,7 @@ export function openRecord(deps: RecordDeps): RecordCore {
       // a quiet write moves no stamp, so a change to the record in one would never reach a backup
       if (spec.quiet && plan.puts.some(p => p.table !== 'changes')) throw new Error('a quiet write only adds lines to the log');
       if (plan.puts.length === 0) return saved(plan.value);   // nothing to store: nothing changes, not even the last-write stamp
-      const outcome = await commit(spec.tables, plan.puts, plan.check, { cipher: s.cipher, stamp });
+      const outcome = await commit(spec.tables, plan.puts, plan.check, { cipher: s.cipher, stamp, wipes: plan.wipes });
       if (outcome === 'quota-full') return quotaFull();
       if (outcome !== 'committed') return outcome;
       if (!spec.quiet) {

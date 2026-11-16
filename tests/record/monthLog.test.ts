@@ -288,7 +288,7 @@ test('a month file is never taken for a backup, nor a backup for a month file', 
   assert.equal(readFrame(m.store.get(JAN) ?? new Uint8Array(), LOG_FORMAT).header.exported_at, 0);   // no time in a month file's plain header
 });
 
-const FAILS = ['', 'write tmp/month.dclog', 'rename tmp/month.dclog', 'write tmp/snapshot.dcbak', 'rename tmp/snapshot.dcbak'] as const;
+const FAILS = ['', 'write tmp/month.dclog', 'rename tmp/month.dclog', 'write tmp/snapshot.dcbak', 'rename tmp/snapshot.dcbak', 'remove backup/log'] as const;
 
 /** Words lines still stored about a page or a Not yet item the trash wiped: always none. */
 async function wipedWords(db: RecordDb): Promise<number> {
@@ -313,10 +313,14 @@ test('property: over a year of locks, with clock steps both ways, a changed day 
     assert.equal(await close(core, m), 'written');
     let held = new Set(await ids(t.db));                    // the lines of the newest copy written
     let db = t.db;
+    const wiped = new Set<string>();                         // lines the trash wiped: only a wipe removes a line
     for (const s of steps) {
       clock.advance(s.days * 86_400_000);
+      const before = await ids(db);
       if (s.change) await change();
       else await reopen(core);
+      const now = new Set(await ids(db));
+      for (const id of before) if (!now.has(id)) wiped.add(id);
       if (s.boundary === 0) await setSetting(core, 'boundary', 180 + (clock.now() % 120));
       if (s.trash === 0) {
         const id = core.newId();
@@ -327,7 +331,14 @@ test('property: over a year of locks, with clock steps both ways, a changed day 
       m.failOn(s.fail === '' ? undefined : s.fail);
       const outcome = await close(core, m, s.late ? async () => {} : never);
       m.failOn(undefined);
-      if (outcome === 'written') held = new Set(await ids(db));
+      if (outcome === 'written') {
+        held = new Set(await ids(db));
+        // a latest just written holds no wiped line, nor does any file set aside
+        for (const id of await idsIn(m.store.get(LATEST))) assert.ok(!wiped.has(id), 'latest holds a wiped line');
+        for (const [path, bytes] of m.store) {
+          if (path.startsWith(`${REPLACED}/`)) for (const id of await idsIn(bytes, LOG_FORMAT).catch(() => [])) assert.ok(!wiped.has(id), `${path} holds a wiped line`);
+        }
+      }
       const back = await recoverable(m);
       for (const id of held) assert.ok(back.has(id), `line ${id} of the newest copy can't be restored`);
       if (s.restore === 0) {

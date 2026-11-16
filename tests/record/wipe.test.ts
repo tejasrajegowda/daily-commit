@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { openRecord, type RecordCore } from '../../src/record/core.ts';
 import type { RecordDb } from '../../src/record/db.ts';
 import type { ChangeRow } from '../../src/record/rows.ts';
-import { openLine, type ChangeLine } from '../../src/record/changes.ts';
+import { LOG_WIPE_CHECK, openLine, wipeLines, type ChangeLine } from '../../src/record/changes.ts';
+import { entryToParts } from '../../src/record/mapping.ts';
+import { tombstone } from '../../src/record/ops/common.ts';
 import { saveEntry, saveNotYet, sweepTrash, trashEntry, trashNotYet } from '../../src/record/ops/words.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { LOG_FORMAT, readFrame } from '../../src/record/backup/format.ts';
@@ -240,7 +242,102 @@ test('restoring a copy made while the page was still in the trash brings it back
   await reopen(bCore);                                      // over its 7 days: wiped again
   assert.deepEqual(await wordIds(b, PAGE), []);
   assert.deepEqual((await cursorOf(b)).rewrite, ['2026-01.dclog']);
-  assert.ok((await wordIds(db, PAGE)).length === 0);
+  assert.deepEqual(await wordIds(db, PAGE), [], 'and the record it came from stays wiped');
+});
+
+test('an id saved again after its wipe: a copy whose month file still has the old words brings them back, and the first unlock wipes exactly those, keeping the new words', async () => {
+  const { core, db, clock, m } = await pageAcrossMonths();
+  await must(saveEntry(core, { id: 'p-gone', body: 'CANARY-TEST again' }));   // the same id, saved again after its wipe
+  const fresh = await wordIds(db, PAGE);
+  assert.equal(fresh.length, 1);
+  assert.equal(await close(core, m), 'written');           // April's file is still the old one, words and all
+  const b = freshDb();
+  const bCore = openRecord({ db: b, now: clock.now });
+  assert.deepEqual(await restore(bCore, { file: m.store.get(LATEST) ?? new Uint8Array(), secret: PASS, backupCipher: guardedBackup(stubBackup()), log: { files: m.files, months: true } }), { kind: 'Restored' });
+  assert.equal((await wordIds(b, PAGE)).length, 2, 'the row is live, so the restore alone can\'t tell');
+  await reopen(bCore);
+  assert.deepEqual(await wordIds(b, PAGE), fresh);
+  assert.ok((await cursorOf(b)).rewrite.includes('2026-04.dclog'));
+  assert.equal(await close(bCore, m), 'written');
+  const back = await recoverable(m);
+  assert.deepEqual([...back].sort(), await ids(b));
+});
+
+test('a page an earlier build wiped (tombstone kept, its words lines not) is cleaned once, at the first unlock', async () => {
+  const { core, db, clock } = await trashedPage();
+  const words = await wordIds(db, PAGE);
+  await core.lock();
+  // the row as that build's sweep left it; its lines untouched
+  await db.entries.put(tombstone(entryToParts({ id: 'p-gone', date: '2026-01-06', body: '' }), { updated_at: clock.now(), updated_by: 'CANARY-device' }) as never);
+  await db.device.put({ key: LOG_WIPE_CHECK, value: '' });
+  await reopen(core);
+  assert.deepEqual(await wordIds(db, PAGE), []);
+  const lines = await opened(core, await linesOf(db, PAGE));
+  assert.deepEqual(lines.filter(l => l.kind === 'wiped').map(l => l.detail), [{ lines: words.length }]);
+  assert.equal((await db.device.get(LOG_WIPE_CHECK))?.value, 'done');
+  await core.lock();
+  await reopen(core);
+  assert.equal((await opened(core, await linesOf(db, PAGE))).filter(l => l.kind === 'wiped').length, 1, 'once');
+});
+
+test('a replaced file that can\'t be removed is tried again after later backups, but never makes an idle lock write one', async () => {
+  const { core, db, clock, m, change } = await filedPage();
+  clock.set('2026-02-06T10:00:00Z');
+  await reopen(core);
+  m.failOn('remove backup/log');
+  assert.equal(await close(core, m), 'written');
+  assert.deepEqual([(await cursorOf(db)).retired, (await cursorOf(db)).unremoved], [[], ['2026-01.dclog']]);
+  await reopen(core);
+  assert.equal(await close(core, m), 'unchanged', 'no backup for it alone');
+  m.failOn(undefined);
+  await change();
+  assert.equal(await close(core, m), 'written');
+  assert.deepEqual(monthFiles(m), [`${LOG_DIR}/2026-01.2.dclog`]);
+  assert.deepEqual((await cursorOf(db)).unremoved, []);
+});
+
+test('"replace everything" while a month file still holds wiped words removes it rather than keeping it aside', async () => {
+  const { core, clock, m, words } = await filedPage();
+  clock.set('2026-02-06T10:00:00Z');
+  await reopen(core);                                       // wiped; January marked
+  m.failOn('rename tmp/month.dclog');
+  assert.equal(await close(core, m), 'failed');             // January still holds the words
+  m.failOn(undefined);
+  await reopen(core);
+  const made = await exportBackup(core, { appVersion: '0.1.0' });
+  if (made.kind !== 'Saved') throw new Error(made.kind);
+  assert.deepEqual(await restore(core, { file: made.value.bytes, secret: PASS, backupCipher: guardedBackup(stubBackup()), replace: { files: m.files, appVersion: '0.1.0' }, log: { files: m.files, months: false } }), { kind: 'Restored' });
+  for (const [path, bytes] of m.store) {
+    if (!path.endsWith('.dclog')) continue;
+    const held = await idsIn(bytes, LOG_FORMAT);
+    for (const id of words) assert.ok(!held.includes(id), `${path} keeps a wiped line`);
+  }
+});
+
+test('"replace everything" with a file still holding wiped words: the record gets none of them, and the file is not kept as latest', async () => {
+  const { core, db, clock } = await trashedPage();
+  const m = memoryFiles();
+  assert.equal(await close(core, m), 'written');
+  // a record as a build from before the log followed the trash left it: the tombstone, its words lines kept
+  await db.entries.put(tombstone(entryToParts({ id: 'p-gone', date: '2026-01-06', body: '' }), { updated_at: clock.now(), updated_by: 'CANARY-device' }) as never);
+  await db.device.put({ key: LOG_WIPE_CHECK, value: 'done' });
+  await reopen(core);
+  const made = await exportBackup(core, { appVersion: '0.1.0' });
+  if (made.kind !== 'Saved') throw new Error(made.kind);
+  assert.deepEqual(await restore(core, { file: made.value.bytes, secret: PASS, backupCipher: guardedBackup(stubBackup()), replace: { files: m.files, appVersion: '0.1.0' }, log: { files: m.files, months: false } }), { kind: 'Restored' });
+  assert.deepEqual(await wordIds(db, PAGE), []);
+  assert.equal(m.store.has(LATEST), false);
+  await reopen(core);
+  assert.deepEqual((await opened(core, await db.changes.toArray())).filter(l => l.kind === 'restore').map(l => l.detail?.wiped_left_out), [3]);
+  assert.equal(await close(core, m), 'written');
+  assert.deepEqual(await idsIn(m.store.get(LATEST)), await ids(db));
+});
+
+test('a wipe whose lines changed after they were read aborts the whole write', async () => {
+  const { db } = await trashedPage();
+  const before = await db.changes.count();
+  await assert.rejects(db.transaction('rw', [db.changes, db.device], () => wipeLines(db, [{ ref: PAGE, ids: ['CANARY-not-there'], ats: [], all: true }])), /the log changed/);
+  assert.equal(await db.changes.count(), before);
 });
 
 test('a manual export after the wipe holds none of the wiped lines', async () => {
