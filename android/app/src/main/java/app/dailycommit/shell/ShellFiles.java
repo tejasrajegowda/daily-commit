@@ -16,13 +16,15 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * The record's private files (record/files.ts: snapshots, their temporary files, safety and
- * pre-upgrade copies), under filesDir. Paths are relative, use "/", and stay inside the four folders
- * the record uses. Every write goes to "<name>.part", is synced, and is renamed into place.
+ * The record's private files (record/files.ts: snapshots and the change log's month files, their
+ * temporary files, safety and pre-upgrade copies, month files no longer used), under filesDir. Paths
+ * are relative, use "/", and stay inside the folders the record uses; tests/android/shellFolders.test.ts
+ * keeps this list the same as the record's. Every write goes to "<name>.part", is synced, and is renamed
+ * into place.
  */
 public final class ShellFiles {
-    static final Set<String> FOLDERS = Set.of("backup", "tmp", "safety", "preupgrade");
-    private static final Pattern PATH = Pattern.compile("[a-z]+(/[A-Za-z0-9._-]+)*");
+    static final Set<String> FOLDERS = Set.of("backup", "tmp", "safety", "preupgrade", "log-replaced");
+    private static final Pattern PATH = Pattern.compile("[a-z]+(-[a-z]+)*(/[A-Za-z0-9._-]+)*");
 
     private final File root;
 

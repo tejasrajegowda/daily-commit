@@ -99,6 +99,20 @@ public class ShellFilesTest {
         assertThrows(IllegalArgumentException.class, () -> files.list("../"));
     }
 
+    @Test public void theChangeLogsFoldersAreTheRecordsToo_monthFilesAndThoseNoLongerUsed() throws IOException {
+        // The app's start lists log-replaced/ every time; a refusal here is a start that fails (D-36 tablet run).
+        assertEquals(List.of(), files.list("log-replaced"));
+        files.write("tmp/month.dclog", b(6));
+        files.rename("tmp/month.dclog", "backup/log/2026-01.2.dclog");
+        files.rename("backup/log/2026-01.2.dclog", "log-replaced/1767225600000.2026-01.2.dclog");
+        assertEquals(List.of("1767225600000.2026-01.2.dclog"), files.list("log-replaced"));
+        files.remove("log-replaced/1767225600000.2026-01.2.dclog");
+        assertEquals(List.of(), files.list("log-replaced"));
+        for (String bad : Arrays.asList("log-/x", "-log/x", "log--replaced/x", "log-other/x", "Log-replaced/x")) {
+            assertThrows(bad, IllegalArgumentException.class, () -> files.write(bad, b(1)));
+        }
+    }
+
     @Test public void readAtMostRefusesAStreamLargerThanTheLimit() throws IOException {
         assertArrayEquals(b(1, 2, 3), ShellFiles.readAtMost(new ByteArrayInputStream(b(1, 2, 3)), 3));
         assertNull(ShellFiles.readAtMost(new ByteArrayInputStream(b(1, 2, 3, 4)), 3));

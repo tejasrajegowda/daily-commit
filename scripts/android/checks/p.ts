@@ -330,6 +330,9 @@ export const COLD_START_MS = 30_000;
 function bringApp(ctx: PCtx): boolean {
   if (ctx.front() === 'app') return true;
   if (ctx.front() === 'prompt') ctx.phone.key('KEYCODE_BACK');
+  // A screen that went to sleep is woken (on the tablet, its guarded power key) and a swipe lock taken away first.
+  ctx.phone.key('KEYCODE_WAKEUP');
+  ctx.phone.shell('wm dismiss-keyguard');
   launch(ctx.phone, false);
   return inFront(ctx, COLD_START_MS);
 }

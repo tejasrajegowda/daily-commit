@@ -78,13 +78,21 @@ export function inTestsUser(command: string): string {
 /** The invented long file, in the Tests user's own storage. */
 export const TESTS_LONG_REMOTE = `/storage/emulated/${TESTS_USER}/Download/dc-3year.dcbak`;
 
-/** The phone's user-addressing commands and their Tests-user forms. */
+/**
+ * The tablet ignores the wake key while its screen is off, so it is woken with its power key, and only when its
+ * screen reads as asleep at that same moment: the read and the key are one call, so a lit screen is never switched
+ * off. The one line read is the screen's state (Awake, Asleep, Dozing). On the tablet lane only.
+ */
+export const TESTS_WAKE = "if dumpsys power 2>/dev/null | grep -m1 'mWakefulness=' | grep -qE 'Asleep|Dozing'; then input keyevent KEYCODE_POWER; fi";
+export const TESTS_WAKEFULNESS = "dumpsys power 2>/dev/null | grep -m1 'mWakefulness='";
+/** The phone's user-addressing commands and their Tests-user forms (the wake key is the tablet's power key, guarded). */
 const TESTS_FORMS: ReadonlyMap<string, string> = new Map([
   [`am start -n ${APP}/.MainActivity`, `am start --user ${TESTS_USER} -n ${APP}/.MainActivity`],
   [`am start -W -n ${APP}/.MainActivity`, `am start --user ${TESTS_USER} -W -n ${APP}/.MainActivity`],
   [`am force-stop ${APP}`, `am force-stop --user ${TESTS_USER} ${APP}`],
   [`pm path ${APP}`, `pm path --user ${TESTS_USER} ${APP}`],
   ['settings get secure default_input_method', `settings --user ${TESTS_USER} get secure default_input_method`],
+  ['input keyevent KEYCODE_WAKEUP', TESTS_WAKE],
   [SCAN_LONG, `content call --user ${TESTS_USER} --uri content://media --method scan_file --arg ${TESTS_LONG_REMOTE}`],
 ]);
 const FROM_TESTS_FORM: ReadonlyMap<string, string> = new Map([...TESTS_FORMS].map(([base, form]) => [form, base]));
@@ -102,8 +110,14 @@ export function forTestsUser(command: string): string {
 const SCREEN_FILE = '/data/local/tmp/dc-screen.xml';
 /** The whole screen of the Tests user, read and removed in one call. On the tablet lane only. */
 export const TESTS_SCREEN_DUMP = `uiautomator dump ${SCREEN_FILE} >/dev/null && cat ${SCREEN_FILE}; rm -f ${SCREEN_FILE}`;
+/**
+ * The log lines of Daily Commit's own process in the Tests user, by its pid (the owner's account has no copy of
+ * the app while the tablet lane installs one, so the pid is the Tests user's). On the tablet lane only.
+ */
+export const TESTS_APP_LOG = `logcat -d -v threadtime --pid=$(pidof -s ${APP})`;
 /** Only the focused field's lines of the keyboard's state. On the tablet lane only. */
 export const TESTS_IME_READ = "dumpsys input_method | grep -E 'mCurEditorInfo|mCurAttribute|mInputEditorInfo|imeOptions'";
+
 
 /**
  * shellKind on the tablet: a user-addressing command only in its Tests-user form; its bare form is refused.
@@ -113,7 +127,7 @@ export const TESTS_IME_READ = "dumpsys input_method | grep -E 'mCurEditorInfo|mC
 export function testsShellKind(command: string): ShellKind {
   const c = command.trim();
   if (c === CLEAR_TESTS_DATA) return 'anywhere';
-  if (c === TESTS_SCREEN_DUMP || c === TESTS_IME_READ) return 'read';
+  if (c === TESTS_SCREEN_DUMP || c === TESTS_IME_READ || c === TESTS_WAKEFULNESS || c === TESTS_APP_LOG) return 'read';
   if (c === 'input keyevent KEYCODE_APP_SWITCH') return 'anywhere';
   const base = FROM_TESTS_FORM.get(c);
   if (base !== undefined) return shellKind(base);

@@ -18,11 +18,28 @@ import { recordStore } from './store.ts';
 
 export const APP_VERSION = '0.1.0';
 
-export type Composed = { readonly kind: 'Ready'; readonly deps: AppDeps } | { readonly kind: 'AppTooOld' };
+/** Where a start stopped: reaching the phone, opening storage, or anything after. */
+export type StartStep = 'device' | 'storage' | 'app';
 
-/** The first paint. A start that failed is the same black screen as an app that is too old. */
-export function openingView(made: Composed | undefined): 'ready' | 'black' {
-  return made?.kind === 'Ready' ? 'ready' : 'black';
+export type Composed =
+  | { readonly kind: 'Ready'; readonly deps: AppDeps }
+  | { readonly kind: 'AppTooOld' }
+  /** A start that threw: where, and the error's type only (never its message, which could carry anything). */
+  | { readonly kind: 'StartFailed'; readonly step: StartStep; readonly error: string };
+
+/** The error's type for the start-failed screen: its name when it is a plain word, else "Error". */
+export function errorType(e: unknown): string {
+  const name = e instanceof Error ? e.name : '';
+  return /^[A-Za-z]{1,40}$/.test(name) ? name : 'Error';
+}
+
+/**
+ * The first paint. A start that failed says so, with where it stopped; it is never shown as an app that is too
+ * old, whose advice (install the newer version) would be wrong for it (D-37).
+ */
+export function openingView(made: Composed | undefined): 'ready' | 'too-old' | 'failed' {
+  if (made?.kind === 'Ready') return 'ready';
+  return made?.kind === 'AppTooOld' ? 'too-old' : 'failed';
 }
 
 /**
@@ -44,6 +61,18 @@ export async function composeWith(device: DevicePort, storage: StorageDeps, now:
   return { kind: 'Ready', deps: assemble(openRecord({ db: opened.db, now }), device) };
 }
 
-export async function compose(): Promise<Composed> {
-  return composeWith(await devicePort(), { name: 'daily-commit', indexedDB, IDBKeyRange });
+/** A start that never throws: a failure comes back as StartFailed, saying at which step. */
+export async function startWith(port: () => Promise<DevicePort>, storage: StorageDeps, now: () => number = Date.now): Promise<Composed> {
+  let step: StartStep = 'device';
+  try {
+    const device = await port();
+    step = 'storage';
+    return await composeWith(device, storage, now);
+  } catch (e) {
+    return { kind: 'StartFailed', step, error: errorType(e) };
+  }
+}
+
+export function compose(): Promise<Composed> {
+  return startWith(devicePort, { name: 'daily-commit', indexedDB, IDBKeyRange });
 }

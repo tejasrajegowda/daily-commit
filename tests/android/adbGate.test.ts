@@ -9,7 +9,7 @@ import { captureTo } from '../../scripts/android/checks/b.ts';
 import { DRY_RUN_SERIAL } from '../../scripts/android/checks/guard.ts';
 import {
   APP, CLEAR_TESTS_DATA, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_TESTS_USER, NotTestsUser, Refused, SCAN_LONG,
-  TESTS_IME_READ, TESTS_LONG_REMOTE, TESTS_SCREEN_DUMP, forTestsUser, inTestsUser, onlyInFront,
+  TESTS_IME_READ, TESTS_LONG_REMOTE, TESTS_SCREEN_DUMP, TESTS_WAKE, TESTS_WAKEFULNESS, forTestsUser, inTestsUser, onlyInFront,
 } from '../../scripts/android/checks/shellAllow.ts';
 import { inputTextArg, TEST_SERIAL } from '../../scripts/android/drive.ts';
 import { SERIAL } from '../../scripts/android/emulator.ts';
@@ -161,6 +161,13 @@ const ROWS: readonly Row[] = [
   { lane: 'tablet', args: on(TAB, ['exec-out', 'screencap', '-p']), ok: false },
   { lane: 'tablet', args: on(TAB, ['exec-out', 'cat', TESTS_LONG_REMOTE]), ok: false },
   { lane: 'tablet', args: on(TAB, ['shell', 'input keyevent KEYCODE_SYSRQ']), ok: false },
+  // the screen is woken only by the power key guarded by a read that it is asleep, in the same call
+  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser('input keyevent KEYCODE_WAKEUP')]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', TESTS_WAKEFULNESS]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', 'input keyevent KEYCODE_WAKEUP']), ok: false },
+  { lane: 'tablet', args: on(TAB, ['shell', 'input keyevent KEYCODE_POWER']), ok: false },
+  { lane: 'tablet', args: on(TAB, ['shell', 'dumpsys power']), ok: false },
+  { lane: 'phoneChecks', args: on(PHONE, ['shell', TESTS_WAKE]), ok: false },
   { lane: 'tablet', args: on(TAB, ['shell', 'dumpsys input_method']), ok: false },
   { lane: 'tablet', args: on(TAB, ['shell', 'dumpsys window windows']), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', TESTS_SCREEN_DUMP]), ok: false },
@@ -362,4 +369,8 @@ test('D-36: the tablet lane captures nothing to a file', () => {
   const dest = join(tmpdir(), `dc-adb-gate-tab-${process.pid}.bin`);
   assert.throws(() => runAdb('tablet', on(TAB, ['shell', FOCUS_READ]), { captureTo: dest, spawn: () => ({ status: 0 }) }), Refused);
   assert.equal(existsSync(dest), false);
+});
+test('D-36: the tablet\'s wake key is its power key, pressed only when the screen reads as asleep in the same call', () => {
+  assert.equal(forTestsUser('input keyevent KEYCODE_WAKEUP'), TESTS_WAKE);
+  assert.match(TESTS_WAKE, /^if dumpsys power .*grep -qE 'Asleep\|Dozing'; then input keyevent KEYCODE_POWER; fi$/);
 });

@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Dexie from 'dexie';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
-import { assemble, composeWith, openingView } from '../../src/app/compose.ts';
+import { assemble, composeWith, errorType, openingView, startWith } from '../../src/app/compose.ts';
 import type { DevicePort } from '../../src/app/context.ts';
 import { memoryFiles } from '../../src/device/browser.ts';
 import { SNAPSHOT_CAP_MS } from '../../src/record/backup/snapshot.ts';
@@ -61,12 +61,52 @@ test('C15: on the phone the snapshot\'s 3-second cap runs on the phone\'s own cl
   }
 });
 
-test('a compose() that throws takes the same black first paint as an app that is too old', () => {
-  assert.equal(openingView(undefined), 'black');
-  assert.equal(openingView({ kind: 'AppTooOld' }), 'black');
+test('D-37: a start that failed says so; it is never shown as an app that is too old', () => {
+  assert.equal(openingView(undefined), 'failed');
+  assert.equal(openingView({ kind: 'StartFailed', step: 'storage', error: 'Error' }), 'failed');
+  assert.equal(openingView({ kind: 'AppTooOld' }), 'too-old');
   assert.equal(openingView({ kind: 'Ready', deps: {} as never }), 'ready');
   const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../src/main.tsx'), 'utf8');
   // The rejection handler is what stops a thrown compose() leaving the splash up. Absent on the old main.
   assert.match(src, /\.then\(\s*show\s*,\s*\(\)\s*=>\s*show\(undefined\)\s*\)/);
   assert.match(src, /openingView\(made\)/);
+  assert.match(src, /view === 'too-old' \? <TooOld/);
+  assert.match(src, /<StartFailed /);
+});
+
+/** The phone's ShellFiles as the record meets it: a folder not on its list is refused. */
+function phoneFiles(allowed: readonly string[]) {
+  const files = memoryFiles();
+  const check = (path: string) => {
+    if (!allowed.includes(path.split('/')[0] ?? '')) throw new Error('path');
+  };
+  return {
+    write: async (p: string, b: Uint8Array) => { check(p); return files.write(p, b); },
+    read: async (p: string) => { check(p); return files.read(p); },
+    rename: async (a: string, b: string) => { check(a); check(b); return files.rename(a, b); },
+    list: async (d: string) => { check(d); return files.list(d); },
+    remove: async (p: string) => { check(p); return files.remove(p); },
+  };
+}
+
+const PHONE_FOLDERS = (() => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../android/app/src/main/java/app/dailycommit/shell/ShellFiles.java'), 'utf8');
+  return [...(/FOLDERS = Set\.of\(([^)]*)\)/.exec(src)?.[1] ?? '').matchAll(/"([^"]+)"/g)].map(m => m[1] ?? '');
+})();
+
+test('D-37: a fresh start opens on the phone\'s own folder list; with the list before log-replaced/ it fails at storage, said plainly', async () => {
+  const fresh = () => ({ name: 'dc-test', indexedDB: new IDBFactory(), IDBKeyRange });
+  const made = await startWith(async () => port({ files: phoneFiles(PHONE_FOLDERS) }), fresh());
+  assert.equal(made.kind, 'Ready');
+  if (made.kind === 'Ready') made.deps.clock.stop();
+  // the tablet run of 16 Nov: every start of that build stopped here and showed "older than your record"
+  const before = await startWith(async () => port({ files: phoneFiles(['backup', 'tmp', 'safety', 'preupgrade']) }), fresh());
+  assert.deepEqual(before, { kind: 'StartFailed', step: 'storage', error: 'Error' });
+});
+
+test('D-37: a phone that can\'t be reached fails at the device step; the error\'s type is kept, never its message', async () => {
+  const failed = await startWith(async () => { throw new TypeError('CANARY-TEST secret words'); }, { name: 'dc-test', indexedDB: new IDBFactory(), IDBKeyRange });
+  assert.deepEqual(failed, { kind: 'StartFailed', step: 'device', error: 'TypeError' });
+  assert.equal(errorType(Object.assign(new Error('x'), { name: 'CANARY TEST words' })), 'Error');
+  assert.equal(errorType('a string'), 'Error');
 });
