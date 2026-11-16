@@ -154,13 +154,16 @@ describe('dependency rule', () => {
 // else, and no screen reads it (§8 #22: stored, never shown).
 describe('the change log', () => {
   const rel = (f: string) => relative(SRC, f).split(sep).join('/');
-  it('only the core and the logger write to it, and only by adding', () => {
+  it('only the core and the logger write to it, and only by adding, except the trash\'s wipe', () => {
     for (const f of all) {
       const src = readFileSync(f, 'utf8');
-      const writes = [...src.matchAll(/\.changes\.(put|add|bulkPut|bulkAdd|delete|bulkDelete|clear|modify|update)\b/g)];
+      const writes = [...src.matchAll(/\.changes\.(put|add|bulkPut|bulkAdd|delete|bulkDelete|clear|modify|update)\b/g)].map(m => m[0]);
       // migrations add one line per batch in their own transaction (they run before unlock, outside the core's writes)
-      if (rel(f) !== 'record/migrations.ts') assert.deepEqual(writes.map(m => m[0]), [], `${rel(f)} writes to the change log`);
-      else assert.deepEqual(writes.map(m => m[0]), ['.changes.add'], 'migrations only add');
+      if (rel(f) === 'record/migrations.ts') assert.deepEqual(writes, ['.changes.add'], 'migrations only add');
+      // the log's one delete (D-33): the trash's wipe, in the write that wipes the item, called only by the core
+      else if (rel(f) === 'record/changes.ts') assert.deepEqual(writes, ['.changes.bulkDelete'], 'the logger deletes only in the wipe');
+      else assert.deepEqual(writes, [], `${rel(f)} writes to the change log`);
+      if (/\bwipeLines\(/.test(src)) assert.ok(['record/core.ts', 'record/changes.ts'].includes(rel(f)), `${rel(f)} wipes log lines`);
       if (!['record/core.ts', 'record/changes.ts'].includes(rel(f))) {
         assert.ok(!/table:\s*'changes'/.test(src), `${rel(f)} puts rows into the change log`);
         assert.ok(!/table\(\s*['"]changes['"]\s*\)/.test(src), `${rel(f)} reaches the change log by name`);

@@ -6,7 +6,7 @@ import { writeQueue } from './queue.ts';
 import { locked, quotaFull, saved, type Refusal, type Result } from './results.ts';
 import { nextStamp } from './time.ts';
 import { uuidv7 } from './ids.ts';
-import { changeRows, withLog } from './changes.ts';
+import { changeRows, wipeLines, wipeRows, withLog, type Wipe } from './changes.ts';
 
 // The record's one way in and out. Writes run one at a time; each one prepares and locks its rows
 // first, then makes all its changes in one transaction that holds nothing but storage calls, so a
@@ -134,14 +134,20 @@ export function openRecord(deps: RecordDeps): RecordCore {
   let session: Session | undefined;
 
   async function commit(tables: readonly TableName[], puts: readonly Put[], check?: Plan<unknown>['check'], log?: CommitLog): Promise<CommitOutcome> {
+    let wipes: readonly Wipe[] = [];
     if (log) {
       // the check first (storage only, so safe outside the transaction): a refusal is told as itself, and
       // costs no opening or sealing; it runs again inside the transaction
       const early = await check?.();
       if (early) return early;
-      const lines = await changeRows({ db, cipher: log.cipher, puts, stamp: log.stamp, newId: () => uuidv7(now()) });
-      puts = [...puts, ...lines.map((row): Put => ({ table: 'changes', row }))];
+      const input = { db, cipher: log.cipher, puts, stamp: log.stamp, newId: () => uuidv7(now()) };
+      const lines = await changeRows(input);
+      const wiping = await wipeRows(input);
+      wipes = wiping.wipes;
+      puts = [...puts, ...[...lines, ...wiping.lines].map((row): Put => ({ table: 'changes', row }))];
       tables = withLog(tables);
+      // a wipe marks the month files holding the wiped lines, in the cursor on this device
+      if (wipes.length > 0 && !tables.includes('device')) tables = [...tables, 'device'];
     }
     try {
       return await db.transaction('rw', tables.map(t => db.table(t)), async () => {
@@ -149,6 +155,7 @@ export function openRecord(deps: RecordDeps): RecordCore {
         if (refusal) throw new Refused(refusal);
         // a change line is only ever added: an id that already exists aborts the whole write
         for (const p of puts) await (p.table === 'changes' ? db.table(p.table).add(p.row) : db.table(p.table).put(p.row));
+        if (wipes.length > 0) await wipeLines(db, wipes);
         return 'committed' as const;
       });
     } catch (e) {

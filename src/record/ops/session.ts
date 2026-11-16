@@ -6,7 +6,7 @@ import type { BackupOptions } from '../backup/export.ts';
 import { SNAPSHOT_CAP_MS, sealSnapshot, writeSnapshot, type SealedSnapshot, type SnapshotOutcome } from '../backup/snapshot.ts';
 import { sweepTrash } from './words.ts';
 import { finishRestore, runBaseline } from '../changes.ts';
-import { LOG_ARCHIVE, monthWork, writeMonths, type MonthWork } from '../backup/monthLog.ts';
+import { LOG_ARCHIVE, monthWork, removeRetired, writeMonths, type MonthWork } from '../backup/monthLog.ts';
 
 /**
  * Unlocks the record. Any change to the shape of locked values runs first, so the record opens in
@@ -54,10 +54,12 @@ export async function closeSession(core: RecordCore, deps: CloseDeps): Promise<S
     if (!allMonths) return 'failed';                   // the snapshot leaves out lines only those files hold: keep the last one
     try {
       await writeSnapshot(deps.files, held);
-      return 'written';
     } catch {
       return 'failed';
     }
+    // only now does no latest name the files rewrites replaced
+    await removeRetired(core, deps.files).catch(() => {});
+    return 'written';
   });
 }
 

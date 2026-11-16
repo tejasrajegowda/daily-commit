@@ -1,23 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fc from 'fast-check';
-import { BackupError, type Secret } from '../../src/vault/cipher.ts';
+import { BackupError } from '../../src/vault/cipher.ts';
 import { openRecord, type RecordCore } from '../../src/record/core.ts';
 import type { RecordDb } from '../../src/record/db.ts';
-import type { ChangeRow } from '../../src/record/rows.ts';
 import { CHANGE_LINE_VERSION, openLine, sealLine } from '../../src/record/changes.ts';
 import { closeSession, openSession } from '../../src/record/ops/session.ts';
 import { setSetting } from '../../src/record/ops/settings.ts';
-import { gunzip, parseBody } from '../../src/record/backup/body.ts';
+import { saveEntry, trashEntry } from '../../src/record/ops/words.ts';
 import { REPLACED } from '../../src/record/backup/copies.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
-import { FORMAT, LOG_FORMAT, readFrame, type BackupHeader } from '../../src/record/backup/format.ts';
-import { LOG_ARCHIVE, LOG_DIR, MONTHS_A_LOCK, digestOf, parseCursor, parseMonth } from '../../src/record/backup/monthLog.ts';
+import { LOG_FORMAT, readFrame } from '../../src/record/backup/format.ts';
+import { LOG_ARCHIVE, LOG_DIR, MONTHS_A_LOCK, NO_CURSOR, digestOf } from '../../src/record/backup/monthLog.ts';
 import { restore } from '../../src/record/backup/restore.ts';
 import { LATEST } from '../../src/record/backup/snapshot.ts';
 import { filledRecord, freshDb } from './helpers.ts';
+import { PASS, changer, close, cursorOf, ids, idsIn, monthFiles, never, recoverable, reopen } from './logFiles.ts';
 import { memoryFiles } from './memoryFiles.ts';
-import { STUB_SECRETS, stubBackup } from './stubBackup.ts';
+import { stubBackup } from './stubBackup.ts';
 import { stubCipher } from './stubCipher.ts';
 import { guarded, guardedBackup } from './txGuard.ts';
 import type { testClock } from './fixtures.ts';
@@ -27,47 +27,9 @@ import type { testClock } from './fixtures.ts';
 // restore of the phone's copy (latest plus the month files it names) brings back every line the
 // newest written copy held, whatever failed in between.
 
-const PASS: Secret = { method: 'passphrase', text: STUB_SECRETS.passphrase };
-const never = () => new Promise<void>(() => {});
-const reopen = (core: RecordCore) => openSession(core, guarded(stubCipher()), guardedBackup(stubBackup()));
-type Files = ReturnType<typeof memoryFiles>;
-const close = (core: RecordCore, m: Files, sleep: (ms: number) => Promise<void> = never) => closeSession(core, { files: m.files, sleep, appVersion: '0.1.0' });
 const JAN = `${LOG_DIR}/2026-01.dclog`, FEB = `${LOG_DIR}/2026-02.dclog`;
 const FEB_STARTS = Date.UTC(2026, 1, 1, 4);                 // the fixtures' day starts at 04:00 UTC
 const MAR_STARTS = Date.UTC(2026, 2, 1, 4);
-
-/** The ids of the lines a backup or a month file holds, opened with the stand-in. */
-async function idsIn(file: Uint8Array | undefined, format: BackupHeader['format'] = FORMAT): Promise<string[]> {
-  if (!file) throw new Error('no such file');
-  const f = readFrame(file, format);
-  const opened = await stubBackup().openBody(f.headerBytes, f.iv, f.ct, f.header.wrappers, PASS);
-  const body = await gunzip(opened.body);
-  const rows = format === LOG_FORMAT ? parseMonth(body) : (parseBody(body, f.header.schema_version).changes as readonly ChangeRow[]);
-  return rows.map(r => r.id).sort();
-}
-/** Every line a restore of the phone's copy could bring back: latest's, and those of each month file it names that is there unchanged. */
-async function recoverable(m: Files): Promise<Set<string>> {
-  const latest = m.store.get(LATEST);
-  const out = new Set(await idsIn(latest));
-  for (const f of readFrame(latest ?? new Uint8Array()).header.log_files ?? []) {
-    const bytes = m.store.get(`${LOG_DIR}/${f.name}`);
-    if (bytes && (await digestOf(bytes)) === f.sha256) for (const id of await idsIn(bytes, LOG_FORMAT)) out.add(id);
-  }
-  return out;
-}
-const ids = async (db: RecordDb, keep: (line: ChangeRow) => boolean = () => true) => (await db.changes.toArray()).filter(keep).map(r => r.id).sort();
-const cursorOf = async (db: RecordDb) => parseCursor((await db.device.get(LOG_ARCHIVE))?.value);
-const monthFiles = (m: Files) => [...m.store.keys()].filter(p => p.startsWith(`${LOG_DIR}/`)).sort();
-
-/** Each call opens the record and changes one setting, so the next lock seals a snapshot. */
-function changer(core: RecordCore) {
-  let n = 400;
-  return async () => {
-    await reopen(core);
-    const saved = await setSetting(core, 'wakePlan', n++);
-    if (saved.kind !== 'Saved') throw new Error(saved.kind);
-  };
-}
 
 /** A January record locked once, then a change in February, not yet locked. */
 async function intoFebruary() {
@@ -104,7 +66,7 @@ test('a month file that fails to write keeps the last latest (it still holds tho
   assert.equal(await close(core, m), 'failed');
   assert.deepEqual(m.store.get(LATEST), before);
   assert.equal(m.store.has(JAN), false);
-  assert.deepEqual(await cursorOf(db), { gen: '', before: null, ranges: [] });
+  assert.deepEqual(await cursorOf(db), NO_CURSOR);
   m.failOn(undefined);
   await change();
   assert.equal(await close(core, m), 'written');
@@ -328,10 +290,19 @@ test('a month file is never taken for a backup, nor a backup for a month file', 
 
 const FAILS = ['', 'write tmp/month.dclog', 'rename tmp/month.dclog', 'write tmp/snapshot.dcbak', 'rename tmp/snapshot.dcbak'] as const;
 
-test('property: over a year of locks, with clock steps both ways, a changed day boundary, any file write failing, locks out of time and restores of the phone\'s copy, that copy always brings back every line of the newest copy written', async () => {
+/** Words lines still stored about a page or a Not yet item the trash wiped: always none. */
+async function wipedWords(db: RecordDb): Promise<number> {
+  const refs = new Set([
+    ...(await db.entries.toArray()).filter(r => r.deleted_at !== undefined).map(r => `entries|${r.id}`),
+    ...(await db.notyet.toArray()).filter(r => r.deleted_at !== undefined).map(r => `notyet|${r.id}`),
+  ]);
+  return (await db.changes.toArray()).filter(l => l.w !== undefined && l.ref !== undefined && refs.has(l.ref)).length;
+}
+
+test('property: over a year of locks, with clock steps both ways, a changed day boundary, pages trashed and wiped, any file write failing, locks out of time and restores of the phone\'s copy, that copy always brings back every line of the newest copy written, and no wiped words come back', async () => {
   const step = fc.record({
     days: fc.integer({ min: -3, max: 40 }), change: fc.boolean(), fail: fc.constantFrom(...FAILS), late: fc.boolean(),
-    restore: fc.integer({ min: 0, max: 9 }), boundary: fc.integer({ min: 0, max: 14 }),
+    restore: fc.integer({ min: 0, max: 9 }), boundary: fc.integer({ min: 0, max: 14 }), trash: fc.integer({ min: 0, max: 2 }),
   });
   await fc.assert(fc.asyncProperty(fc.array(step, { minLength: 8, maxLength: 20 }), async steps => {
     const t = await filledRecord();
@@ -347,6 +318,12 @@ test('property: over a year of locks, with clock steps both ways, a changed day 
       if (s.change) await change();
       else await reopen(core);
       if (s.boundary === 0) await setSetting(core, 'boundary', 180 + (clock.now() % 120));
+      if (s.trash === 0) {
+        const id = core.newId();
+        assert.equal((await saveEntry(core, { id, body: 'CANARY-TEST' })).kind, 'Saved');
+        assert.equal((await trashEntry(core, { id })).kind, 'Saved');
+      }
+      assert.equal(await wipedWords(db), 0);
       m.failOn(s.fail === '' ? undefined : s.fail);
       const outcome = await close(core, m, s.late ? async () => {} : never);
       m.failOn(undefined);
@@ -358,6 +335,7 @@ test('property: over a year of locks, with clock steps both ways, a changed day 
         const bCore = openRecord({ db: b, now: clock.now });
         const result = await restore(bCore, { file: m.store.get(LATEST) ?? new Uint8Array(), secret: PASS, backupCipher: guardedBackup(stubBackup()), log: { files: m.files, months: true } });
         assert.deepEqual(result, { kind: 'Restored' });
+        assert.equal(await wipedWords(b), 0, 'wiped words came back');
         const restored = new Set(await ids(b));
         for (const id of held) assert.ok(restored.has(id), `line ${id} didn't come back`);
         await reopen(bCore);

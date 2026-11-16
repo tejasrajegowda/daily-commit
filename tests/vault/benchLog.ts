@@ -119,7 +119,7 @@ for (let i = 0; i < 3; i++) {
   const work = monthWork();
   const t = performance.now();
   const sealed = await sealSnapshot(db, { ...session, changed: true }, memoryFiles().files, clock.now(), { appVersion: 'bench' }, work);
-  archiving.push({ ms: performance.now() - t, month: work.sealed.reduce((n, m) => n + m.bytes.length, 0), latest: sealed?.bytes.length ?? 0 });
+  archiving.push({ ms: performance.now() - t, month: work.sealed.reduce((n, m) => n + (m.kind === 'drop' ? 0 : m.bytes.length), 0), latest: sealed?.bytes.length ?? 0 });
 }
 const after = await sealBackup(db, session, clock.now(), { appVersion: 'bench' }, { from: Infinity, files: [] });
 

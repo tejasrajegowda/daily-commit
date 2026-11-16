@@ -8,12 +8,14 @@ import { MIGRATIONS, type PayloadMigration } from './migrations.ts';
 import { KEY_FIELDS, LOCKED, OTHER_PLAIN, PAYLOAD_VERSION, openParts, plainOf, rowId, type Fields, type Plain } from './payload.ts';
 import type { ChangeRow, DeviceRow } from './rows.ts';
 import { gunzip, gzip } from './backup/body.ts';
+import { markRewrite } from './backup/monthLog.ts';
 
 // The change log (D-25): every change to the record is also written as a sealed line saying what a
 // value was, what it became, when the row was first logged, when it changed, and on which device.
 // Lines are only ever added, inside the same transaction as the change, and never shown on screen
 // (§8 #22). A field that ever sat under the words key is logged under the words key, so the record
-// key alone never opens words, past or present.
+// key alone never opens words, past or present. The one exception to "only added" is the trash
+// (D-33): when it wipes an item's words, the log's copies of them go in the same write.
 
 export const CHANGE_LINE_VERSION = 1;
 
@@ -43,6 +45,13 @@ export function refOf(table: LockedTable, plain: Plain): string {
 }
 
 const isSynced = (table: string): table is LockedTable => (SYNCED as readonly string[]).includes(table);
+
+/** The tables the trash empties: only its 7-day sweep leaves a tombstone there. */
+const TRASH_TABLES: readonly string[] = ['entries', 'notyet'];
+
+/** Whether a row is one the trash wiped: no line about it keeps words (D-33). */
+export const isWiped = (table: string, row: Readonly<Record<string, unknown>>): boolean =>
+  TRASH_TABLES.includes(table) && row.deleted_at !== undefined;
 
 /** A stored row's primary key, in the shape the table looks it up by. */
 function keyOf(table: LockedTable, row: Readonly<Record<string, unknown>>): unknown {
@@ -148,9 +157,11 @@ export async function changeRows(input: LogInput): Promise<ChangeRow[]> {
     const first = kind === 'create'
       ? stamp.updated_at
       : ((await db.changes.where('[ref+at]').between([ref, Dexie.minKey], [ref, Dexie.maxKey]).first())?.at ?? null);
+    // a wiped row's old words are not written down again: its `wiped` line says how many went
+    const wiped = isWiped(table, next);
     for (const slot of ['r', 'w'] as const) {
       const fields = bySlot[slot];
-      if (Object.keys(fields).length === 0) continue;
+      if (Object.keys(fields).length === 0 || (slot === 'w' && wiped)) continue;
       const id = input.newId();
       const line: ChangeLine = {
         v: CHANGE_LINE_VERSION, kind, ref, table, field_changes: fields, first_logged_at: first, changed_at: stamp.updated_at, device: stamp.updated_by,
@@ -164,6 +175,77 @@ export async function changeRows(input: LogInput): Promise<ChangeRow[]> {
 /** The tables a write's transaction spans once its lines are added. */
 export const withLog = <T extends string>(tables: readonly T[]): readonly (T | 'changes')[] =>
   tables.includes('changes' as T) ? tables : [...tables, 'changes'];
+
+
+// ─── the trash's wipe (D-33) ───
+
+/** A wiped row's lines under the words key, as read before the write's transaction. */
+export interface Wipe {
+  readonly ref: string;
+  readonly ids: readonly string[];
+  /** their plain times: the month files holding any of them are sealed again */
+  readonly ats: readonly number[];
+}
+
+/** A ref's lines under the words key. */
+async function wordLines(db: RecordDb, ref: string): Promise<ChangeRow[]> {
+  return (await db.changes.where('[ref+at]').between([ref, Dexie.minKey], [ref, Dexie.maxKey]).toArray()).filter(l => l.w !== undefined);
+}
+
+/**
+ * For each put that wipes a row: its lines under the words key, to go in the write's transaction, and
+ * one `wiped` line under the record key saying how many, with no words. Runs before the transaction;
+ * the write queue keeps the log as it is until that transaction commits.
+ */
+export async function wipeRows(input: LogInput): Promise<{ readonly wipes: readonly Wipe[]; readonly lines: readonly ChangeRow[] }> {
+  const { db, cipher, stamp } = input;
+  const wipes: Wipe[] = [], lines: ChangeRow[] = [];
+  const seen = new Set<string>();
+  for (const put of input.puts) {
+    const next = put.row as Readonly<Record<string, unknown>>;
+    if (!isSynced(put.table) || !isWiped(put.table, next)) continue;
+    const table = put.table;
+    const ref = refOf(table, plainOf(table, next));
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    const words = await wordLines(db, ref);
+    const stored = (await db.table(table).get(keyOf(table, next) as never)) as Record<string, unknown> | undefined;
+    if (words.length === 0 && (stored === undefined || stored.deleted_at !== undefined)) continue;   // nothing was there to wipe
+    wipes.push({ ref, ids: words.map(l => l.id), ats: words.flatMap(l => (typeof l.at === 'number' ? [l.at] : [])) });
+    lines.push(await soloLine(cipher, input.newId(), {
+      v: CHANGE_LINE_VERSION, kind: 'wiped', ref, table, changed_at: stamp.updated_at, device: stamp.updated_by, detail: { lines: words.length },
+    }));
+  }
+  return { wipes, lines };
+}
+
+/**
+ * Inside the write's transaction, the log's only delete: each wiped row's words lines go, once they
+ * are checked to be exactly the ones read (anything else aborts the write), and the month files that
+ * hold any of them are marked to be sealed again without them.
+ */
+export async function wipeLines(db: RecordDb, wipes: readonly Wipe[]): Promise<void> {
+  for (const wipe of wipes) {
+    const now = (await wordLines(db, wipe.ref)).map(l => l.id);
+    if (now.length !== wipe.ids.length || now.some(id => !wipe.ids.includes(id))) throw new Error('the log changed while a wipe was prepared');
+    await db.changes.bulkDelete([...wipe.ids]);
+  }
+  await markRewrite(db, wipes.flatMap(w => w.ats));
+}
+
+/**
+ * The lines a backup still holds under the words key about rows it says the trash wiped: a copy made
+ * before a month file was sealed again carries them. A restore leaves them out, so a wipe stays a wipe.
+ */
+export function wipedLeftovers(tables: Readonly<Record<string, readonly unknown[]>>, lines: readonly ChangeRow[]): ChangeRow[] {
+  const wiped = new Set<string>();
+  for (const table of TRASH_TABLES) {
+    for (const row of (tables[table] ?? []) as readonly Record<string, unknown>[]) {
+      if (isWiped(table, row)) wiped.add(refOf(table as LockedTable, plainOf(table as LockedTable, row)));
+    }
+  }
+  return wiped.size === 0 ? [] : lines.filter(l => l.w !== undefined && l.ref !== undefined && wiped.has(l.ref));
+}
 
 
 // ─── lines that are not about one change: a restore, the baseline, a migration batch ───

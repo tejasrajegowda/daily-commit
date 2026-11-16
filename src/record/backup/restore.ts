@@ -6,13 +6,13 @@ import type { RecordDb, Schema } from '../db.ts';
 import { upgradeTables } from '../upgrade.ts';
 import type { SnapshotFiles } from '../files.ts';
 import { plainOf, rowId } from '../payload.ts';
-import { LOG_BASELINE, PENDING_RESTORE } from '../changes.ts';
+import { LOG_BASELINE, PENDING_RESTORE, wipedLeftovers } from '../changes.ts';
 import type { ChangeRow, VaultRow } from '../rows.ts';
 import { BODY_TABLES, gunzip, gzip, parseBody, readRaw, type StoredRows } from './body.ts';
 import { SAFETY, keepCopy } from './copies.ts';
 import { sealBackup, type SealedBackup } from './export.ts';
 import { LOG_FORMAT, readFrame, type BackupHeader, type LogFile } from './format.ts';
-import { LOG_ARCHIVE, LOG_DIR, cursorValue, digestOf, moveStrays, parseMonth, type LogCursor, type LogRange } from './monthLog.ts';
+import { LOG_ARCHIVE, LOG_DIR, NO_CURSOR, cursorValue, digestOf, moveStrays, parseMonth, type LogCursor, type LogRange } from './monthLog.ts';
 import { LATEST, writeSnapshot } from './snapshot.ts';
 
 // Restore, in two phases. First everything is checked, outside any transaction: the file opens
@@ -240,15 +240,24 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
     }
   }
   const fromPhone = input.log?.months === true;
-  const months: Readonly<Record<string, number>> = fromPhone ? { months: checked.joined.length, months_missing: named - checked.joined.length } : {};
+  // words the trash wiped stay wiped: a copy made before a month file was sealed again still has them
+  const leftovers = wipedLeftovers(checked.tables, checked.tables.changes as readonly ChangeRow[]);
+  const gone = new Set(leftovers.map(l => l.id));
+  const tables: StoredRows = gone.size === 0 ? checked.tables : { ...checked.tables, changes: checked.tables.changes.filter(l => !gone.has((l as ChangeRow).id)) };
+  const detail: Readonly<Record<string, number>> = {
+    ...(fromPhone && { months: checked.joined.length, months_missing: named - checked.joined.length }),
+    ...(gone.size > 0 && { wiped_left_out: gone.size }),
+  };
   // the cursor starts over with a new gen, so a lock sealed before this can't write its files after it.
-  // The phone's own copy keeps the month files it joined: the copy's own lines begin where they end.
+  // The phone's own copy keeps the month files it joined: the copy's own lines begin where they end;
+  // a joined file that held wiped words is sealed again at the first lock.
   const lastJoined = checked.joined.reduce<number | null>((n, r) => (n === null || r.before > n ? r.before : n), null);
+  const holdsLeftover = (r: LogRange) => leftovers.some(l => typeof l.at === 'number' && r.from <= l.at && l.at < r.before);
   const cursor: LogCursor = fromPhone
-    ? { gen: core.newId(), before: checked.ownFrom ?? lastJoined, ranges: checked.joined }
-    : { gen: core.newId(), before: null, ranges: [] };
+    ? { ...NO_CURSOR, gen: core.newId(), before: checked.ownFrom ?? lastJoined, ranges: checked.joined, rewrite: checked.joined.filter(holdsLeftover).map(r => r.name) }
+    : { ...NO_CURSOR, gen: core.newId() };
   return core.serial(async () => {
-    const result = await replaceAll(core, checked.header, upgradeTables(checked.tables, checked.header.schema_version, input.schemas), replace !== undefined, months, cursor);
+    const result = await replaceAll(core, checked.header, upgradeTables(tables, checked.header.schema_version, input.schemas), replace !== undefined, detail, cursor);
     if (result.kind !== 'Restored') return result;
     // every other month file belongs to the record that was replaced: moved aside for 7 days, never deleted
     if (input.log) await moveStrays(input.log.files, new Set(cursor.ranges.map(r => r.name)), core.now()).catch(() => {});
@@ -285,7 +294,7 @@ async function becomeLatest(files: SnapshotFiles, file: Uint8Array): Promise<voi
 }
 
 /** Phase 2: one transaction that clears and adds. A failed add is never caught, so it undoes everything. */
-async function replaceAll(core: RecordCore, header: BackupHeader, tables: StoredRows, replacing: boolean, months: Readonly<Record<string, number>>, cursor: LogCursor): Promise<RestoreResult> {
+async function replaceAll(core: RecordCore, header: BackupHeader, tables: StoredRows, replacing: boolean, detail: Readonly<Record<string, number>>, cursor: LogCursor): Promise<RestoreResult> {
   const { db } = core;
   const deviceId = core.newId();
   const cleared = [...BODY_TABLES, 'wrappers', 'migrations'] as const;
@@ -300,7 +309,7 @@ async function replaceAll(core: RecordCore, header: BackupHeader, tables: Stored
       // restore runs locked, with no key to seal a line with: a plain marker waits for the next unlock,
       // and the baseline runs again for any row the file brought without a line (design §2.3)
       const rows = BODY_TABLES.reduce((n, t) => n + tables[t].length, 0);
-      await db.device.put({ key: PENDING_RESTORE, value: JSON.stringify({ schema_version: header.schema_version, rows, ...months }) });
+      await db.device.put({ key: PENDING_RESTORE, value: JSON.stringify({ schema_version: header.schema_version, rows, ...detail }) });
       await db.device.put({ key: LOG_BASELINE, value: '' });
       await db.device.put({ key: LOG_ARCHIVE, value: cursorValue(cursor) });
       return { kind: 'Restored' };

@@ -16,6 +16,9 @@ import { FORMAT_VERSION, LOG_FORMAT, frame, headerBytes, type BackupHeader, type
 // which ranges are in files (`ranges`) and where the lines the automatic copy carries begin
 // (`before`). A new line is always stamped after every stored one, so it never falls behind it.
 // What the phone's copy relies on is bound into its header: each month file's name and digest.
+// When the trash wipes words a month file holds (D-33), that file is sealed again from the database
+// under a new name; the old one is removed once a latest naming the new one is on disk, so the
+// phone's copy never names a file that is gone.
 
 export const LOG_DIR = 'backup/log';
 /** Device row: the cursor, as JSON. */
@@ -39,31 +42,54 @@ export interface LogCursor {
   /** lines with `at` before this are in month files; null: none are */
   readonly before: number | null;
   readonly ranges: readonly LogRange[];
+  /** listed files that still hold words the trash wiped: each is sealed again under a new name */
+  readonly rewrite: readonly string[];
+  /** files a rewrite replaced: removed once a latest naming their replacements is written */
+  readonly retired: readonly string[];
 }
 
-const NO_CURSOR: LogCursor = { gen: '', before: null, ranges: [] };
+export const NO_CURSOR: LogCursor = { gen: '', before: null, ranges: [], rewrite: [], retired: [] };
+
+const names = (x: unknown): readonly string[] | undefined =>
+  x === undefined ? [] : Array.isArray(x) && x.every(s => typeof s === 'string') ? x : undefined;
 
 export function parseCursor(raw: unknown): LogCursor {
   if (typeof raw !== 'string') return NO_CURSOR;
   try {
     const c = JSON.parse(raw) as Partial<LogCursor>;
     const ranges = Array.isArray(c.ranges) && c.ranges.every(r => typeof r?.name === 'string' && typeof r.from === 'number' && typeof r.before === 'number' && typeof r.sha256 === 'string') ? c.ranges : undefined;
-    if (typeof c.gen !== 'string' || !(c.before === null || typeof c.before === 'number') || !ranges) return NO_CURSOR;
-    return { gen: c.gen, before: c.before, ranges };
+    const rewrite = names(c.rewrite), retired = names(c.retired);
+    if (typeof c.gen !== 'string' || !(c.before === null || typeof c.before === 'number') || !ranges || !rewrite || !retired) return NO_CURSOR;
+    return { gen: c.gen, before: c.before, ranges, rewrite, retired };
   } catch {
     return NO_CURSOR;
   }
 }
 
-export const cursorValue = (c: LogCursor): string => JSON.stringify({ gen: c.gen, before: c.before, ranges: c.ranges });
+export const cursorValue = (c: LogCursor): string =>
+  JSON.stringify({ gen: c.gen, before: c.before, ranges: c.ranges, rewrite: c.rewrite, retired: c.retired });
 
-/** A month file sealed at lock, waiting to be written once the keys are gone. */
-export interface SealedMonth {
-  readonly range: LogRange;
-  readonly bytes: Uint8Array;
-  /** a new range of lines, or one whose file had gone and was made again */
-  readonly kind: 'archive' | 'rebuild';
+/** Inside a wipe's transaction: the listed month files holding a line at any of these times are to be sealed again. */
+export async function markRewrite(db: RecordDb, ats: readonly number[]): Promise<void> {
+  const c = parseCursor((await db.device.get(LOG_ARCHIVE))?.value);
+  const add = c.ranges.filter(r => !c.rewrite.includes(r.name) && ats.some(at => r.from <= at && at < r.before)).map(r => r.name);
+  if (add.length > 0) await db.device.put({ key: LOG_ARCHIVE, value: cursorValue({ ...c, rewrite: [...c.rewrite, ...add] }) });
 }
+
+/** Month work a lock does even when nothing changed: a file still holding wiped words, or a replaced file still there. */
+export async function monthsPending(db: RecordDb): Promise<boolean> {
+  const c = parseCursor((await db.device.get(LOG_ARCHIVE))?.value);
+  return c.retired.length > 0 || c.rewrite.some(name => c.ranges.some(r => r.name === name));
+}
+
+/**
+ * A month file sealed at lock, waiting to be written once the keys are gone: a new range of lines, one
+ * whose file had gone and was made again, or one sealed again without wiped words. Or a range the
+ * trash left with no lines at all: dropped, its file removed like a replaced one.
+ */
+export type SealedMonth =
+  | { readonly kind: 'archive' | 'rebuild' | 'rewrite'; readonly range: LogRange; readonly bytes: Uint8Array; readonly replaces?: string }
+  | { readonly kind: 'drop'; readonly replaces: string };
 
 /** The month work of one lock, filled in as it is sealed, so a lock past its time still keeps what finished. */
 export interface MonthWork {
@@ -82,8 +108,9 @@ const byId = (a: ChangeRow, b: ChangeRow) => (a.id < b.id ? -1 : a.id > b.id ? 1
 
 /**
  * At a lock that seals a snapshot: seals up to three month files (first any listed file that has gone,
- * then the finished app months not yet in a file, oldest first), and says where the snapshot's lines
- * start and which files its header names, as they will be once these are written.
+ * then any that still holds wiped words, then the finished app months not yet in a file, oldest
+ * first), and says where the snapshot's lines start and which files its header names, as they will be
+ * once these are written.
  */
 export async function sealMonths(db: RecordDb, session: Session, files: SnapshotFiles, now: number, options: BackupOptions, work: MonthWork): Promise<{ readonly from: number; readonly files: readonly LogFile[] }> {
   const raw = (await db.device.get(LOG_ARCHIVE))?.value;
@@ -97,16 +124,42 @@ export async function sealMonths(db: RecordDb, session: Session, files: Snapshot
     return { from: -Infinity, files: [] };                  // nothing can be vouched for: the snapshot carries every line
   }
   let budget = MONTHS_A_LOCK;
-  const ranges = new Map(base.ranges.map(r => [r.name, r]));
+  let ranges = new Map(base.ranges.map(r => [r.name, r]));
+  const linesOf = async (r: LogRange) => (await db.changes.where('at').between(r.from, r.before, true, false).toArray()).sort(byId);
   let unbuilt = Infinity;                                   // the oldest listed range still missing after this lock
   for (const r of base.ranges.filter(r => !names.has(r.name)).sort((a, b) => a.from - b.from)) {
     if (budget === 0) { unbuilt = Math.min(unbuilt, r.from); continue; }
     budget--;
-    const lines = (await db.changes.where('at').between(r.from, r.before, true, false).toArray()).sort(byId);
+    const lines = await linesOf(r);
+    if (lines.length === 0) {
+      ranges.delete(r.name);
+      work.sealed.push({ kind: 'drop', replaces: r.name });
+      continue;
+    }
     const sealed = await sealLines(db, session, lines, options);
     const range: LogRange = { ...r, sha256: sealed.sha256 };
     ranges.set(r.name, range);
     work.sealed.push({ range, bytes: sealed.bytes, kind: 'rebuild' });
+  }
+  // files still holding wiped words: sealed again from the database, which no longer has them, under a
+  // new name, so the file the last latest names stays exactly as it was until a new latest is written
+  const taken = new Set([...names, ...ranges.keys(), ...base.retired]);
+  for (const name of base.rewrite) {
+    const r = ranges.get(name);
+    if (budget === 0 || !r || !names.has(name)) continue;  // one that has gone was just made again from the database
+    budget--;
+    const lines = await linesOf(r);
+    if (lines.length === 0) {                               // the wiped words were all it held
+      ranges.delete(name);
+      work.sealed.push({ kind: 'drop', replaces: name });
+      continue;
+    }
+    const sealed = await sealLines(db, session, lines, options);
+    const fresh = freeName(name.slice(0, 7), taken);
+    taken.add(fresh);
+    const range: LogRange = { ...r, name: fresh, sha256: sealed.sha256 };
+    ranges = new Map([...ranges].map(([k, v]) => (k === name ? [fresh, range] : [k, v])));
+    work.sealed.push({ range, bytes: sealed.bytes, kind: 'rewrite', replaces: name });
   }
   // the finished months not yet in a file: under one day rule a later instant is never in an earlier
   // month, so each month's end is found by a binary search, a dozen date lookups, not one per line
@@ -117,7 +170,6 @@ export async function sealMonths(db: RecordDb, session: Session, files: Snapshot
   if (budget > 0 && first?.at !== undefined && monthOf(first.at) < current) {
     // whole rows, oldest first: reading only the keys is far slower in some stores
     const since = await db.changes.where('at').aboveOrEqual(before ?? -Infinity).toArray();
-    const taken = new Set([...names, ...ranges.keys()]);
     for (let i = 0; budget > 0 && i < since.length && monthOf(since[i]?.at ?? 0) < current; budget--) {
       const month = monthOf(since[i]?.at ?? 0);
       let lo = i + 1, hi = since.length;                    // since[i..lo) are this month or earlier
@@ -184,13 +236,22 @@ export function parseMonth(bytes: Uint8Array): readonly ChangeRow[] {
 /**
  * After the lock, in the write queue: writes the sealed month files in order, through tmp/, and
  * stops at the first that fails; puts the cursor past those written; moves aside any file the
- * cursor doesn't list. Returns whether all were written. The caller has checked that no restore came
- * between (the cursor row is still what was read at sealing).
+ * cursor neither lists nor waits to remove. Returns whether all were written. The caller has checked
+ * that no restore came between (the cursor row is still what was read at sealing).
  */
 export async function writeMonths(core: RecordCore, files: SnapshotFiles, work: MonthWork, sealed: readonly SealedMonth[]): Promise<boolean> {
   let cursor = work.base;
   let all = true;
   for (const m of sealed) {
+    if (m.kind === 'drop') {
+      cursor = {
+        ...cursor,
+        ranges: cursor.ranges.filter(r => r.name !== m.replaces),
+        rewrite: cursor.rewrite.filter(n => n !== m.replaces),
+        retired: [...cursor.retired, m.replaces],
+      };
+      continue;
+    }
     try {
       await files.write(TMP, m.bytes);
       await files.rename(TMP, `${LOG_DIR}/${m.range.name}`);
@@ -198,15 +259,41 @@ export async function writeMonths(core: RecordCore, files: SnapshotFiles, work: 
       all = false;
       break;
     }
-    cursor = {
-      gen: cursor.gen,
-      before: m.kind === 'archive' ? m.range.before : cursor.before,
-      ranges: m.kind === 'archive' ? [...cursor.ranges, m.range] : cursor.ranges.map(r => (r.name === m.range.name ? m.range : r)),
-    };
+    const old = m.replaces ?? m.range.name;
+    cursor = m.kind === 'archive'
+      ? { ...cursor, before: m.range.before, ranges: [...cursor.ranges, m.range] }
+      : {
+        ...cursor,
+        ranges: cursor.ranges.map(r => (r.name === old ? m.range : r)),
+        // made from the database, so either way the file holds no wiped words now
+        rewrite: cursor.rewrite.filter(n => n !== old),
+        retired: m.kind === 'rewrite' ? [...cursor.retired, old] : cursor.retired,
+      };
   }
   if (cursor !== work.base) await core.db.device.put({ key: LOG_ARCHIVE, value: cursorValue(cursor) });
-  await moveStrays(files, new Set(cursor.ranges.map(r => r.name)), core.now()).catch(() => {});
+  await moveStrays(files, new Set([...cursor.ranges.map(r => r.name), ...cursor.retired]), core.now()).catch(() => {});
   return all;
+}
+
+/**
+ * Right after a latest naming their replacements is written, in the same write-queue turn: removes the
+ * files rewrites replaced (they may hold wiped words, so they are not kept aside) and drops them from
+ * the cursor. One that can't be removed stays listed, and the next lock tries again.
+ */
+export async function removeRetired(core: RecordCore, files: SnapshotFiles): Promise<void> {
+  const c = parseCursor((await core.db.device.get(LOG_ARCHIVE))?.value);
+  if (c.retired.length === 0) return;
+  const there = new Set(await files.list(LOG_DIR));
+  const left: string[] = [];
+  for (const name of c.retired) {
+    if (!there.has(name)) continue;
+    try {
+      await files.remove(`${LOG_DIR}/${name}`);
+    } catch {
+      left.push(name);
+    }
+  }
+  await core.db.device.put({ key: LOG_ARCHIVE, value: cursorValue({ ...c, retired: left }) });
 }
 
 /** Moves every month file not in `keep` to log-replaced/ (pruned after 7 days, like the safety copies); never deletes one. */

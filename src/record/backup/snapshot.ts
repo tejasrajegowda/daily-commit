@@ -4,7 +4,7 @@ import type { SnapshotFiles } from '../files.ts';
 import { appDay } from '../time.ts';
 import { sealBackup, type BackupOptions } from './export.ts';
 import { readFrame } from './format.ts';
-import { monthWork, sealMonths, type MonthWork } from './monthLog.ts';
+import { monthWork, monthsPending, sealMonths, type MonthWork } from './monthLog.ts';
 
 // The automatic copy. Each time the app locks after a change, one whole backup goes to
 // backup/latest.dcbak, which Android's own backup carries with the month files in backup/log/.
@@ -43,13 +43,14 @@ function madeAt(file: Uint8Array | undefined): number | undefined {
  * Seals a snapshot if anything changed since the last one, or returns undefined. Runs inside the
  * lock's turn in the write queue, while the keys are still in memory. "Changed" is a write stored
  * in this session (the stamps alone miss one made after the clock was set back), or a newest stamp
- * later than the last snapshot (a write whose snapshot failed in an earlier session). The month
+ * later than the last snapshot (a write whose snapshot failed in an earlier session), or month work
+ * still to finish (a file holding wiped words; latest names the file that replaces it). The month
  * files are sealed first, into `work`, so a lock that runs out of time still keeps those.
  */
 export async function sealSnapshot(db: RecordDb, session: Session, files: SnapshotFiles, now: number, options: BackupOptions, work: MonthWork = monthWork()): Promise<SealedSnapshot | undefined> {
   const previous = await files.read(LATEST);
   const previousAt = madeAt(previous);
-  if (previousAt !== undefined && !session.changed && (session.lastWriteMs ?? 0) <= previousAt) return undefined;
+  if (previousAt !== undefined && !session.changed && (session.lastWriteMs ?? 0) <= previousAt && !(await monthsPending(db))) return undefined;
   const log = await sealMonths(db, session, files, now, options, work);
   const { bytes, header } = await sealBackup(db, session, now, options, log);
   const rule = session.model.settings;
