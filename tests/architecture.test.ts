@@ -183,6 +183,17 @@ describe('the change log', () => {
       } else assert.equal(made, 0, `${rel(f)} tombstones a page or a Not yet item`);
     }
   });
+  it('only deleting a reminder makes its tombstone, since one wipes its words from the log (D-35)', () => {
+    for (const f of all) {
+      const src = readFileSync(f, 'utf8');
+      const made = [...src.matchAll(/tombstone\(\s*cueToParts\b/g)].length;
+      if (rel(f) === 'record/ops/cues.ts') {
+        assert.equal(made, 1);
+        assert.ok(/export function deleteCue[\s\S]*tombstone\(cueToParts/.test(src), 'inside deleteCue');
+        assert.equal([...src.matchAll(/tombstone\(/g)].length, 1, 'and nowhere else in the file');
+      } else assert.equal(made, 0, `${rel(f)} tombstones a reminder`);
+    }
+  });
   it('nothing outside record/ imports it', () => {
     for (const f of all.filter(f => area(f) !== 'record')) {
       for (const spec of imports(f)) assert.ok(!/\/changes\.ts$/.test(spec), `${rel(f)} imports ${spec}`);

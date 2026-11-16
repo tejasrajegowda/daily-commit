@@ -14,8 +14,9 @@ import { markRewrite } from './backup/monthLog.ts';
 // value was, what it became, when the row was first logged, when it changed, and on which device.
 // Lines are only ever added, inside the same transaction as the change, and never shown on screen
 // (§8 #22). A field that ever sat under the words key is logged under the words key, so the record
-// key alone never opens words, past or present. The one exception to "only added" is the trash
-// (D-33): when it wipes an item's words, the log's copies of them go in the same write.
+// key alone never opens words, past or present. The one exception to "only added" is a delete for
+// good (D-33, D-35): when the trash wipes an item's words, or a reminder is deleted, the log's copies
+// of its words go in the same write.
 
 export const CHANGE_LINE_VERSION = 1;
 
@@ -49,9 +50,12 @@ const isSynced = (table: string): table is LockedTable => (SYNCED as readonly st
 /** The tables the trash empties: only its 7-day sweep leaves a tombstone there. */
 const TRASH_TABLES: readonly string[] = ['entries', 'notyet'];
 
-/** Whether a row is one the trash wiped: no line about it keeps words (D-33). */
+/** The tables whose tombstone is a delete for good: the trash's, and reminders, which have no trash (D-35). */
+const WIPE_TABLES: readonly string[] = [...TRASH_TABLES, 'cues'];
+
+/** Whether a row was deleted for good: no line about it keeps words (D-33, D-35). */
 export const isWiped = (table: string, row: Readonly<Record<string, unknown>>): boolean =>
-  TRASH_TABLES.includes(table) && row.deleted_at !== undefined;
+  WIPE_TABLES.includes(table) && row.deleted_at !== undefined;
 
 /** A stored row's primary key, in the shape the table looks it up by. */
 function keyOf(table: LockedTable, row: Readonly<Record<string, unknown>>): unknown {
@@ -177,7 +181,7 @@ export const withLog = <T extends string>(tables: readonly T[]): readonly (T | '
   tables.includes('changes' as T) ? tables : [...tables, 'changes'];
 
 
-// ─── the trash's wipe (D-33) ───
+// ─── the wipe of a delete for good: the trash's (D-33), a reminder's (D-35) ───
 
 /** A wiped row's lines under the words key, as read before the write's transaction. */
 export interface Wipe {
@@ -212,7 +216,8 @@ export async function wipeRows(input: LogInput): Promise<{ readonly wipes: reado
     seen.add(ref);
     const words = await wordLines(db, ref);
     const stored = (await db.table(table).get(keyOf(table, next) as never)) as Record<string, unknown> | undefined;
-    if (words.length === 0 && (stored === undefined || stored.deleted_at !== undefined)) continue;   // nothing was there to wipe
+    // nothing was there to wipe; a reminder holds words only while private, and then it has words lines
+    if (words.length === 0 && (stored === undefined || stored.deleted_at !== undefined || !TRASH_TABLES.includes(table))) continue;
     wipes.push({ ref, ids: words.map(l => l.id), ats: words.flatMap(l => (typeof l.at === 'number' ? [l.at] : [])), all: true });
     lines.push(await soloLine(cipher, input.newId(), {
       v: CHANGE_LINE_VERSION, kind: 'wiped', ref, table, changed_at: stamp.updated_at, device: stamp.updated_by, detail: { lines: words.length },
@@ -236,12 +241,12 @@ export async function wipeLines(db: RecordDb, wipes: readonly Wipe[]): Promise<v
 }
 
 /**
- * The lines a backup still holds under the words key about rows it says the trash wiped: a copy made
+ * The lines a backup still holds under the words key about rows it says were deleted for good: a copy made
  * before a month file was sealed again carries them. A restore leaves them out, so a wipe stays a wipe.
  */
 export function wipedLeftovers(tables: Readonly<Record<string, readonly unknown[]>>, lines: readonly ChangeRow[]): ChangeRow[] {
   const wiped = new Set<string>();
-  for (const table of TRASH_TABLES) {
+  for (const table of WIPE_TABLES) {
     for (const row of (tables[table] ?? []) as readonly Record<string, unknown>[]) {
       if (isWiped(table, row)) wiped.add(refOf(table as LockedTable, plainOf(table as LockedTable, row)));
     }
@@ -249,26 +254,29 @@ export function wipedLeftovers(tables: Readonly<Record<string, readonly unknown[
   return wiped.size === 0 ? [] : lines.filter(l => l.w !== undefined && l.ref !== undefined && wiped.has(l.ref));
 }
 
-/** Device row: whether the record has been checked for words the trash wiped; a restore clears it. */
+/** Device row: whether the record has been checked for words a delete for good wiped; a restore clears it. */
 export const LOG_WIPE_CHECK = 'log_wipe_check';
+
+/** Its value once checked. It names the tables checked, so a table joining the rule is checked once more. */
+export const LOG_WIPE_CHECKED = `done:${WIPE_TABLES.join(',')}`;
 
 /**
  * Once after an upgrade and at the first unlock after any restore, with the keys open: wipes the words
- * lines the trash's promise says are gone but the record still holds. Those of a tombstoned page or
- * item (wiped by a build from before the log followed the trash, or brought by a copy made before
+ * lines a delete for good says are gone but the record still holds. Those of a tombstoned page, item
+ * or reminder (deleted by a build from before the log followed it, or brought by a copy made before
  * its month file was cleaned), and any older than a `wiped` line about the same row (an id saved
  * again after its wipe, which no row state shows). One write, through the sweep's own wipe, so the
  * month files holding them are marked too. Returns how many rows it cleaned.
  */
 export async function cleanWiped(core: RecordCore): Promise<number> {
   const { db } = core;
-  if ((await db.device.get(LOG_WIPE_CHECK))?.value === 'done') return 0;
+  if ((await db.device.get(LOG_WIPE_CHECK))?.value === LOG_WIPE_CHECKED) return 0;
   const result = await core.write({
     tables: ['changes'],
     async prepare(s, stamp) {
       const tombstoned = new Set<string>();
       const lines: ChangeRow[] = [];
-      for (const table of TRASH_TABLES) {
+      for (const table of WIPE_TABLES) {
         for (const row of (await db.table(table).toArray()) as Record<string, unknown>[]) {
           if (isWiped(table, row)) tombstoned.add(refOf(table as LockedTable, plainOf(table as LockedTable, row)));
         }
@@ -303,7 +311,7 @@ export async function cleanWiped(core: RecordCore): Promise<number> {
     },
   });
   if (result.kind !== 'Saved') return 0;                   // locked or full: the next unlock tries again
-  await db.device.put({ key: LOG_WIPE_CHECK, value: 'done' });
+  await db.device.put({ key: LOG_WIPE_CHECK, value: LOG_WIPE_CHECKED });
   return result.value;
 }
 

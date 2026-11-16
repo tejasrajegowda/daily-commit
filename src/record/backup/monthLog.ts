@@ -42,7 +42,7 @@ export interface LogCursor {
   /** lines with `at` before this are in month files; null: none are */
   readonly before: number | null;
   readonly ranges: readonly LogRange[];
-  /** listed files that still hold words the trash wiped: each is sealed again under a new name */
+  /** listed files that still hold words a delete for good wiped: each is sealed again under a new name */
   readonly rewrite: readonly string[];
   /** files a rewrite replaced: removed once a latest naming their replacements is written */
   readonly retired: readonly string[];

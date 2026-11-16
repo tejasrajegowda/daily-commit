@@ -290,11 +290,12 @@ test('a month file is never taken for a backup, nor a backup for a month file', 
 
 const FAILS = ['', 'write tmp/month.dclog', 'rename tmp/month.dclog', 'write tmp/snapshot.dcbak', 'rename tmp/snapshot.dcbak', 'remove backup/log'] as const;
 
-/** Words lines still stored about a page or a Not yet item the trash wiped: always none. */
+/** Words lines still stored about a page, a Not yet item or a reminder deleted for good: always none. */
 async function wipedWords(db: RecordDb): Promise<number> {
   const refs = new Set([
     ...(await db.entries.toArray()).filter(r => r.deleted_at !== undefined).map(r => `entries|${r.id}`),
     ...(await db.notyet.toArray()).filter(r => r.deleted_at !== undefined).map(r => `notyet|${r.id}`),
+    ...(await db.cues.toArray()).filter(r => r.deleted_at !== undefined).map(r => `cues|${r.id}`),
   ]);
   return (await db.changes.toArray()).filter(l => l.w !== undefined && l.ref !== undefined && refs.has(l.ref)).length;
 }

@@ -240,7 +240,7 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
     }
   }
   const fromPhone = input.log?.months === true;
-  // words the trash wiped stay wiped: a copy made before a month file was sealed again still has them
+  // words a delete for good wiped stay wiped: a copy made before a month file was sealed again still has them
   const leftovers = wipedLeftovers(checked.tables, checked.tables.changes as readonly ChangeRow[]);
   const gone = new Set(leftovers.map(l => l.id));
   const tables: StoredRows = gone.size === 0 ? checked.tables : { ...checked.tables, changes: checked.tables.changes.filter(l => !gone.has((l as ChangeRow).id)) };

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { openRecord, type RecordCore } from '../../src/record/core.ts';
 import type { RecordDb } from '../../src/record/db.ts';
 import type { ChangeRow } from '../../src/record/rows.ts';
-import { LOG_WIPE_CHECK, openLine, wipeLines, type ChangeLine } from '../../src/record/changes.ts';
-import { entryToParts } from '../../src/record/mapping.ts';
+import { LOG_WIPE_CHECK, LOG_WIPE_CHECKED, openLine, wipeLines, type ChangeLine } from '../../src/record/changes.ts';
+import { cueToParts, entryToParts } from '../../src/record/mapping.ts';
 import { tombstone } from '../../src/record/ops/common.ts';
+import { deleteCue, saveCue, type CueSave } from '../../src/record/ops/cues.ts';
 import { saveEntry, saveNotYet, sweepTrash, trashEntry, trashNotYet } from '../../src/record/ops/words.ts';
 import { exportBackup } from '../../src/record/backup/export.ts';
 import { LOG_FORMAT, readFrame } from '../../src/record/backup/format.ts';
@@ -274,7 +275,7 @@ test('a page an earlier build wiped (tombstone kept, its words lines not) is cle
   assert.deepEqual(await wordIds(db, PAGE), []);
   const lines = await opened(core, await linesOf(db, PAGE));
   assert.deepEqual(lines.filter(l => l.kind === 'wiped').map(l => l.detail), [{ lines: words.length }]);
-  assert.equal((await db.device.get(LOG_WIPE_CHECK))?.value, 'done');
+  assert.equal((await db.device.get(LOG_WIPE_CHECK))?.value, LOG_WIPE_CHECKED);
   await core.lock();
   await reopen(core);
   assert.equal((await opened(core, await linesOf(db, PAGE))).filter(l => l.kind === 'wiped').length, 1, 'once');
@@ -320,7 +321,7 @@ test('"replace everything" with a file still holding wiped words: the record get
   assert.equal(await close(core, m), 'written');
   // a record as a build from before the log followed the trash left it: the tombstone, its words lines kept
   await db.entries.put(tombstone(entryToParts({ id: 'p-gone', date: '2026-01-06', body: '' }), { updated_at: clock.now(), updated_by: 'CANARY-device' }) as never);
-  await db.device.put({ key: LOG_WIPE_CHECK, value: 'done' });
+  await db.device.put({ key: LOG_WIPE_CHECK, value: LOG_WIPE_CHECKED });
   await reopen(core);
   const made = await exportBackup(core, { appVersion: '0.1.0' });
   if (made.kind !== 'Saved') throw new Error(made.kind);
@@ -338,6 +339,69 @@ test('a wipe whose lines changed after they were read aborts the whole write', a
   const before = await db.changes.count();
   await assert.rejects(db.transaction('rw', [db.changes, db.device], () => wipeLines(db, [{ ref: PAGE, ids: ['CANARY-not-there'], ats: [], all: true }])), /the log changed/);
   assert.equal(await db.changes.count(), before);
+});
+
+// A reminder has no trash: deleting one is for good, so a private one's words leave the log at once (D-35).
+
+const REMINDER = 'cues|c-gone';
+const reminder = (text: string, isPrivate: boolean): CueSave =>
+  ({ id: 'c-gone', habitId: null, kind: 'checkin', text, times: { at: [600] }, enabled: true, private: isPrivate });
+
+/** A private reminder, its words lines kept, as a build from before D-35 left it once deleted. Open. */
+async function deletedBeforeTheRule(checked: string) {
+  const t = await filledRecord();
+  await must(saveCue(t.core, reminder('CANARY-TEST', true)));
+  const cue = t.core.session?.model.cues.get('c-gone');
+  assert.ok(cue);
+  await t.core.lock();
+  await t.db.cues.put(tombstone(cueToParts(cue), { updated_at: t.clock.now(), updated_by: 'CANARY-device' }) as never);
+  await t.db.device.put({ key: LOG_WIPE_CHECK, value: checked });
+  await reopen(t.core);
+  return t;
+}
+
+test('a private reminder deleted: its words lines go in the delete\'s own write, its other lines stay, and one `wiped` line says how many', async () => {
+  const { core, db, clock } = await filledRecord();
+  await must(saveCue(core, reminder('CANARY-TEST one', true)));
+  clock.advance(60_000);
+  await must(saveCue(core, reminder('CANARY-TEST two', true)));
+  const before = await linesOf(db, REMINDER);
+  assert.equal(before.filter(l => l.w !== undefined).length, 2);
+  clock.advance(60_000);
+  await must(deleteCue(core, { id: 'c-gone' }));
+  const after = await linesOf(db, REMINDER);
+  assert.deepEqual(after.filter(l => l.w !== undefined), []);
+  for (const l of before.filter(l => l.r !== undefined)) assert.ok(after.some(a => a.id === l.id), 'its other lines stay');
+  const lines = await opened(core, after);
+  assert.deepEqual(lines.filter(l => l.kind === 'wiped').map(l => l.detail), [{ lines: 2 }]);
+  assert.ok(lines.every(l => !JSON.stringify(l).includes('CANARY-TEST')), 'no line left about it holds its words');
+});
+
+test('a reminder that was never private had no words to wipe: deleting it adds no `wiped` line', async () => {
+  const { core, db } = await filledRecord();
+  await must(saveCue(core, reminder('Stand up', false)));
+  await must(deleteCue(core, { id: 'c-gone' }));
+  const lines = await opened(core, await linesOf(db, REMINDER));
+  assert.deepEqual(lines.map(l => l.kind).sort(), ['create', 'delete']);
+});
+
+test('a reminder deleted before its words followed it is cleaned at the next unlock, though the check had already run for the trash', async () => {
+  const { core, db } = await deletedBeforeTheRule('done');
+  assert.deepEqual(await wordIds(db, REMINDER), []);
+  const lines = await opened(core, await linesOf(db, REMINDER));
+  assert.deepEqual(lines.filter(l => l.kind === 'wiped').map(l => l.detail), [{ lines: 1 }]);
+  assert.equal((await db.device.get(LOG_WIPE_CHECK))?.value, LOG_WIPE_CHECKED);
+});
+
+test('restoring a copy that still holds a deleted reminder\'s words leaves them out', async () => {
+  const { core, db, clock } = await deletedBeforeTheRule(LOG_WIPE_CHECKED);
+  assert.equal((await wordIds(db, REMINDER)).length, 1, 'the copy is made with them still there');
+  const made = await exportBackup(core, { appVersion: '0.1.0' });
+  if (made.kind !== 'Saved') throw new Error(made.kind);
+  const b = freshDb();
+  const bCore = openRecord({ db: b, now: clock.now });
+  assert.deepEqual(await restore(bCore, { file: made.value.bytes, secret: PASS, backupCipher: guardedBackup(stubBackup()) }), { kind: 'Restored' });
+  assert.deepEqual(await wordIds(b, REMINDER), []);
 });
 
 test('a manual export after the wipe holds none of the wiped lines', async () => {
