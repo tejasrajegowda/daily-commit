@@ -388,9 +388,12 @@ test('the recorded values: timings listed, "asked twice" only with the page and 
 });
 
 test('the run\'s arguments: a shorter owner wait only in the dry run; nothing else is taken', () => {
-  assert.deepEqual(parseArgs([]), { from: 'P3', dryRun: false, ownerWaitMs: 300_000 });
-  assert.deepEqual(parseArgs(['--from', 'P5']), { from: 'P5', dryRun: false, ownerWaitMs: 300_000 });
-  assert.deepEqual(parseArgs(['--dry-run', '--owner-wait', '20']), { from: 'P3', dryRun: true, ownerWaitMs: 20_000 });
+  assert.deepEqual(parseArgs([]), { from: 'P3', dryRun: false, tablet: false, ownerWaitMs: 300_000 });
+  assert.deepEqual(parseArgs(['--from', 'P5']), { from: 'P5', dryRun: false, tablet: false, ownerWaitMs: 300_000 });
+  assert.deepEqual(parseArgs(['--dry-run', '--owner-wait', '20']), { from: 'P3', dryRun: true, tablet: false, ownerWaitMs: 20_000 });
+  assert.deepEqual(parseArgs(['--tablet']), { from: 'P3', dryRun: false, tablet: true, ownerWaitMs: 300_000 });
+  assert.equal(parseArgs(['--tablet', '--dry-run']), undefined, 'the emulator has no Tests user');
+  assert.equal(parseArgs(['--tablet', '--owner-wait', '20']), undefined);
   assert.equal(parseArgs(['--owner-wait', '20']), undefined);
   assert.equal(parseArgs(['--from', 'P9']), undefined);
   assert.equal(parseArgs(['--serial', 'emulator-5554']), undefined);

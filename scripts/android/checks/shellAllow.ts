@@ -53,6 +53,60 @@ export function shellKind(command: string): ShellKind {
   return 'refused';
 }
 
+// ─── the tablet's Tests user (D-36) ───
+// On the tablet everything runs in Android user 10, the Tests user. The commands that address a user
+// (or every user) when none is named go there only in a form that names user 10.
+
+export const TESTS_USER = 10;
+
+/** What the tablet answers when the Tests user was not the one on screen: the command did not run. */
+export const NOT_TESTS_USER = 'DC-NOT-TESTS-USER';
+
+/** The tablet stops: the Tests user is not on screen. A Refused, so a run stops on it as on any refusal. */
+export class NotTestsUser extends Refused {
+  constructor() {
+    super('the Tests user is not the one on screen');
+    this.name = 'NotTestsUser';
+  }
+}
+
+/** `command`, run on the tablet only while the Tests user is the one on screen: the check and the command are one shell call. */
+export function inTestsUser(command: string): string {
+  return `if [ "$(am get-current-user)" = ${TESTS_USER} ]; then ${command}; else echo ${NOT_TESTS_USER}; fi`;
+}
+
+/** The invented long file, in the Tests user's own storage. */
+export const TESTS_LONG_REMOTE = `/storage/emulated/${TESTS_USER}/Download/dc-3year.dcbak`;
+
+/** The phone's user-addressing commands and their Tests-user forms. */
+const TESTS_FORMS: ReadonlyMap<string, string> = new Map([
+  [`am start -n ${APP}/.MainActivity`, `am start --user ${TESTS_USER} -n ${APP}/.MainActivity`],
+  [`am start -W -n ${APP}/.MainActivity`, `am start --user ${TESTS_USER} -W -n ${APP}/.MainActivity`],
+  [`am force-stop ${APP}`, `am force-stop --user ${TESTS_USER} ${APP}`],
+  [`pm path ${APP}`, `pm path --user ${TESTS_USER} ${APP}`],
+  ['settings get secure default_input_method', `settings --user ${TESTS_USER} get secure default_input_method`],
+  [SCAN_LONG, `content call --user ${TESTS_USER} --uri content://media --method scan_file --arg ${TESTS_LONG_REMOTE}`],
+]);
+const FROM_TESTS_FORM: ReadonlyMap<string, string> = new Map([...TESTS_FORMS].map(([base, form]) => [form, base]));
+
+/** Clears the Tests user's copy of the app's data only. On the tablet lane alone. */
+export const CLEAR_TESTS_DATA = `pm clear --user ${TESTS_USER} ${APP}`;
+
+/** The command as the tablet sends it: a user-addressing one in its Tests-user form, any other as it is. */
+export function forTestsUser(command: string): string {
+  return TESTS_FORMS.get(command.trim()) ?? command;
+}
+
+/** shellKind on the tablet: a user-addressing command only in its Tests-user form; its bare form is refused. */
+export function testsShellKind(command: string): ShellKind {
+  const c = command.trim();
+  if (c === CLEAR_TESTS_DATA) return 'anywhere';
+  const base = FROM_TESTS_FORM.get(c);
+  if (base !== undefined) return shellKind(base);
+  if (TESTS_FORMS.has(c)) return 'refused';
+  return shellKind(c);
+}
+
 const FOCUS_APP = String.raw`[ {]app\.dailycommit/`;
 const FOCUS_PROMPT = 'BiometricPrompt|ConfirmDeviceCredential|ConfirmLock';
 

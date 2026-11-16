@@ -3,6 +3,8 @@
 // wait of at most 5 minutes, then "not done". Only the plan's Recorded items are printed and logged to
 // .local/android/phone-<stamp>.log: numbers, yes/no, the keyboard's name. Never the phone's serial.
 // npm run phone:checks
+// npm run phone:checks -- --tablet   (the tablet's Tests user only, through the tablet lane; its copy of the app's
+//                                     data is cleared first; install it there with npm run phone -- --tests)
 // npm run phone:checks -- --dry-run [--owner-wait 20]   (the dc- test emulator, started and stopped here)
 // `--from P<n>` is refused before the phone is touched: a resumed run would skip the opening check.
 // In the dry run a stand-in (standin.ts) does the owner's part at the file picker and answers the owner's questions
@@ -14,19 +16,21 @@ import { adbOnTestPhone, driver, pause } from '../drive.ts';
 import { startEmulator, stopEmulator } from '../emulator.ts';
 import { runSync } from '../proc.ts';
 import { isDcTestPhone } from '../smoke.ts';
-import { DRY_RUN_SERIAL, guardedPhone, NOT_IN_APP, NotInApp, phoneTarget, Refused, type Adb } from './guard.ts';
+import { DRY_RUN_SERIAL, guardedPhone, NOT_IN_APP, NotInApp, phoneTarget, Refused, tabletAdb, type Adb } from './guard.ts';
 import { LONG_FILE } from './long.ts';
 import { answerOf, ITEMS, NOT_TEST_RECORD, phoneMayRun, RUN, STEPS, type ItemKey, type Owner, type PCtx, type StandIn, type Step } from './p.ts';
+import { CLEAR_TESTS_DATA } from './shellAllow.ts';
 import { dryRunStandIn } from './standin.ts';
 
 export const OWNER_WAIT_MS = 5 * 60_000;
 
-export interface SittingArgs { readonly from: Step; readonly dryRun: boolean; readonly ownerWaitMs: number }
+export interface SittingArgs { readonly from: Step; readonly dryRun: boolean; readonly tablet: boolean; readonly ownerWaitMs: number }
 
-/** `--from P<n>`, `--dry-run`, and `--owner-wait <seconds>` (the dry run only). Anything else is refused. */
+/** `--from P<n>`, `--dry-run` or `--tablet`, and `--owner-wait <seconds>` (the dry run only). Anything else is refused. */
 export function parseArgs(argv: readonly string[]): SittingArgs | undefined {
   let from: Step = 'P3';
   let dryRun = false;
+  let tablet = false;
   let ownerWaitMs = OWNER_WAIT_MS;
   let waitGiven = false;
   for (let i = 0; i < argv.length; i++) {
@@ -35,6 +39,8 @@ export function parseArgs(argv: readonly string[]): SittingArgs | undefined {
     if (a === '--from' && v !== undefined && (STEPS as readonly string[]).includes(v)) {
       from = v as Step;
       i++;
+    } else if (a === '--tablet') {
+      tablet = true;
     } else if (a === '--dry-run') {
       dryRun = true;
     } else if (a === '--owner-wait' && v !== undefined && /^\d{1,3}$/.test(v) && Number(v) >= 5) {
@@ -46,7 +52,8 @@ export function parseArgs(argv: readonly string[]): SittingArgs | undefined {
     }
   }
   if (waitGiven && !dryRun) return undefined;          // on the phone the owner always gets 5 minutes
-  return { from, dryRun, ownerWaitMs };
+  if (dryRun && tablet) return undefined;              // the emulator has no Tests user
+  return { from, dryRun, tablet, ownerWaitMs };
 }
 
 /** `--from P<n>` resumes past the opening check, so the run is refused before the phone is touched. */
@@ -145,7 +152,7 @@ async function main(): Promise<number> {
   const argv = process.argv.slice(2);
   const args = parseArgs(argv);
   if (args === undefined) {
-    console.log('usage: npm run phone:checks [-- --dry-run [--owner-wait <seconds>]]');
+    console.log('usage: npm run phone:checks [-- --tablet | --dry-run [--owner-wait <seconds>]]');
     return 2;
   }
   if (fromRun(argv)) {
@@ -162,9 +169,10 @@ async function main(): Promise<number> {
     appendFileSync(logPath, `${line}\n`);
   };
   const startedAt = Date.now();
-  say(args.dryRun ? `phone-checks: dry run on the dc- test emulator, from ${args.from}` : `phone-checks: the phone, from ${args.from}`);
+  say(args.dryRun ? `phone-checks: dry run on the dc- test emulator, from ${args.from}`
+    : args.tablet ? `phone-checks: the tablet's Tests user, from ${args.from}` : `phone-checks: the phone, from ${args.from}`);
 
-  const adb = realAdb();
+  const adb: Adb = args.tablet ? tabletAdb : realAdb();
   let serial: string;
   if (args.dryRun) {
     serial = DRY_RUN_SERIAL;
@@ -181,9 +189,16 @@ async function main(): Promise<number> {
   let failed = false;
   try {
     if (args.dryRun && !(await prepareDryRun(say))) return 1;
-    const io = guardedPhone(serial, adb, { dryRun: args.dryRun });
+    const io = guardedPhone(serial, adb, { dryRun: args.dryRun, tablet: args.tablet });
     if (!io.shell('pm path app.dailycommit').out.includes('package:')) {
-      say('Daily Commit is not installed on the phone. Install it with npm run phone first. Nothing was run.');
+      say(args.tablet
+        ? 'Daily Commit is not installed in the Tests user. Install it with npm run phone -- --tests first. Nothing was run.'
+        : 'Daily Commit is not installed on the phone. Install it with npm run phone first. Nothing was run.');
+      return 1;
+    }
+    // The Tests user's copy only: each tablet run starts from first run, as the dry run does.
+    if (args.tablet && adb(['-s', serial, 'shell', CLEAR_TESTS_DATA], 60_000).code !== 0) {
+      say('FAIL the Tests user\'s copy of the app could not be cleared. Nothing was run.');
       return 1;
     }
     const ctx: PCtx = {

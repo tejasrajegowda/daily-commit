@@ -4,11 +4,20 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import { APP_ID } from './apk-check.ts';
 import {
-  DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, Refused, envelopeOf, shellKind,
+  DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_TESTS_USER, NotTestsUser, Refused, TESTS_LONG_REMOTE, TESTS_USER,
+  envelopeOf, inTestsUser, shellKind, testsShellKind, type ShellKind,
 } from './checks/shellAllow.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 
-export type Lane = 'install' | 'phoneChecks' | 'emulator';
+/**
+ * install: the version read and `install -r --user 0` (the phone, the emulator, or the owner's account on its
+ * owner's word). phoneChecks: the phone sitting. emulator: emulator-5556 only. tablet: the tablet's Tests user
+ * (user 10) only; every shell command is sent inside a check that the Tests user is the one on screen (D-36).
+ */
+export type Lane = 'install' | 'phoneChecks' | 'emulator' | 'tablet';
+
+/** Why a Tests-user install is refused while the app is in the owner's account: Android keeps one copy of its code for all users. */
+export const OWNER_HAS_APP = 'Daily Commit is in the owner account, and an install in the Tests user would replace its code there too. Nothing was installed.';
 
 /** The test emulator. install and phoneChecks may name the one real phone; this lane may not. */
 export const EMULATOR_SERIAL = 'emulator-5556';
@@ -44,22 +53,28 @@ function headOf(args: readonly string[]): Head {
  * shellKind refuses that whole string and allows the command inside it. The lane allows the string
  * only when the command inside is one shellKind already allows in that place.
  */
-function phoneShellOk(command: string): boolean {
+function phoneShellOk(command: string, kindOf: (c: string) => ShellKind = shellKind): boolean {
   if (command === FOCUS_READ || command === DUMP_COMMAND) return true;
-  const kind = shellKind(command);
+  const kind = kindOf(command);
   if (kind === 'read' || kind === 'anywhere') return true;
   const inner = envelopeOf(command);
   if (inner === undefined) return false;
-  const innerKind = shellKind(inner.command);
+  const innerKind = kindOf(inner.command);
   return inner.allowPrompt ? innerKind === 'in-app-or-prompt' : innerKind === 'in-app';
+}
+
+const isApk = (apk: string | undefined): boolean => apk !== undefined && !apk.startsWith('-') && /[^\\/]\.apk$/i.test(apk);
+
+/** `install -r --user <user> <x.apk>`, and nothing else: an install always names the one user it is for. */
+function installFor(user: number, rest: readonly string[]): boolean {
+  return rest.length === 4 && rest[0] === '-r' && rest[1] === '--user' && rest[2] === String(user) && isApk(rest[3]);
 }
 
 function installOk(verb: string, rest: readonly string[]): AdbVerdict {
   if (verb === 'install') {
     if (rest.includes('-d')) return { ok: false, why: 'install never passes -d' };
-    const apk = rest.length === 2 && rest[0] === '-r' ? rest[1] : undefined;
-    if (apk !== undefined && !apk.startsWith('-') && /[^\\/]\.apk$/i.test(apk)) return { ok: true };
-    return { ok: false, why: 'install may only install -r the apk' };
+    if (installFor(0, rest)) return { ok: true };
+    return { ok: false, why: 'install may only install -r --user 0 the apk' };
   }
   if (verb === 'shell' && rest.length === 3 && rest[0] === 'dumpsys' && rest[1] === 'package' && rest[2] === APP_ID) {
     return { ok: true };
@@ -85,6 +100,28 @@ function phoneOk(verb: string, rest: readonly string[]): AdbVerdict {
   return { ok: false, why: 'the phone checks may only push the invented file or send a guarded command' };
 }
 
+function tabletOk(serial: string, verb: string, rest: readonly string[]): AdbVerdict {
+  if (serial.startsWith('emulator-')) return { ok: false, why: 'an emulator is not the tablet' };
+  if (verb === 'install') {
+    if (rest.includes('-d')) return { ok: false, why: 'install never passes -d' };
+    if (installFor(TESTS_USER, rest)) return { ok: true };
+    return { ok: false, why: 'the tablet may only install -r --user 10 the apk' };
+  }
+  if (verb === 'push') {
+    const local = rest[0];
+    if (rest.length === 2 && local !== undefined && local !== '' && !local.startsWith('-') && rest[1] === TESTS_LONG_REMOTE) return { ok: true };
+    return { ok: false, why: 'the push must be the invented file, in the Tests user\'s storage' };
+  }
+  if (verb === 'shell') {
+    const command = rest[0];
+    if (rest.length !== 1 || command === undefined) return { ok: false, why: 'shell takes one command' };
+    if (command === `dumpsys package ${APP_ID}`) return { ok: true };
+    if (!phoneShellOk(command, testsShellKind)) return { ok: false, why: 'that shell command is refused on the tablet' };
+    return { ok: true };
+  }
+  return { ok: false, why: 'the tablet may only install in the Tests user, push the invented file or send a guarded command' };
+}
+
 /** Whether this lane may run this adb argument list. No I/O. */
 export function adbVerdict(lane: Lane, args: readonly string[]): AdbVerdict {
   const head = headOf(args);
@@ -93,6 +130,7 @@ export function adbVerdict(lane: Lane, args: readonly string[]): AdbVerdict {
   if (head.kind === 'second-s') return { ok: false, why: lane === 'emulator' ? EMULATOR_ONLY : 'a second -s is refused' };
   if (lane === 'emulator') return head.serial === EMULATOR_SERIAL ? { ok: true } : { ok: false, why: EMULATOR_ONLY };
   if (lane === 'install') return installOk(head.verb, head.rest);
+  if (lane === 'tablet') return tabletOk(head.serial, head.verb, head.rest);
   return phoneOk(head.verb, head.rest);
 }
 
@@ -141,10 +179,33 @@ function asBytes(v: string | Buffer | null | undefined): Uint8Array {
   return new Uint8Array();
 }
 
+/**
+ * The tablet lane's run-time half, after the verdict. A shell command goes inside the Tests-user check, so the
+ * check and the command are one call on the tablet. An install or a push is not a shell command: the current
+ * user is read first, and an install also needs the app to be absent from the owner's account. Anything the
+ * gate can't confirm stops the command.
+ */
+function tabletArgs(args: readonly string[], read: (args: readonly string[]) => AdbSpawnResult): readonly string[] {
+  const head = headOf(args);
+  if (head.kind !== 'cmd') return args;
+  const at = (rest: readonly string[]) => ['-s', head.serial, ...rest];
+  if (head.verb === 'shell') return at(['shell', inTestsUser(head.rest[0] ?? '')]);
+  const user = read(at(['shell', 'am get-current-user']));
+  if (user.status !== 0 || asText(user.stdout).trim() !== String(TESTS_USER)) throw new NotTestsUser();
+  if (head.verb === 'install') {
+    // The one thing read from the owner's account: whether Daily Commit is installed there.
+    const listed = read(at(['shell', `pm list packages --user 0 ${APP_ID}`]));
+    if (listed.status !== 0) throw new Refused('the owner account\'s copy of the app could not be checked');
+    if (asText(listed.stdout).split(/\r?\n/).some(l => l.trim() === `package:${APP_ID}`)) throw new Refused(OWNER_HAS_APP);
+  }
+  return args;
+}
+
 /** Runs one adb command on a lane. A refused command throws `Refused` and starts nothing. */
 export function runAdb(lane: Lane, args: readonly string[], opts: RunAdbOptions = {}): AdbRun {
   const verdict = adbVerdict(lane, args);
   if (!verdict.ok) throw new Refused(verdict.why);
+  if (lane === 'tablet' && opts.captureTo !== undefined) throw new Refused('the tablet lane captures nothing to a file');
   const timeout = opts.timeoutMs ?? 60_000;
   const injected = opts.spawn;
   let file: string;
@@ -158,6 +219,15 @@ export function runAdb(lane: Lane, args: readonly string[], opts: RunAdbOptions 
     env = childEnv(tc, process.env);
   }
   const spawn = injected ?? ((bin, argv, o) => spawnSync(bin, [...argv], o));
+  if (lane === 'tablet') {
+    const sent = tabletArgs(args, a => spawn(file, a, { env, windowsHide: true, timeout: 30_000, encoding: 'utf8' }));
+    const ran = spawn(file, sent, {
+      env, windowsHide: true, timeout, encoding: 'utf8', ...(opts.maxBuffer !== undefined ? { maxBuffer: opts.maxBuffer } : {}),
+    });
+    const out = `${asText(ran.stdout)}${asText(ran.stderr)}`;
+    if (out.includes(NOT_TESTS_USER)) throw new NotTestsUser();
+    return { status: ran.status, out, stdout: new Uint8Array() };
+  }
   if (opts.captureTo !== undefined) {
     const fd = openSync(opts.captureTo, 'w');
     try {

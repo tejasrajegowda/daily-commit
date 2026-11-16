@@ -92,31 +92,35 @@ function startsAdb(rel: string, src: string): string | undefined {
   return undefined;
 }
 
-function laneOf(rel: string): 'install' | 'phoneChecks' | 'emulator' | undefined {
+type Lane = 'install' | 'phoneChecks' | 'emulator' | 'tablet';
+
+/** The lanes a file may call runAdb on. Only the install and the phone checks may reach the tablet (D-36). */
+function lanesOf(rel: string): readonly Lane[] | undefined {
   if (rel === 'scripts/android/adbGate.ts') return undefined;
-  if (rel === 'scripts/android/phone.ts') return 'install';
-  if (rel === 'scripts/android/checks/sitting.ts' || rel === 'scripts/android/checks/guard.ts') return 'phoneChecks';
-  return 'emulator';
+  if (rel === 'scripts/android/phone.ts') return ['install', 'tablet'];
+  if (rel === 'scripts/android/checks/sitting.ts' || rel === 'scripts/android/checks/guard.ts') return ['phoneChecks', 'tablet'];
+  return ['emulator'];
 }
 
-test('RF1: only adbGate.ts starts adb, and each file calls runAdb on its own lane', () => {
+test('RF1: only adbGate.ts starts adb, and each file calls runAdb on its own lanes', () => {
   const problems: string[] = [];
   for (const rel of scripts()) {
     const src = readScript(rel);
     const started = startsAdb(rel, src);
     if (started !== undefined) problems.push(`${rel}: ${started}`);
-    const lane = laneOf(rel);
-    if (lane === undefined) continue;
+    const lanes = lanesOf(rel);
+    if (lanes === undefined) continue;
     const re = /runAdb\s*\(/g;
-    let seen = false;
+    const seen = new Set<string>();
     let m: RegExpExecArray | null;
     while ((m = re.exec(src)) !== null) {
-      seen = true;
-      const lit = /^\s*(['"])(install|phoneChecks|emulator)\1/.exec(src.slice(m.index + m[0].length));
+      const lit = /^\s*(['"])(install|phoneChecks|emulator|tablet)\1/.exec(src.slice(m.index + m[0].length));
       if (lit === null) problems.push(`${rel}: runAdb lane is not a string literal`);
-      else if (lit[2] !== lane) problems.push(`${rel}: runAdb('${lit[2]}') is not the ${lane} lane`);
+      else if (!(lanes as readonly string[]).includes(lit[2] ?? '')) problems.push(`${rel}: runAdb('${lit[2]}') is not one of its lanes (${lanes.join(', ')})`);
+      else seen.add(lit[2] ?? '');
     }
-    if ((lane === 'install' || lane === 'phoneChecks') && !seen) problems.push(`${rel}: does not call runAdb`);
+    if (rel === 'scripts/android/phone.ts' && !seen.has('install')) problems.push(`${rel}: does not call runAdb('install')`);
+    if (rel === 'scripts/android/checks/guard.ts' && !(seen.has('phoneChecks') && seen.has('tablet'))) problems.push(`${rel}: does not call both its lanes`);
   }
   assert.deepEqual(problems, []);
 });

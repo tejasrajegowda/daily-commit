@@ -9,12 +9,12 @@ import { nodesOf, type DeviceIo, type UiNode } from '../drive.ts';
 import { devicesOf } from '../phone.ts';
 import { EMULATOR_SERIAL, runAdb } from '../adbGate.ts';
 import {
-  APP, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_FRONT,
-  Refused, onlyInFront, shellKind,
+  APP, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_FRONT, TESTS_LONG_REMOTE,
+  Refused, forTestsUser, onlyInFront, shellKind,
 } from './shellAllow.ts';
 
 export {
-  APP, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_FRONT, SCAN_LONG,
+  APP, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_FRONT, NotTestsUser, SCAN_LONG,
   Refused, envelopeOf, onlyInFront, shellKind,
 } from './shellAllow.ts';
 export type { ShellKind } from './shellAllow.ts';
@@ -77,15 +77,25 @@ export function phoneChecksAdb(args: readonly string[], timeoutMs = 60_000): { r
   return { code: ran.status ?? 1, out: ran.out };
 }
 
+/** The tablet lane: every command inside the gate's check that the Tests user is the one on screen. */
+export function tabletAdb(args: readonly string[], timeoutMs = 60_000): { readonly code: number; readonly out: string } {
+  const ran = runAdb('tablet', args, { timeoutMs, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  return { code: ran.status ?? 1, out: ran.out };
+}
+
 /**
  * The phone, through the guard. `serial` must be a real phone; only `dryRun` lets emulator-5556 stand in.
+ * With `tablet`, the device is the tablet and every command addresses its Tests user (user 10) alone:
+ * the commands that address a user go in their user-10 form, and `adb` must be the tablet lane.
  * Nothing here prints; a caller sees only the nodes of Daily Commit and the three words of `front()`.
  */
-export function guardedPhone(serial: string, adb: Adb = phoneChecksAdb, opts: { readonly dryRun?: boolean } = {}): GuardedPhone {
+export function guardedPhone(serial: string, adb: Adb = phoneChecksAdb, opts: { readonly dryRun?: boolean; readonly tablet?: boolean } = {}): GuardedPhone {
   if (serial.startsWith('emulator-') && !(opts.dryRun === true && serial === DRY_RUN_SERIAL)) {
     throw new Refused('an emulator is not the phone');
   }
   if (opts.dryRun === true && serial !== DRY_RUN_SERIAL) throw new Refused('the dry run uses only emulator-5556');
+  if (opts.dryRun === true && opts.tablet === true) throw new Refused('the dry run has no Tests user');
+  const sent = (command: string) => (opts.tablet === true ? forTestsUser(command) : command);
   // adb names the serial in its own errors ("device '…' not found"); it is cut out here, so no error line carries it.
   const run = (args: readonly string[], timeoutMs?: number) => {
     const r = adb(['-s', serial, ...args], timeoutMs);
@@ -100,8 +110,8 @@ export function guardedPhone(serial: string, adb: Adb = phoneChecksAdb, opts: { 
       if (kind === 'refused') throw new Refused('that command is not on the guard\'s list');
       if (kind === 'in-app' && front() !== 'app') throw new NotInApp();
       if (kind === 'in-app-or-prompt' && front() === 'other') throw new NotInApp();
-      if (kind !== 'in-app' && kind !== 'in-app-or-prompt') return run(['shell', command], 60_000);
-      const r = run(['shell', onlyInFront(command, kind === 'in-app-or-prompt')], 60_000);
+      if (kind !== 'in-app' && kind !== 'in-app-or-prompt') return run(['shell', sent(command)], 60_000);
+      const r = run(['shell', onlyInFront(sent(command), kind === 'in-app-or-prompt')], 60_000);
       if (r.out.includes(NOT_FRONT)) throw new NotInApp();
       return r;
     },
@@ -121,7 +131,7 @@ export function guardedPhone(serial: string, adb: Adb = phoneChecksAdb, opts: { 
       throw new Refused('the fingerprint is the owner\'s');
     },
     pushLong(localPath: string) {
-      return run(['push', localPath, LONG_REMOTE], 120_000).code === 0;
+      return run(['push', localPath, opts.tablet === true ? TESTS_LONG_REMOTE : LONG_REMOTE], 120_000).code === 0;
     },
   };
   return io;

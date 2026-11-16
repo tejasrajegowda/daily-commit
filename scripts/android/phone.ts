@@ -2,7 +2,11 @@
 // over what is already there (`adb install -r`), never -d, never an uninstall, never an older
 // version over a newer one, never another project's emulator. A real phone waits until the key's
 // second copy is recorded. Nothing of the device is printed but its serial.
-// node scripts/android/phone.ts [--serial <serial>]
+// Every install names the one Android user it is for (D-36): a plain install goes to every user on the
+// device, and the tablet's owner account must never get one by accident.
+// node scripts/android/phone.ts --tests            the tablet's Tests user (user 10), through the tablet lane
+// node scripts/android/phone.ts --owner            user 0: the phone, or the tablet's owner account on its owner's word
+// node scripts/android/phone.ts --serial emulator-5556   the test emulator (user 0)
 import { existsSync, readFileSync } from 'node:fs';
 import { runAdb } from './adbGate.ts';
 import { APP_ID, SIGNED_APK } from './apk-check.ts';
@@ -10,16 +14,24 @@ import { childEnv, toolchain, toolPaths } from './env.ts';
 import { runSyncCommand } from './proc.ts';
 import { RELEASE_CERT_SHA256, SECOND_COPY, versionCodeOf, signersOf } from './signing.ts';
 
-export type Tool = 'adb' | 'apkanalyzer' | 'apksigner';
+/** `adbTests` is adb on the tablet lane: the Tests user only. */
+export type Tool = 'adb' | 'adbTests' | 'apkanalyzer' | 'apksigner';
 export type Exec = (tool: Tool, args: readonly string[]) => { readonly code: number; readonly out: string };
+
+/** Whose copy: the tablet's Tests user, or user 0 (the phone's only user, the tablet's owner). */
+export type Account = 'tests' | 'owner';
 
 export interface PhoneOptions {
   readonly apk: string;
   readonly serial?: string;
+  /** Required for a real device; an emulator is always user 0. */
+  readonly account?: Account;
   readonly version: string;          // package.json's
   readonly pinnedCert: string;       // RELEASE_CERT_SHA256
   readonly secondCopy: boolean;      // SECOND_COPY exists
 }
+
+export const NO_ACCOUNT = 'Say whose copy: --tests (the tablet\'s Tests user) or --owner (user 0: the phone, or the tablet\'s owner account, only on its owner\'s word). A plain install would reach every user on the device. Nothing was installed.';
 
 export type PhoneOutcome =
   | { readonly ok: true; readonly serial: string; readonly lines: readonly string[] }
@@ -122,19 +134,25 @@ export function installOnPhone(exec: Exec, o: PhoneOptions): PhoneOutcome {
   if (!choice.ok) return choice;
   const serial = choice.serial;
 
-  if (!serial.startsWith('emulator-') && !o.secondCopy) return { ok: false, why: NO_SECOND };
+  const emulator = serial.startsWith('emulator-');
+  if (emulator && o.account === 'tests') return { ok: false, why: 'The emulator has no Tests user. Nothing was installed.' };
+  if (!emulator && o.account === undefined) return { ok: false, why: NO_ACCOUNT };
+  if (!emulator && !o.secondCopy) return { ok: false, why: NO_SECOND };
+  const tests = o.account === 'tests';
+  const adb: Tool = tests ? 'adbTests' : 'adb';
 
-  const dumped = exec('adb', ['-s', serial, 'shell', 'dumpsys', 'package', APP_ID]);
+  // The tablet lane takes a shell command as one string.
+  const dumped = exec(adb, tests ? ['-s', serial, 'shell', `dumpsys package ${APP_ID}`] : ['-s', serial, 'shell', 'dumpsys', 'package', APP_ID]);
   if (dumped.code !== 0) return { ok: false, why: 'The version on the phone could not be read. Nothing was installed.' };
   const onPhone = installedVersionCode(dumped.out);
   if (onPhone !== undefined && onPhone > apkCode) {
     return { ok: false, why: `The phone has a newer version (${onPhone}) than this APK (${apkCode}). An older version is never installed over a newer one.` };
   }
 
-  const installed = exec('adb', ['-s', serial, 'install', '-r', o.apk]);
+  const installed = exec(adb, ['-s', serial, 'install', '-r', '--user', tests ? '10' : '0', o.apk]);
   if (installed.code === 0 && succeeded(installed.out)) {
-    const lines = [`Installed on ${serial}, over what was there.`];
-    if (!serial.startsWith('emulator-')) lines.push(USB_TIP);
+    const lines = [`Installed on ${serial}${tests ? ' in the Tests user' : ''}, over what was there.`];
+    if (!emulator && !tests) lines.push(USB_TIP);
     return { ok: true, serial, lines };
   }
   return { ok: false, why: installFailure(installed.out) };
@@ -148,6 +166,10 @@ export function phoneExec(): Exec {
   return (tool, args) => {
     if (tool === 'adb') {
       const ran = runAdb('install', args, { timeoutMs: 300_000, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      return { code: ran.status ?? 1, out: ran.out };
+    }
+    if (tool === 'adbTests') {
+      const ran = runAdb('tablet', args, { timeoutMs: 300_000, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
       return { code: ran.status ?? 1, out: ran.out };
     }
     const bat = tool === 'apkanalyzer' ? paths.apkanalyzer : paths.apksigner;
@@ -164,21 +186,34 @@ function packageVersion(): string {
   return parsed.version;
 }
 
+/** `--tests` or `--owner`, and `--serial <serial>`, each at most once. Anything else is refused. */
+export function parsePhoneArgs(argv: readonly string[]): { readonly serial?: string; readonly account?: Account } | undefined {
+  let serial: string | undefined;
+  let account: Account | undefined;
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    const v = argv[i + 1];
+    if (a === '--serial' && serial === undefined && v !== undefined && v !== '' && !v.startsWith('-')) {
+      serial = v;
+      i++;
+    } else if ((a === '--tests' || a === '--owner') && account === undefined) {
+      account = a === '--tests' ? 'tests' : 'owner';
+    } else {
+      return undefined;
+    }
+  }
+  return { ...(serial !== undefined && { serial }), ...(account !== undefined && { account }) };
+}
+
 if (import.meta.main) {
-  const args = process.argv.slice(2);
-  const serial = args[1];
-  const parsed = args.length === 0
-    ? { ok: true as const, serial: undefined }
-    : args.length === 2 && args[0] === '--serial' && serial !== undefined && serial !== ''
-      ? { ok: true as const, serial }
-      : { ok: false as const };
-  if (!parsed.ok) {
-    console.log('usage: node scripts/android/phone.ts [--serial <serial>]');
+  const parsed = parsePhoneArgs(process.argv.slice(2));
+  if (parsed === undefined) {
+    console.log('usage: node scripts/android/phone.ts (--tests | --owner) [--serial <serial>]   or   --serial emulator-5556');
     process.exitCode = 2;
   } else {
     const out = installOnPhone(phoneExec(), {
       apk: SIGNED_APK,
-      serial: parsed.serial,
+      ...parsed,
       version: packageVersion(),
       pinnedCert: RELEASE_CERT_SHA256,
       secondCopy: existsSync(SECOND_COPY),

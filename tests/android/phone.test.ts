@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { installFailure, installOnPhone, USB_TIP, type Exec, type PhoneOptions } from '../../scripts/android/phone.ts';
+import { installFailure, installOnPhone, NO_ACCOUNT, parsePhoneArgs, USB_TIP, type Exec, type PhoneOptions } from '../../scripts/android/phone.ts';
 
 const PIN = 'a'.repeat(64);
 const OTHER = 'b'.repeat(64);
 const PHONE = 'PHONE0000001';
-const OPTS: PhoneOptions = { apk: 'out/app.apk', version: '0.1.0', pinnedCert: PIN, secondCopy: true };
+const OPTS: PhoneOptions = { apk: 'out/app.apk', account: 'owner', version: '0.1.0', pinnedCert: PIN, secondCopy: true };
 
 /** A fake adb, apkanalyzer and apksigner: answers by command prefix, and records every call. */
 function fake(over: Readonly<Record<string, string | undefined>> = {}) {
@@ -35,7 +35,7 @@ test('a release build signed with the pinned key installs over what is there, wi
   const f = fake();
   const out = installOnPhone(f.exec, OPTS);
   assert.ok(out.ok);
-  assert.deepEqual(f.calls.filter(c => c.includes('install')), [['adb', '-s', PHONE, 'install', '-r', 'out/app.apk']]);
+  assert.deepEqual(f.calls.filter(c => c.includes('install')), [['adb', '-s', PHONE, 'install', '-r', '--user', '0', 'out/app.apk']]);
   if (out.ok) assert.ok(out.lines.includes(USB_TIP));
 });
 
@@ -93,6 +93,38 @@ test('R-2: the phone waits for the key\'s second copy', () => {
   assert.equal(out.ok, false);
   if (!out.ok) assert.match(out.why, /second copy/);
   assert.ok(!f.calls.some(c => c.includes('install')));
+});
+
+test('D-36: a real device needs whose copy; the Tests user goes through the tablet lane with --user 10, the owner with --user 0, the emulator is user 0', () => {
+  const none = fake();
+  const refused = installOnPhone(none.exec, { ...OPTS, account: undefined });
+  assert.deepEqual(refused, { ok: false, why: NO_ACCOUNT });
+  assert.ok(!none.calls.some(c => c[0] === 'adb' && c.includes('-s')), 'nothing was sent to the device');
+
+  const tests = fake({ [`adbTests -s ${PHONE} install -r`]: 'Success\n' });
+  const out = installOnPhone(tests.exec, { ...OPTS, account: 'tests' });
+  assert.ok(out.ok);
+  assert.deepEqual(tests.calls.filter(c => c[0] === 'adbTests'), [
+    ['adbTests', '-s', PHONE, 'shell', 'dumpsys package app.dailycommit'],
+    ['adbTests', '-s', PHONE, 'install', '-r', '--user', '10', 'out/app.apk'],
+  ]);
+  assert.ok(!tests.calls.some(c => c[0] === 'adb' && c.includes('-s')), 'no Tests-user step goes through the install lane');
+  if (out.ok) assert.ok(!out.lines.includes(USB_TIP), 'the tablet stays connected');
+
+  const emu = fake({ 'adb devices': 'List\nemulator-5556\tdevice\n' });
+  assert.ok(installOnPhone(emu.exec, { ...OPTS, serial: 'emulator-5556', account: undefined, secondCopy: false }).ok);
+  assert.deepEqual(emu.calls.filter(c => c.includes('install')), [['adb', '-s', 'emulator-5556', 'install', '-r', '--user', '0', 'out/app.apk']]);
+  assert.equal(installOnPhone(fake({ 'adb devices': 'List\nemulator-5556\tdevice\n' }).exec, { ...OPTS, serial: 'emulator-5556', account: 'tests' }).ok, false);
+});
+
+test('D-36: the install\'s arguments: whose copy at most once, a serial at most once, nothing else', () => {
+  assert.deepEqual(parsePhoneArgs([]), {});
+  assert.deepEqual(parsePhoneArgs(['--tests']), { account: 'tests' });
+  assert.deepEqual(parsePhoneArgs(['--owner', '--serial', 'X1']), { account: 'owner', serial: 'X1' });
+  assert.deepEqual(parsePhoneArgs(['--serial', 'emulator-5556']), { serial: 'emulator-5556' });
+  for (const bad of [['--tests', '--owner'], ['--tests', '--tests'], ['--serial'], ['--serial', '--tests'], ['--user', '0'], ['tests']]) {
+    assert.equal(parsePhoneArgs(bad), undefined, bad.join(' '));
+  }
 });
 
 test('a refusal from Android is said plainly, and an uninstall is never suggested as the fix', () => {
