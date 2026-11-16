@@ -89,6 +89,20 @@ test('test-open unwraps W and R once for a whole file, not once per value', asyn
   assert.equal(unwrap.mock.callCount(), 2);
 });
 
+test('a month file sealed with the same backup key opens from the opened file, with no second stretch; another vault\'s, or a changed one, is damaged', async () => {
+  const { made, wraps, sealed } = await golden();
+  const opened = await backupCipher().openBody(HEADER, IV, sealed, wraps, PASS);
+  const MONTH = utf8('{"m":1}'), MIV = new Uint8Array(12).fill(0x55);
+  const month = await backupCipher(made.keys).sealBody(utf8('CANARY-TEST month'), MONTH, MIV);
+  const started = performance.now();
+  assert.equal(new TextDecoder().decode(await opened.openSibling(MONTH, MIV, month)), 'CANARY-TEST month');
+  assert.ok(performance.now() - started < 50, 'nothing was stretched');
+  const foreign = await backupCipher((await freshVault()).keys).sealBody(utf8('CANARY-TEST month'), MONTH, MIV);
+  await assert.rejects(opened.openSibling(MONTH, MIV, foreign), refusedAs('damaged'));
+  await assert.rejects(opened.openSibling(utf8('{"m":2}'), MIV, month), refusedAs('damaged'));
+  await assert.rejects(opened.openSibling(MONTH, MIV, month.slice(0, 10)), refusedAs('damaged'));
+});
+
 test('without the open vault\'s keys a backup cipher can open but never seal', async () => {
   await assert.rejects(backupCipher().sealBody(utf8('x'), HEADER, IV), /only opens/);
 });

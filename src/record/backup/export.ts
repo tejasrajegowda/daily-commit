@@ -1,6 +1,6 @@
 import type { RecordCore, Session } from '../core.ts';
 import { SCHEMA_VERSION, type RecordDb } from '../db.ts';
-import type { VaultRow } from '../rows.ts';
+import type { ChangeRow, VaultRow } from '../rows.ts';
 import { toBase64url } from '../bytes.ts';
 import { locked, saved, type Result } from '../results.ts';
 import { appDay } from '../time.ts';
@@ -24,12 +24,16 @@ export interface SealedBackup {
 
 /**
  * Seals a backup of everything now in storage. The caller already holds a turn in the write
- * queue, so no write lands while it reads.
+ * queue, so no write lands while it reads. With `logFrom`, the change log is cut to the lines from
+ * that stamp on (and any line with no plain time): the automatic copy leaves out the months already
+ * sealed into their own files. The manual export leaves it out and carries every line.
  */
-export async function sealBackup(db: RecordDb, session: Session, now: number, options: BackupOptions): Promise<SealedBackup> {
+export async function sealBackup(db: RecordDb, session: Session, now: number, options: BackupOptions, logFrom?: number): Promise<SealedBackup> {
   const backup = session.backup;
   if (!backup) throw new Error('this session has no backup key');
-  const raw = await readRaw(db);
+  const all = await readRaw(db);
+  const raw = logFrom === undefined ? all
+    : { ...all, tables: { ...all.tables, changes: (all.tables.changes as readonly ChangeRow[]).filter(line => line.at === undefined || line.at >= logFrom) } };
   const vault = raw.tables.vault[0] as VaultRow | undefined;
   const passphrase = raw.wrappers.find(w => w.method === 'passphrase');
   const recovery = raw.wrappers.find(w => w.method === 'recovery');

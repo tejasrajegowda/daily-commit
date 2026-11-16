@@ -1,7 +1,8 @@
 import type { Envelope, RowCipher, Slot } from '../vault/cipher.ts';
 import { TABLE_TAGS, type LockedTable } from '../vault/tags.ts';
 import { jsonBytes, parseJsonBytes } from './bytes.ts';
-import type { RecordCore } from './core.ts';
+import { newestStamp, type RecordCore } from './core.ts';
+import { nextStamp } from './time.ts';
 import { KEY_FIELDS, plainOf, rowId, type Fields } from './payload.ts';
 import { migrationLine } from './changes.ts';
 import { uuidv7 } from './ids.ts';
@@ -50,8 +51,9 @@ async function migrateBatch(core: RecordCore, cipher: RowCipher, m: PayloadMigra
   }
   const last = rows[rows.length - 1];
   const done = rows.length < batch;
-  // one line per batch that changed anything: which migration and how many rows, never the values
-  const at = core.now();
+  // one line per batch that changed anything: which migration and how many rows, never the values;
+  // stamped after everything stored, so a clock set back can't put it before the month files' cursor
+  const at = nextStamp(core.now(), await newestStamp(db));
   const line = puts.length === 0 ? undefined
     : await migrationLine(cipher, { id: uuidv7(at), migration: m.id, rows: puts.length, at, device: String((await db.device.get('device_id'))?.value ?? '') });
   await db.transaction('rw', [table, db.migrations, db.changes], async () => {

@@ -97,6 +97,12 @@ export interface OpenedBackup {
    * nothing about what is inside: it resolves, or rejects with a CipherError.
    */
   testOpen(vault: VaultKeyWraps, ctx: EnvelopeContext, env: Envelope): Promise<void>;
+  /**
+   * Opens another body sealed with the same backup key (a month of the change log), without
+   * stretching the secret again. Resolves to the body, or rejects with a BackupError: one sealed
+   * with any other key, or changed in any byte, is damaged.
+   */
+  openSibling(headerBytes: Uint8Array, iv: Uint8Array, ct: Uint8Array): Promise<Uint8Array>;
 }
 
 /**

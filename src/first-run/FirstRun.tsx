@@ -13,6 +13,8 @@ import { FIRST_TWICE, madeAtWords } from './restoreWords.ts';
 export interface FoundCopy {
   readonly bytes: Uint8Array;
   readonly madeAt: number;
+  /** the phone's own automatic copy: its change log's finished months are in files beside it */
+  readonly onDevice?: boolean;
 }
 
 export interface FirstRunProps {

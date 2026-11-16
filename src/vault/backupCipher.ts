@@ -43,7 +43,8 @@ export function backupCipher(keys?: Pick<OpenKeys, 'backup'>): BackupCipher {
         if ('code' in kekSecret) kekSecret.code.fill(0);
       }
       const { master, base } = await importMaster(raw);
-      const body = await gcmOpen(await deriveBackupKey(base), new Uint8Array(iv), new Uint8Array(headerBytes), new Uint8Array(ct));
+      const key = await deriveBackupKey(base);
+      const body = await gcmOpen(key, new Uint8Array(iv), new Uint8Array(headerBytes), new Uint8Array(ct));
       if (!body) throw new BackupError('damaged');
       // W and R are opened once per set of wraps, not once per value: a backup holds thousands
       const opened = new Map<VaultKeyWraps, Promise<DataKeys>>();
@@ -63,6 +64,11 @@ export function backupCipher(keys?: Pick<OpenKeys, 'backup'>): BackupCipher {
         },
         async testOpen(vault, ctx, env) {
           (await rowCipher(await keysOf(vault)).open(ctx, env)).fill(0);
+        },
+        async openSibling(otherHeader, otherIv, otherCt) {
+          const other = await gcmOpen(key, new Uint8Array(otherIv), new Uint8Array(otherHeader), new Uint8Array(otherCt));
+          if (!other) throw new BackupError('damaged');
+          return other;
         },
       };
     },

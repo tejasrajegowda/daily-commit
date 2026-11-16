@@ -9,12 +9,14 @@ import type { WrapperRow } from '../rows.ts';
 
 export const MAGIC = Uint8Array.of(0x44, 0x43, 0x42, 0x4b);   // "DCBK"
 export const FORMAT = 'daily-commit-backup';
+/** A month of change-log lines (backup/log/): the same frame and header, a body of lines only, never a record. */
+export const LOG_FORMAT = 'daily-commit-log';
 export const FORMAT_VERSION = 1;
 const TAG_BYTES = 16;
 const IV_BYTES = 12;
 
 export interface BackupHeader {
-  readonly format: typeof FORMAT;
+  readonly format: typeof FORMAT | typeof LOG_FORMAT;
   readonly format_version: number;
   readonly schema_version: number;
   readonly app_version: string;
@@ -85,15 +87,16 @@ function ivOf(text: unknown): Uint8Array | undefined {
 
 /**
  * Reads a file's frame and its plain header, opening nothing. A file cut short, a broken frame or
- * a header that isn't one is damaged; a later format or schema needs a newer app.
+ * a header that isn't one is damaged, and so is a file of the other format (a month of lines is
+ * never taken for a backup); a later format or schema needs a newer app.
  */
-export function readFrame(file: Uint8Array): Framed {
+export function readFrame(file: Uint8Array, format: BackupHeader['format'] = FORMAT): Framed {
   if (file.length < 8 || !MAGIC.every((b, i) => file[i] === b)) throw damaged();
   const length = new DataView(file.buffer, file.byteOffset, file.byteLength).getUint32(4);
   if (8 + length + TAG_BYTES > file.length) throw damaged();
   const headerBytes = file.slice(8, 8 + length);
   const h = parsed(headerBytes);
-  if (!isObject(h) || h.format !== FORMAT) throw damaged();
+  if (!isObject(h) || h.format !== format) throw damaged();
   const formatVersion = h.format_version, schemaVersion = h.schema_version;
   if (typeof formatVersion !== 'number' || typeof schemaVersion !== 'number') throw damaged();
   if (formatVersion > FORMAT_VERSION || schemaVersion > SCHEMA_VERSION) throw new BackupError('newer-app');

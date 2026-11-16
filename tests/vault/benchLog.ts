@@ -17,7 +17,11 @@ import type { TriValue } from '../../src/rules/types.ts';
 import { createVault } from '../../src/vault/keys.ts';
 import { systemRandom } from '../../src/vault/random.ts';
 import { sessionCiphers } from '../../src/vault/vault.ts';
+import { sealBackup } from '../../src/record/backup/export.ts';
+import { sealSnapshot } from '../../src/record/backup/snapshot.ts';
+import { sealMonth } from '../../src/record/backup/monthLog.ts';
 import { freshDb } from '../record/helpers.ts';
+import { memoryFiles } from '../record/memoryFiles.ts';
 import { SETTINGS, testClock } from '../record/fixtures.ts';
 
 const START = '2024-01-01';
@@ -104,9 +108,28 @@ async function snapshot(withLog: boolean): Promise<{ readonly ms: number; readon
 const plain = [await snapshot(false), await snapshot(false), await snapshot(false)];
 const logged = [await snapshot(true), await snapshot(true), await snapshot(true)];
 const mb = (n: number) => (n / 1_048_576).toFixed(1);
+
+// the real lock at the start of the next month: the month file and the snapshot, sealed together
+const session = core.session;
+if (!session) throw new Error('locked');
+clock.set(`${addDays(firstNew, MONTH + 3)}T09:00:00Z`);
+const archiving: { readonly ms: number; readonly month: number; readonly latest: number }[] = [];
+for (let i = 0; i < 3; i++) {
+  const t = performance.now();
+  const sealed = await sealSnapshot(db, { ...session, changed: true }, memoryFiles().files, clock.now(), { appVersion: 'bench' });
+  archiving.push({ ms: performance.now() - t, month: sealed?.month?.bytes.length ?? 0, latest: sealed?.bytes.length ?? 0 });
+}
+const after = await sealBackup(db, session, clock.now(), { appVersion: 'bench' }, Infinity);
+const parts: Record<string, number> = {};
+const timed = async <T>(name: string, run: () => Promise<T>): Promise<T> => { const t = performance.now(); const out = await run(); parts[name] = performance.now() - t; return out; };
+await timed('month sealed',() => sealMonth(db, { ...session, changed: true }, memoryFiles().files, clock.now(), { appVersion: 'bench' }));
+await timed('latest sealed', () => sealBackup(db, session, clock.now(), { appVersion: 'bench' }, -Infinity));
 console.log(`Node ${process.versions.node}; record ${YEARS_DAYS} days x ${HABITS} habits + a page a day; then ${MONTH} days x (${SMALL_A_DAY} small + ${PAGES_A_DAY} page saves)`);
 console.log(`  one save with its lines   median ${median(saveMs).toFixed(1)} ms, slowest ${Math.max(...saveMs).toFixed(1)} ms (${saveMs.length} saves)`);
 console.log(`  the logger's own share    median ${median(logMs).toFixed(1)} ms of that`);
 console.log(`  lines in the month        ${lines}, stored ${mb(logBytes)} MB (about ${mb(logBytes * 12)} MB a year at this rate)`);
 console.log(`  backup without the log    median ${Math.round(median(plain.map(x => x.ms)))} ms, ${mb(plain[0]?.bytes ?? 0)} MB`);
 console.log(`  backup with the month     median ${Math.round(median(logged.map(x => x.ms)))} ms, ${mb(logged[0]?.bytes ?? 0)} MB`);
+console.log(`  the archiving lock        median ${Math.round(median(archiving.map(x => x.ms)))} ms: month file ${mb(archiving[0]?.month ?? 0)} MB + latest ${mb(archiving[0]?.latest ?? 0)} MB`);
+console.log(`  latest after it           ${mb(after.bytes.length)} MB (no archived lines)`);
+console.log(`  parts                     ${Object.entries(parts).map(([k, v]) => `${k} ${Math.round(v)} ms`).join(', ')}`);

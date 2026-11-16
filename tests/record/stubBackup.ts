@@ -38,6 +38,13 @@ export function stubBackup(secrets: { readonly passphrase: string; readonly reco
         async testOpen({ keys }, ctx, env) {
           await stubCipher({ r: keys.r.id, w: keys.w.id }).open(ctx, env);
         },
+        async openSibling(otherHeader, otherIv, otherCt) {
+          await late();
+          if (otherCt.length < 16) throw new BackupError('damaged');
+          const other = otherCt.subarray(0, otherCt.length - 16);
+          if (!same(otherCt.subarray(otherCt.length - 16), tagOf(otherHeader, otherIv, other))) throw new BackupError('damaged');
+          return other.slice();
+        },
       };
     },
   };

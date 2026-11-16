@@ -63,7 +63,7 @@ export function Restore(props: RestoreProps) {
     if (!file) return;
     setBusy(true);
     try {
-      const result = await restoreWith(deps, file.bytes, s, replace, unopened);
+      const result = await restoreWith(deps, file.bytes, s, replace, unopened, file.onDevice === true);
       if (result.kind === 'Ask') {
         secret.current = s;
         setOther(result.otherRecord);

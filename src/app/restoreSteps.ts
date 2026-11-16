@@ -64,8 +64,10 @@ export type RestoreStep =
  * One attempt. `replace` is true only after the person chose "Replace everything". `unopened` is
  * true only when restore was reached from the lock screen of a record that refused to open: that
  * record is replaced without being opened, so no keys are dropped and a failure can be tried again.
+ * `fromDevice` is true when the file is the phone's own automatic copy: the change log's month files
+ * beside it are read with it.
  */
-export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secret, replace: boolean, unopened = false): Promise<RestoreStep> {
+export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secret, replace: boolean, unopened = false, fromDevice = false): Promise<RestoreStep> {
   const t0 = performance.now();
   const wasOpen = deps.core.session !== undefined;
   let result: RestoreResult | undefined;
@@ -73,6 +75,7 @@ export async function restoreWith(deps: AppDeps, bytes: Uint8Array, secret: Secr
     result = await restoreBackup({ core: deps.core, plugin: deps.device.plugin, machine: deps.machine }, {
       file: bytes, secret, backupCipher: backupCipher(),
       replace: replace ? { files: deps.device.files, appVersion: deps.appVersion, unopened } : undefined,
+      log: { files: deps.device.files, months: fromDevice },
     });
   } catch {
     result = undefined;                                  // a failure with no name of its own still gets words

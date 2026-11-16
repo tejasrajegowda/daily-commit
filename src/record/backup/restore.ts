@@ -7,11 +7,12 @@ import { upgradeTables } from '../upgrade.ts';
 import type { SnapshotFiles } from '../files.ts';
 import { plainOf, rowId } from '../payload.ts';
 import { LOG_BASELINE, PENDING_RESTORE } from '../changes.ts';
-import type { VaultRow } from '../rows.ts';
+import type { ChangeRow, VaultRow } from '../rows.ts';
 import { BODY_TABLES, gunzip, gzip, parseBody, readRaw, type StoredRows } from './body.ts';
 import { SAFETY, keepCopy } from './copies.ts';
 import { sealBackup, type SealedBackup } from './export.ts';
-import { readFrame, type BackupHeader } from './format.ts';
+import { LOG_FORMAT, readFrame, type BackupHeader } from './format.ts';
+import { LOG_ARCHIVE, clearMonths, parseMonth, readMonths } from './monthLog.ts';
 import { LATEST, writeSnapshot } from './snapshot.ts';
 
 // Restore, in two phases. First everything is checked, outside any transaction: the file opens
@@ -21,7 +22,10 @@ import { LATEST, writeSnapshot } from './snapshot.ts';
 
 export interface CheckedBackup {
   readonly header: BackupHeader;
+  /** the file's rows, its change log joined by the lines of every month file that checked out */
   readonly tables: StoredRows;
+  /** the month files read with it: how many were joined, how many were left out (counts only) */
+  readonly months: { readonly read: number; readonly skipped: number };
 }
 
 const LOCKED_TABLES: readonly LockedTable[] = ['settings', 'habits', 'observations', 'days', 'entries', 'notyet', 'cues', 'reviews'];
@@ -32,8 +36,25 @@ const isEnvelope = (v: unknown): v is Envelope =>
   typeof v === 'object' && v !== null && typeof (v as Envelope).v === 'number' && typeof (v as Envelope).k === 'string'
   && typeof (v as Envelope).iv === 'string' && typeof (v as Envelope).ct === 'string';
 
-/** Phase 1: opens and checks a backup, writing nothing. Rejects with a BackupError. */
-export async function checkBackup(file: Uint8Array, secret: Secret, backupCipher: BackupCipher): Promise<CheckedBackup> {
+type Sealed = { readonly ctx: EnvelopeContext; readonly env: Envelope };
+
+/** A change-log line's shape: its id, exactly one sealed slot, plain ref and time of the right kind. */
+function lineValue(row: Readonly<Record<string, unknown>>): Sealed {
+  const slots = (['r', 'w'] as const).filter(slot => row[slot] !== undefined);
+  if (typeof row.id !== 'string' || row.id === '' || slots.length !== 1) throw damaged();
+  if ((row.ref !== undefined && typeof row.ref !== 'string') || (row.at !== undefined && typeof row.at !== 'number')) throw damaged();
+  const slot = slots[0] ?? 'r';
+  const env = row[slot];
+  if (!isEnvelope(env)) throw damaged();
+  return { ctx: { table: CHANGE_TAG, id: row.id, slot }, env };
+}
+
+/**
+ * Phase 1: opens and checks a backup, writing nothing. Rejects with a BackupError. Month files
+ * (the phone's own copy keeps the log's finished months beside it) are joined when they check out;
+ * one that doesn't is left out and counted, and never stops the restore.
+ */
+export async function checkBackup(file: Uint8Array, secret: Secret, backupCipher: BackupCipher, monthFiles: readonly Uint8Array[] = []): Promise<CheckedBackup> {
   const { header, headerBytes, iv, ct } = readFrame(file);
   const opened = await backupCipher.openBody(headerBytes, iv, ct, header.wrappers, secret);
   const tables = parseBody(await gunzip(opened.body), header.schema_version);
@@ -59,16 +80,7 @@ export async function checkBackup(file: Uint8Array, secret: Secret, backupCipher
       }
     }
   }
-  // the change log: each line has its id, exactly one sealed slot, and plain ref and time of the right kind
-  for (const row of tables.changes as readonly Record<string, unknown>[]) {
-    const slots = (['r', 'w'] as const).filter(slot => row[slot] !== undefined);
-    if (typeof row.id !== 'string' || row.id === '' || slots.length !== 1) throw damaged();
-    if ((row.ref !== undefined && typeof row.ref !== 'string') || (row.at !== undefined && typeof row.at !== 'number')) throw damaged();
-    const slot = slots[0] ?? 'r';
-    const env = row[slot];
-    if (!isEnvelope(env)) throw damaged();
-    values.push({ ctx: { table: CHANGE_TAG, id: row.id, slot }, env });
-  }
+  for (const row of tables.changes as readonly Record<string, unknown>[]) values.push(lineValue(row));
   try {
     // W and R are opened even when the file holds no locked value, so a file whose keys can't be
     // opened as unlock opens them is refused here, before anything is written
@@ -77,7 +89,28 @@ export async function checkBackup(file: Uint8Array, secret: Secret, backupCipher
   } catch (e) {
     throw new BackupError(e instanceof CipherError && e.failure === 'newer-app' ? 'newer-app' : 'damaged');
   }
-  return { header, tables };
+  // the month files: each must name this vault and open with its key; the file's own lines win
+  const lines = [...(tables.changes as readonly ChangeRow[])];
+  const seen = new Set(lines.map(l => l.id));
+  let read = 0, skipped = 0;
+  for (const month of monthFiles) {
+    try {
+      const f = readFrame(month, LOG_FORMAT);
+      if (f.header.vault_id !== header.vault_id || f.header.kid !== header.kid || f.header.generation !== header.generation) throw damaged();
+      const body = parseMonth(await gunzip(await opened.openSibling(f.headerBytes, f.iv, f.ct)));
+      const checked = body.map(row => ({ row, sealed: lineValue(row as unknown as Record<string, unknown>) }));
+      await Promise.all(checked.map(({ sealed }) => opened.testOpen(vault, sealed.ctx, sealed.env)));
+      for (const { row } of checked) {
+        if (seen.has(row.id)) continue;
+        seen.add(row.id);
+        lines.push(row);
+      }
+      read++;
+    } catch {
+      skipped++;
+    }
+  }
+  return { header, tables: monthFiles.length === 0 ? tables : { ...tables, changes: lines }, months: { read, skipped } };
 }
 
 export interface RestoreInput {
@@ -98,6 +131,12 @@ export interface RestoreInput {
   };
   /** the schema versions to bring an older file's rows up to; the app leaves it out */
   readonly schemas?: readonly Schema[];
+  /**
+   * The app's private files, for the change log's month files: with `months`, the file is the
+   * phone's own copy and every month file beside it is read and joined. Either way, after a restore
+   * the month files are removed: they belong to the record that was replaced.
+   */
+  readonly log?: { readonly files: SnapshotFiles; readonly months: boolean };
 }
 
 export type RestoreResult =
@@ -119,7 +158,8 @@ export type RestoreResult =
 export async function restore(core: RecordCore, input: RestoreInput): Promise<RestoreResult> {
   let checked: CheckedBackup;
   try {
-    checked = await checkBackup(input.file, input.secret, input.backupCipher);
+    const months = input.log?.months ? await readMonths(input.log.files).catch(() => []) : [];
+    checked = await checkBackup(input.file, input.secret, input.backupCipher, months);
   } catch (e) {
     if (e instanceof BackupError) return { kind: 'Refused', reason: e.reason };
     throw e;
@@ -156,7 +196,9 @@ export async function restore(core: RecordCore, input: RestoreInput): Promise<Re
       return isQuotaFull(e) ? { kind: 'QuotaFull' } : { kind: 'CopyFailed' };
     }
   }
-  const result = await core.serial(() => replaceAll(core, checked.header, upgradeTables(checked.tables, checked.header.schema_version, input.schemas), replace !== undefined));
+  const months: Readonly<Record<string, number>> = input.log?.months ? { months: checked.months.read, months_skipped: checked.months.skipped } : {};
+  const result = await core.serial(() => replaceAll(core, checked.header, upgradeTables(checked.tables, checked.header.schema_version, input.schemas), replace !== undefined, months));
+  if (result.kind === 'Restored' && input.log) await clearMonths(input.log.files).catch(() => {});
   if (result.kind === 'Restored' && replace) await becomeLatest(replace.files, input.file);
   return result;
 }
@@ -189,9 +231,10 @@ async function becomeLatest(files: SnapshotFiles, file: Uint8Array): Promise<voi
 }
 
 /** Phase 2: one transaction that clears and adds. A failed add is never caught, so it undoes everything. */
-async function replaceAll(core: RecordCore, header: BackupHeader, tables: StoredRows, replacing: boolean): Promise<RestoreResult> {
+async function replaceAll(core: RecordCore, header: BackupHeader, tables: StoredRows, replacing: boolean, months: Readonly<Record<string, number>>): Promise<RestoreResult> {
   const { db } = core;
   const deviceId = core.newId();
+  const reset = `reset:${core.newId()}`;
   const cleared = [...BODY_TABLES, 'wrappers', 'migrations'] as const;
   try {
     return await db.transaction('rw', [...cleared, 'device'].map(t => db.table(t)), async (): Promise<RestoreResult> => {
@@ -204,8 +247,11 @@ async function replaceAll(core: RecordCore, header: BackupHeader, tables: Stored
       // restore runs locked, with no key to seal a line with: a plain marker waits for the next unlock,
       // and the baseline runs again for any row the file brought without a line (design §2.3)
       const rows = BODY_TABLES.reduce((n, t) => n + tables[t].length, 0);
-      await db.device.put({ key: PENDING_RESTORE, value: JSON.stringify({ schema_version: header.schema_version, rows }) });
+      await db.device.put({ key: PENDING_RESTORE, value: JSON.stringify({ schema_version: header.schema_version, rows, ...months }) });
       await db.device.put({ key: LOG_BASELINE, value: '' });
+      // the month files on this phone are the replaced record's: the cursor starts over, and a lock
+      // still holding an old month file can no longer move it
+      await db.device.put({ key: LOG_ARCHIVE, value: reset });
       return { kind: 'Restored' };
     });
   } catch (e) {

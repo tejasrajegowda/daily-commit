@@ -6,6 +6,7 @@ import type { BackupOptions } from '../backup/export.ts';
 import { SNAPSHOT_CAP_MS, sealSnapshot, writeSnapshot, type SealedSnapshot, type SnapshotOutcome } from '../backup/snapshot.ts';
 import { sweepTrash } from './words.ts';
 import { finishRestore, runBaseline } from '../changes.ts';
+import { advanceCursor, writeMonth } from '../backup/monthLog.ts';
 
 /**
  * Unlocks the record. Any change to the shape of locked values runs first, so the record opens in
@@ -28,14 +29,20 @@ export interface CloseDeps extends BackupOptions {
 
 /**
  * Locks the record, in this order: if anything changed, a snapshot is sealed while the keys are
- * still in memory, given at most 3 seconds (past that it is abandoned, and the next lock tries
- * again); every key is dropped; then the file is written. The screen has blanked itself already.
- * The app locks through this.
+ * still in memory (with the month of log lines just finished, at the first one of a new month),
+ * given at most 3 seconds (past that it is abandoned, and the next lock tries again); every key is
+ * dropped; then the files are written: the month file, the cursor past it, then the snapshot. A
+ * month file that fails leaves the cursor, so its lines stay in the snapshot. The screen has blanked
+ * itself already. The app locks through this.
  */
 export async function closeSession(core: RecordCore, deps: CloseDeps): Promise<SnapshotOutcome> {
   const held = await core.lock(session => sealInTime(core, session, deps));
   if (held === undefined) return 'unchanged';
   if (typeof held === 'string') return held;
+  if (held.month) {
+    const month = held.month;
+    if (await writeMonth(deps.files, month).catch(() => false)) await advanceCursor(core, month).catch(() => false);
+  }
   try {
     await writeSnapshot(deps.files, held);
     return 'written';

@@ -110,7 +110,7 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
       const read = copy ? readBackupFile(copy) : undefined;
       const k = v ? undefined : await takeHandOff(deps);
       if (!live) return;
-      if (read?.kind === 'File') setFound({ bytes: read.bytes, madeAt: read.madeAt });
+      if (read?.kind === 'File') setFound({ bytes: read.bytes, madeAt: read.madeAt, onDevice: true });
       if (k === 'restore') setCut('restore-first');
       setHasVault(v);
     })();

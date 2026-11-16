@@ -50,6 +50,11 @@ export interface Plan<T> {
 export interface WriteSpec<T> {
   /** every table the transaction touches */
   readonly tables: readonly TableName[];
+  /**
+   * A write that only adds usage lines to the log: it isn't a change to the record, so it moves
+   * neither `changed` nor the last-write stamp, and opening and locking the app writes no backup.
+   */
+  readonly quiet?: boolean;
   /** checks, computes and locks everything, outside any transaction; or refuses */
   prepare(session: Session, stamp: Stamp): Promise<Plan<T> | Refusal>;
 }
@@ -107,13 +112,19 @@ class Refused extends Error {
 export const isQuotaFull = (e: unknown): boolean =>
   e instanceof Error && (e.name === 'QuotaExceededError' || (e as { inner?: { name?: string } }).inner?.name === 'QuotaExceededError');
 
-/** The newest change stamp in storage: one lookup on each table's updated_at index, nothing decrypted. */
-async function latestStamp(db: RecordDb): Promise<number | undefined> {
+/**
+ * The newest change stamp in storage: one lookup on each table's updated_at index and on the log's
+ * `at`, nothing decrypted. The log counts too, so a later stamp is always after every line, and the
+ * month files' cursor (lines before it are archived) is never passed by a new line.
+ */
+export async function newestStamp(db: RecordDb): Promise<number | undefined> {
   let latest: number | undefined;
   for (const table of SYNCED) {
     const row = (await db.table(table).orderBy('updated_at').last()) as { updated_at: number } | undefined;
     if (row && (latest === undefined || row.updated_at > latest)) latest = row.updated_at;
   }
+  const line = await db.changes.orderBy('at').last();
+  if (line?.at !== undefined && (latest === undefined || line.at > latest)) latest = line.at;
   return latest;
 }
 
@@ -158,7 +169,7 @@ export function openRecord(deps: RecordDeps): RecordCore {
       const raw = await db.transaction('r', SYNCED.map(t => db.table(t)), async () =>
         Object.fromEntries(await Promise.all(SYNCED.map(async t => [t, await db.table(t).toArray()] as const))) as unknown as RawTables);
       const device = await db.device.get('device_id');
-      const lastWriteMs = await latestStamp(db);
+      const lastWriteMs = await newestStamp(db);
       const model = await openModel(cipher, raw);
       session = { cipher, backup, model, deviceId: String(device?.value ?? ''), lastWriteMs, changed: false };
     }),
@@ -180,8 +191,10 @@ export function openRecord(deps: RecordDeps): RecordCore {
       const outcome = await commit(spec.tables, plan.puts, plan.check, { cipher: s.cipher, stamp });
       if (outcome === 'quota-full') return quotaFull();
       if (outcome !== 'committed') return outcome;
-      s.lastWriteMs = stamp.updated_at;
-      s.changed = true;
+      if (!spec.quiet) {
+        s.lastWriteMs = stamp.updated_at;
+        s.changed = true;
+      }
       plan.apply(s.model);
       return saved(plan.value);
     }),
