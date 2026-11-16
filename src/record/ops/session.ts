@@ -6,7 +6,7 @@ import type { BackupOptions } from '../backup/export.ts';
 import { SNAPSHOT_CAP_MS, sealSnapshot, writeSnapshot, type SealedSnapshot, type SnapshotOutcome } from '../backup/snapshot.ts';
 import { sweepTrash } from './words.ts';
 import { finishRestore, runBaseline } from '../changes.ts';
-import { advanceCursor, writeMonth } from '../backup/monthLog.ts';
+import { LOG_ARCHIVE, monthWork, writeMonths, type MonthWork } from '../backup/monthLog.ts';
 
 /**
  * Unlocks the record. Any change to the shape of locked values runs first, so the record opens in
@@ -29,31 +29,41 @@ export interface CloseDeps extends BackupOptions {
 
 /**
  * Locks the record, in this order: if anything changed, a snapshot is sealed while the keys are
- * still in memory (with the month of log lines just finished, at the first one of a new month),
- * given at most 3 seconds (past that it is abandoned, and the next lock tries again); every key is
- * dropped; then the files are written: the month file, the cursor past it, then the snapshot. A
- * month file that fails leaves the cursor, so its lines stay in the snapshot. The screen has blanked
- * itself already. The app locks through this.
+ * still in memory, month files of the change log first, given at most 3 seconds (past that the
+ * snapshot is abandoned, and the next lock tries again); every key is dropped; then, in one turn of
+ * the write queue and only if no restore came between, the month files that were sealed are written
+ * and the cursor moved past them, and the snapshot is written if every month file was. The screen
+ * has blanked itself already. The app locks through this.
  */
 export async function closeSession(core: RecordCore, deps: CloseDeps): Promise<SnapshotOutcome> {
-  const held = await core.lock(session => sealInTime(core, session, deps));
-  if (held === undefined) return 'unchanged';
-  if (typeof held === 'string') return held;
-  if (held.month) {
-    const month = held.month;
-    if (await writeMonth(deps.files, month).catch(() => false)) await advanceCursor(core, month).catch(() => false);
-  }
-  try {
-    await writeSnapshot(deps.files, held);
-    return 'written';
-  } catch {
-    return 'failed';
-  }
+  const months = monthWork();
+  const held = await core.lock(session => sealInTime(core, session, deps, months));
+  const sealed = [...months.sealed];                    // what finished in time; a seal still running after it goes nowhere
+  if (held === undefined && sealed.length === 0) return 'unchanged';
+  return core.serial(async (): Promise<SnapshotOutcome> => {
+    const now = (await core.db.device.get(LOG_ARCHIVE))?.value;
+    if ((now === undefined ? undefined : String(now)) !== months.expected) return 'unchanged';   // a restore replaced the record
+    let allMonths = true;
+    try {
+      allMonths = await writeMonths(core, deps.files, months, sealed);
+    } catch {
+      allMonths = false;
+    }
+    if (held === undefined) return 'unchanged';
+    if (typeof held === 'string') return held;
+    if (!allMonths) return 'failed';                   // the snapshot leaves out lines only those files hold: keep the last one
+    try {
+      await writeSnapshot(deps.files, held);
+      return 'written';
+    } catch {
+      return 'failed';
+    }
+  });
 }
 
-async function sealInTime(core: RecordCore, session: Session, deps: CloseDeps): Promise<SealedSnapshot | SnapshotOutcome> {
+async function sealInTime(core: RecordCore, session: Session, deps: CloseDeps, months: MonthWork): Promise<SealedSnapshot | SnapshotOutcome> {
   let inTime = true;
-  const work = sealSnapshot(core.db, backupUntil(session, () => inTime), deps.files, core.now(), deps);
+  const work = sealSnapshot(core.db, backupUntil(session, () => inTime), deps.files, core.now(), deps, months);
   work.catch(() => {});      // once abandoned, its late failure is expected and goes nowhere
   try {
     return (await Promise.race([work, deps.sleep(SNAPSHOT_CAP_MS).then(() => 'abandoned' as const)])) ?? 'unchanged';

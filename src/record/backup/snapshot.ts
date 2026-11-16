@@ -4,7 +4,7 @@ import type { SnapshotFiles } from '../files.ts';
 import { appDay } from '../time.ts';
 import { sealBackup, type BackupOptions } from './export.ts';
 import { readFrame } from './format.ts';
-import { sealMonth, type SealedMonth } from './monthLog.ts';
+import { monthWork, sealMonths, type MonthWork } from './monthLog.ts';
 
 // The automatic copy. Each time the app locks after a change, one whole backup goes to
 // backup/latest.dcbak, which Android's own backup carries with the month files in backup/log/.
@@ -27,8 +27,6 @@ export interface SealedSnapshot {
   readonly bytes: Uint8Array;
   /** the previous latest and its app day, when that day is over and it is kept in older/ */
   readonly retire?: { readonly bytes: Uint8Array; readonly day: string };
-  /** the month of log lines just finished, when this is the first snapshot of a new app month */
-  readonly month?: SealedMonth;
 }
 
 /** When a snapshot file was made, or undefined if there is none or it is damaged. */
@@ -45,21 +43,20 @@ function madeAt(file: Uint8Array | undefined): number | undefined {
  * Seals a snapshot if anything changed since the last one, or returns undefined. Runs inside the
  * lock's turn in the write queue, while the keys are still in memory. "Changed" is a write stored
  * in this session (the stamps alone miss one made after the clock was set back), or a newest stamp
- * later than the last snapshot (a write whose snapshot failed in an earlier session).
+ * later than the last snapshot (a write whose snapshot failed in an earlier session). The month
+ * files are sealed first, into `work`, so a lock that runs out of time still keeps those.
  */
-export async function sealSnapshot(db: RecordDb, session: Session, files: SnapshotFiles, now: number, options: BackupOptions): Promise<SealedSnapshot | undefined> {
+export async function sealSnapshot(db: RecordDb, session: Session, files: SnapshotFiles, now: number, options: BackupOptions, work: MonthWork = monthWork()): Promise<SealedSnapshot | undefined> {
   const previous = await files.read(LATEST);
   const previousAt = madeAt(previous);
   if (previousAt !== undefined && !session.changed && (session.lastWriteMs ?? 0) <= previousAt) return undefined;
-  const { logFrom, month } = await sealMonth(db, session, files, now, options);
-  const { bytes, header } = await sealBackup(db, session, now, options, logFrom);
+  const log = await sealMonths(db, session, files, now, options, work);
+  const { bytes, header } = await sealBackup(db, session, now, options, log);
   const rule = session.model.settings;
   const previousDay = previousAt === undefined ? undefined : appDay(previousAt, rule);
-  return {
-    bytes,
-    ...(previous && previousDay !== undefined && previousDay < appDay(header.exported_at, rule) && { retire: { bytes: previous, day: previousDay } }),
-    ...(month && { month }),
-  };
+  return previous && previousDay !== undefined && previousDay < appDay(header.exported_at, rule)
+    ? { bytes, retire: { bytes: previous, day: previousDay } }
+    : { bytes };
 }
 
 /**

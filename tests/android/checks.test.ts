@@ -171,6 +171,11 @@ test('a backup is only the snapshot, judged on the full path, and a bare name do
   assert.equal(snapshotNames([manifest, snapshot]), undefined);
   assert.match(snapshotNames([manifest, snapshot, '/data/data/app.dailycommit/shared_prefs/NOTIFICATION_STORE.xml']) ?? '', /shared_prefs/);
   assert.match(snapshotNames(['_manifest', 'latest.dcbak']) ?? '', /latest\.dcbak/);
+  // the change log's month files may go with it; nothing else in backup/ may, and the snapshot is still required
+  const month = '/data/data/com.android.localtransport/files/1/_full/apps/app.dailycommit/f/backup/log/2026-01.dclog';
+  assert.equal(snapshotNames([manifest, snapshot, month, month.replace('2026-01', '2026-02.2')]), undefined);
+  assert.notEqual(snapshotNames([manifest, month]), undefined);
+  assert.notEqual(snapshotNames([manifest, snapshot, month.replace('log/2026-01.dclog', 'older/2026-01-05.dcbak')]), undefined);
 });
 
 test('a missing or empty capture is a failed read, not a search that found nothing', () => {

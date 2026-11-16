@@ -47,6 +47,16 @@ test('a locked-value change reaches every live row once, keeps the stamps, skips
   assert.equal(await runMigrations(core, guarded(stubCipher()), [TEST_V2], 2), 0);
 });
 
+test('a migration line with the clock set back is still stamped after every stored line, so it never falls behind the month files\' cursor', async () => {
+  const { core, db, clock } = await withNotYet();
+  const newest = (await db.changes.orderBy('at').last())?.at ?? 0;
+  clock.advance(-40 * 86_400_000);
+  await runMigrations(core, guarded(stubCipher()), [TEST_V2], 50);
+  const line = await db.changes.orderBy('at').last();
+  assert.ok(line?.at !== undefined && line.at > newest);
+  assert.equal(line?.ref, undefined);                        // it is the migration's own line
+});
+
 test('stopped part-way, it carries on from its cursor and changes nothing twice', async () => {
   const { core, db } = await withNotYet();
   const before = await db.changes.count();

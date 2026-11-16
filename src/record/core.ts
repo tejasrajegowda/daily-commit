@@ -187,6 +187,8 @@ export function openRecord(deps: RecordDeps): RecordCore {
       const stamp: Stamp = { updated_at: nextStamp(now(), s.lastWriteMs), updated_by: s.deviceId };
       const plan = await spec.prepare(s, stamp);
       if ('kind' in plan) return plan;
+      // a quiet write moves no stamp, so a change to the record in one would never reach a backup
+      if (spec.quiet && plan.puts.some(p => p.table !== 'changes')) throw new Error('a quiet write only adds lines to the log');
       if (plan.puts.length === 0) return saved(plan.value);   // nothing to store: nothing changes, not even the last-write stamp
       const outcome = await commit(spec.tables, plan.puts, plan.check, { cipher: s.cipher, stamp });
       if (outcome === 'quota-full') return quotaFull();

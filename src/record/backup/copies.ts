@@ -1,15 +1,17 @@
 import type { SnapshotFiles } from '../files.ts';
 
-// Private copies kept for a short while: the safety copy before "replace everything", and the raw
-// copy before a schema upgrade. Neither folder is inside backup/, so Android's backup never carries
-// them. At most two of each are kept, and each goes 7 days after it was made, so a wiped diary page
-// can't outlive its promise in an old copy.
+// Private copies kept for a short while: the safety copy before "replace everything", the raw copy
+// before a schema upgrade, and change-log month files no longer used. No folder is inside backup/,
+// so Android's backup never carries them. At most two safety and two raw copies are kept, and each
+// copy goes 7 days after it was made, so a wiped diary page can't outlive its promise in an old copy.
 
 export const SAFETY = 'safety';
 export const PREUPGRADE = 'preupgrade';
+/** Change-log month files no longer used (a replaced record's, or a stray), each named `<ms>.<its name>`. */
+export const REPLACED = 'log-replaced';
 export const KEEP_COPIES = 2;
 export const COPY_LIFE_MS = 7 * 86_400_000;
-const NAME = /^(\d{13})\.[a-z.]+$/;
+const NAME = /^(\d{13})\.[a-z0-9.-]+$/;
 
 async function copiesIn(files: SnapshotFiles, dir: string): Promise<string[]> {
   return (await files.list(dir)).filter(name => NAME.test(name)).sort();

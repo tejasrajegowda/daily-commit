@@ -55,7 +55,8 @@ const ALLOWED_PERMISSIONS = new Set([
   ...(INTERNET_ALLOWED ? ['android.permission.INTERNET'] : []),
 ]);
 const OPEN_TO_OTHER_APPS = new Set(['app.dailycommit.MainActivity', '.MainActivity']);
-const SNAPSHOT = { domain: 'file', path: 'backup/latest.dcbak' };
+/** What backup carries, in this order: the locked snapshot, and the folder of the change log's locked month files. */
+const BACKED_UP = [{ domain: 'file', path: 'backup/latest.dcbak' }, { domain: 'file', path: 'backup/log/' }];
 const BACKUP_DOMAINS = ['root', 'file', 'database', 'sharedpref', 'external', 'device_root', 'device_file', 'device_database', 'device_sharedpref'];
 const NO_EXCLUDE_DESCENDANTS = new Set(['noExcludeDescendants', '8', '0x8']);   // a decoded binary layout prints the number
 
@@ -110,13 +111,13 @@ function leakManifestProblems(manifest: string): string[] {
   return problems;
 }
 
-/** The include-only rule for one backup mode: exactly the locked snapshot, nothing else. */
+/** The include-only rule for one backup mode: exactly the locked snapshot and the month files' folder, nothing else. */
 function onlySnapshot(section: string, found: Tag[]): string[] {
   if (found.length !== 1) return [`backup rules: ${found.length} <${section}> section(s), not 1 (a missing section backs up everything)`];
   const children = tags(found[0]?.body ?? '');
-  const ok = children.length === 1 && children[0]?.name === 'include'
-    && attr(children[0].attrs, 'domain') === SNAPSHOT.domain && attr(children[0].attrs, 'path') === SNAPSHOT.path;
-  return ok ? [] : [`backup rules: <${section}> must hold only <include domain="file" path="backup/latest.dcbak">`];
+  const ok = children.length === BACKED_UP.length && children.every((c, i) => c.name === 'include'
+    && attr(c.attrs, 'domain') === BACKED_UP[i]?.domain && attr(c.attrs, 'path') === BACKED_UP[i]?.path);
+  return ok ? [] : [`backup rules: <${section}> must hold only <include domain="file" path="backup/latest.dcbak"> and <include domain="file" path="backup/log/">`];
 }
 
 function rulesProblems(xml: string | undefined): string[] {

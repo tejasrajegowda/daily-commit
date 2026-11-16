@@ -5,7 +5,7 @@ import { toBase64url } from '../bytes.ts';
 import { locked, saved, type Result } from '../results.ts';
 import { appDay } from '../time.ts';
 import { bodyJson, gzip, readRaw } from './body.ts';
-import { FORMAT, FORMAT_VERSION, frame, headerBytes, type BackupHeader } from './format.ts';
+import { FORMAT, FORMAT_VERSION, frame, headerBytes, type BackupHeader, type LogFile } from './format.ts';
 
 // A whole backup, made from the rows exactly as stored. Nothing is decrypted to make it: each
 // row's locked values are copied as they are, and the body is locked once more as a whole.
@@ -24,16 +24,16 @@ export interface SealedBackup {
 
 /**
  * Seals a backup of everything now in storage. The caller already holds a turn in the write
- * queue, so no write lands while it reads. With `logFrom`, the change log is cut to the lines from
- * that stamp on (and any line with no plain time): the automatic copy leaves out the months already
- * sealed into their own files. The manual export leaves it out and carries every line.
+ * queue, so no write lands while it reads. With `log`, the change log is cut to the lines from
+ * `log.from` on (and any line with no plain time), and the header names the month files that hold
+ * the rest: the automatic copy. The manual export leaves it out and carries every line.
  */
-export async function sealBackup(db: RecordDb, session: Session, now: number, options: BackupOptions, logFrom?: number): Promise<SealedBackup> {
+export async function sealBackup(db: RecordDb, session: Session, now: number, options: BackupOptions, log?: { readonly from: number; readonly files: readonly LogFile[] }): Promise<SealedBackup> {
   const backup = session.backup;
   if (!backup) throw new Error('this session has no backup key');
   const all = await readRaw(db);
-  const raw = logFrom === undefined ? all
-    : { ...all, tables: { ...all.tables, changes: (all.tables.changes as readonly ChangeRow[]).filter(line => line.at === undefined || line.at >= logFrom) } };
+  const raw = log === undefined ? all
+    : { ...all, tables: { ...all.tables, changes: (all.tables.changes as readonly ChangeRow[]).filter(line => line.at === undefined || line.at >= log.from) } };
   const vault = raw.tables.vault[0] as VaultRow | undefined;
   const passphrase = raw.wrappers.find(w => w.method === 'passphrase');
   const recovery = raw.wrappers.find(w => w.method === 'recovery');
@@ -45,6 +45,7 @@ export async function sealBackup(db: RecordDb, session: Session, now: number, op
     exported_at: Math.max(now, session.lastWriteMs ?? now),
     vault_id: vault.vault_id, kid: vault.kid, generation: vault.generation, iv: toBase64url(iv),
     wrappers: { passphrase, recovery },
+    ...(log !== undefined && { log_files: log.files }),
   };
   const head = headerBytes(header);
   const ct = await backup.sealBody(await gzip(bodyJson(raw.tables, header.schema_version)), head, iv);

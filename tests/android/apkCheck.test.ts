@@ -22,8 +22,8 @@ const MANIFEST = `<manifest xmlns:android="http://schemas.android.com/apk/res/an
 const CONFIG = JSON.stringify({ appId: 'app.dailycommit', appName: 'Daily Commit', webDir: 'dist', loggingBehavior: 'none',
   server: { androidScheme: 'https', hostname: 'localhost' }, android: { webContentsDebuggingEnabled: false, loggingBehavior: 'none', allowMixedContent: false } });
 const RULES_OK = `<data-extraction-rules>
-  <cloud-backup disableIfNoEncryptionCapabilities="true"><include domain="file" path="backup/latest.dcbak"/></cloud-backup>
-  <device-transfer><include domain="file" path="backup/latest.dcbak"/></device-transfer>
+  <cloud-backup disableIfNoEncryptionCapabilities="true"><include domain="file" path="backup/latest.dcbak"/><include domain="file" path="backup/log/"/></cloud-backup>
+  <device-transfer><include domain="file" path="backup/latest.dcbak"/><include domain="file" path="backup/log/"/></device-transfer>
   <cross-platform-transfer platform="ios"><exclude domain="root" path="."/><exclude domain="file" path="."/><exclude domain="database" path="."/><exclude domain="sharedpref" path="."/><exclude domain="external" path="."/><exclude domain="device_root" path="."/><exclude domain="device_file" path="."/><exclude domain="device_database" path="."/><exclude domain="device_sharedpref" path="."/></cross-platform-transfer>
 </data-extraction-rules>`;
 const LAYOUT_OK = `<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android">`
@@ -74,13 +74,16 @@ test('the web assets go through the release check, and the APK must carry exactl
   assert.notDeepEqual(apkProblems({ ...cleanApk(), apkPublicList: ['index.html'] }), []);
 });
 
-test('backup carries only backup/latest.dcbak, in both modes, only to a phone that encrypts it, and nothing to another platform', () => {
+test('backup carries only backup/latest.dcbak and the month files in backup/log/, in both modes, only to a phone that encrypts it, and nothing to another platform', () => {
   assert.deepEqual(apkProblems(withResource('res/xml/data_extraction_rules.xml', RULES_OK)), []);
   for (const bad of [
     RULES_OK.replace(' disableIfNoEncryptionCapabilities="true"', ''),
     RULES_OK.replace(/<device-transfer>.*?<\/device-transfer>/s, ''),            // a missing section backs up everything
-    RULES_OK.replace('path="backup/latest.dcbak"/></cloud-backup>', 'path="backup/latest.dcbak"/><include domain="file" path="backup/older"/></cloud-backup>'),
-    RULES_OK.replace('<include domain="file" path="backup/latest.dcbak"/></device-transfer>', '<exclude domain="file" path="tmp"/></device-transfer>'),
+    RULES_OK.replace('path="backup/log/"/></cloud-backup>', 'path="backup/log/"/><include domain="file" path="backup/older"/></cloud-backup>'),
+    RULES_OK.replace('<include domain="file" path="backup/log/"/></device-transfer>', '<exclude domain="file" path="tmp"/></device-transfer>'),
+    RULES_OK.replace('<include domain="file" path="backup/log/"/></cloud-backup>', '</cloud-backup>'),          // month files would never leave the phone
+    RULES_OK.replace('<include domain="file" path="backup/log/"/></device-transfer>', '</device-transfer>'),
+    RULES_OK.replace('<include domain="file" path="backup/log/"/></cloud-backup>', '<include domain="file" path="backup/"/></cloud-backup>'),
     RULES_OK.replace(/<cross-platform-transfer.*?<\/cross-platform-transfer>/s, ''),
   ]) assert.notDeepEqual(apkProblems(withResource('res/xml/data_extraction_rules.xml', bad)), [], bad);
 });

@@ -1,12 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Only the locked snapshot ever leaves the phone. An include means nothing else is backed up,
-     and every section is written out, because a missing section backs up everything. -->
+<!-- Only the locked snapshot and the change log's locked month files ever leave the phone. An
+     include means nothing else is backed up, and every section is written out, because a missing
+     section backs up everything. -->
 <data-extraction-rules>
     <cloud-backup disableIfNoEncryptionCapabilities="true">
         <include domain="file" path="backup/latest.dcbak" />
+        <include domain="file" path="backup/log/" />
     </cloud-backup>
     <device-transfer>
         <include domain="file" path="backup/latest.dcbak" />
+        <include domain="file" path="backup/log/" />
     </device-transfer>
     <!-- Android 16 QPR2 and newer: nothing goes to another platform. -->
     <cross-platform-transfer platform="ios">

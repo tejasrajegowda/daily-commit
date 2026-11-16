@@ -29,6 +29,17 @@ export interface BackupHeader {
   readonly iv: string;
   /** the portable copies of the master key, each exactly as its `wrappers` row is stored */
   readonly wrappers: { readonly passphrase: WrapperRow; readonly recovery: WrapperRow };
+  /**
+   * The automatic copy only: the month files holding the change log's earlier lines, each by name
+   * and the SHA-256 of its bytes. A restore of the phone's copy joins exactly these and no other.
+   */
+  readonly log_files?: readonly LogFile[];
+}
+
+export interface LogFile {
+  readonly name: string;
+  /** base64url SHA-256 of the whole month file */
+  readonly sha256: string;
 }
 
 /** The header as bytes, its keys always in the same order. */
@@ -37,6 +48,7 @@ export function headerBytes(h: BackupHeader): Uint8Array {
     format: h.format, format_version: h.format_version, schema_version: h.schema_version, app_version: h.app_version,
     exported_at: h.exported_at, vault_id: h.vault_id, kid: h.kid, generation: h.generation, iv: h.iv,
     wrappers: { passphrase: h.wrappers.passphrase, recovery: h.wrappers.recovery },
+    ...(h.log_files !== undefined && { log_files: h.log_files.map(f => ({ name: f.name, sha256: f.sha256 })) }),
   });
 }
 
@@ -107,5 +119,7 @@ export function readFrame(file: Uint8Array, format: BackupHeader['format'] = FOR
     || !isObject(w) || !isWrap(w.passphrase, 'passphrase') || !isWrap(w.recovery, 'recovery')) throw damaged();
   const iv = ivOf(h.iv);
   if (!iv) throw damaged();
+  const files = h.log_files;
+  if (files !== undefined && (!Array.isArray(files) || !files.every(f => isObject(f) && typeof f.name === 'string' && typeof f.sha256 === 'string'))) throw damaged();
   return { header: h as unknown as BackupHeader, headerBytes, iv, ct: file.slice(8 + length) };
 }

@@ -194,12 +194,15 @@ function appFiles(phone: Emu): string[] {
   return pathLines(listed.out);
 }
 
-/** Names apart from `_manifest` are exactly `backup/latest.dcbak`, and none of the excluded domains. */
+/** A change-log month file, the only other thing backup may carry. */
+const MONTH_FILE = /(?:^|\/)backup\/log\/\d{4}-\d{2}(?:\.\d+)?\.dclog$/;
+
+/** Names apart from `_manifest` are exactly one `backup/latest.dcbak` and any month files, and none of the excluded domains. */
 export function snapshotNames(names: readonly string[]): string | undefined {
   const leak = names.filter(n => /(?:^|\/)(?:no_backup|shared_prefs|app_webview|databases)\//.test(n));
   if (leak.length > 0) return `backup names include ${leak.slice(0, 4).join(', ')}`;
   const manifests = names.filter(n => n.endsWith('/_manifest') || n.endsWith('_manifest'));
-  const rest = names.filter(n => !manifests.includes(n));
+  const rest = names.filter(n => !manifests.includes(n) && !MONTH_FILE.test(n));
   if (manifests.length !== 1 || rest.length !== 1) return `names ${names.join(', ') || 'none'}`;
   if (!rest[0]?.endsWith('backup/latest.dcbak')) return `the file was ${rest[0]}`;
   return undefined;
@@ -601,7 +604,8 @@ function wipedFiles(phone: Emu, ctx: BCtx, label: string): void {
   const files = stableAppFiles(phone);
   const rels = [...new Set(files.map(relOf))].sort();
   ctx.note(`${label} files ${rels.join(', ') || 'none'}`);
-  if (rels.length !== 1 || rels[0] !== 'files/backup/latest.dcbak') {
+  const others = rels.filter(r => !MONTH_FILE.test(r));
+  if (others.length !== 1 || others[0] !== 'files/backup/latest.dcbak') {
     throw new Error(`files before launch: ${rels.join(', ') || 'none'}`);
   }
 }

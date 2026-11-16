@@ -3,7 +3,7 @@ import { jsonBytes } from './bytes.ts';
 import { openDb, SCHEMAS, upgradeRow, type RecordDb, type Schema, type StorageDeps } from './db.ts';
 import type { SnapshotFiles } from './files.ts';
 import { gzip } from './backup/body.ts';
-import { PREUPGRADE, SAFETY, keepCopy, pruneCopies } from './backup/copies.ts';
+import { PREUPGRADE, REPLACED, SAFETY, keepCopy, pruneCopies } from './backup/copies.ts';
 
 // Opening storage at app start. A database written by a newer app is refused, never opened. Before
 // a schema upgrade, a raw copy of every row is kept privately; the upgrade itself touches only
@@ -48,6 +48,7 @@ export async function openStorage(deps: StorageDeps, files: SnapshotFiles, now: 
   }
   await pruneCopies(files, PREUPGRADE, now());
   await pruneCopies(files, SAFETY, now());
+  await pruneCopies(files, REPLACED, now());          // month files of a record that was replaced
   const db = openDb(deps, schemas);
   await db.open();
   return { kind: 'Ready', db };
