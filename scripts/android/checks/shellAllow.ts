@@ -97,14 +97,29 @@ export function forTestsUser(command: string): string {
   return TESTS_FORMS.get(command.trim()) ?? command;
 }
 
-/** shellKind on the tablet: a user-addressing command only in its Tests-user form; its bare form is refused. */
+// The stand-in for the owner in the Tests user: the whole screen there is ours to read and act on (the
+// owner's account is never on screen while these run), so it reads the whole screen and the keyboard's state.
+const SCREEN_FILE = '/data/local/tmp/dc-screen.xml';
+/** The whole screen of the Tests user, read and removed in one call. On the tablet lane only. */
+export const TESTS_SCREEN_DUMP = `uiautomator dump ${SCREEN_FILE} >/dev/null && cat ${SCREEN_FILE}; rm -f ${SCREEN_FILE}`;
+/** Only the focused field's lines of the keyboard's state. On the tablet lane only. */
+export const TESTS_IME_READ = "dumpsys input_method | grep -E 'mCurEditorInfo|mCurAttribute|mInputEditorInfo|imeOptions'";
+
+/**
+ * shellKind on the tablet: a user-addressing command only in its Tests-user form; its bare form is refused.
+ * Taps, swipes, typing and the steps' keys may act anywhere on the Tests user's screen (the stand-in works in
+ * Android's file picker), plus the Recents key; the gate's own check keeps all of it inside the Tests user.
+ */
 export function testsShellKind(command: string): ShellKind {
   const c = command.trim();
   if (c === CLEAR_TESTS_DATA) return 'anywhere';
+  if (c === TESTS_SCREEN_DUMP || c === TESTS_IME_READ) return 'read';
+  if (c === 'input keyevent KEYCODE_APP_SWITCH') return 'anywhere';
   const base = FROM_TESTS_FORM.get(c);
   if (base !== undefined) return shellKind(base);
   if (TESTS_FORMS.has(c)) return 'refused';
-  return shellKind(c);
+  const kind = shellKind(c);
+  return kind === 'in-app' || kind === 'in-app-or-prompt' ? 'anywhere' : kind;
 }
 
 const FOCUS_APP = String.raw`[ {]app\.dailycommit/`;

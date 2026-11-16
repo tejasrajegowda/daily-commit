@@ -3,8 +3,8 @@
 // wait of at most 5 minutes, then "not done". Only the plan's Recorded items are printed and logged to
 // .local/android/phone-<stamp>.log: numbers, yes/no, the keyboard's name. Never the phone's serial.
 // npm run phone:checks
-// npm run phone:checks -- --tablet   (the tablet's Tests user only, through the tablet lane; its copy of the app's
-//                                     data is cleared first; install it there with npm run phone -- --tests)
+// npm run phone:checks -- --tablet [--owner-wait 20]   (the tablet's Tests user only, through the tablet lane; its copy
+//   of the app's data is cleared first; a stand-in acts for the owner there; install with npm run phone -- --tests)
 // npm run phone:checks -- --dry-run [--owner-wait 20]   (the dc- test emulator, started and stopped here)
 // `--from P<n>` is refused before the phone is touched: a resumed run would skip the opening check.
 // In the dry run a stand-in (standin.ts) does the owner's part at the file picker and answers the owner's questions
@@ -21,12 +21,13 @@ import { LONG_FILE } from './long.ts';
 import { answerOf, ITEMS, NOT_TEST_RECORD, phoneMayRun, RUN, STEPS, type ItemKey, type Owner, type PCtx, type StandIn, type Step } from './p.ts';
 import { CLEAR_TESTS_DATA } from './shellAllow.ts';
 import { dryRunStandIn } from './standin.ts';
+import { tabletStandIn } from './tabletStandIn.ts';
 
 export const OWNER_WAIT_MS = 5 * 60_000;
 
 export interface SittingArgs { readonly from: Step; readonly dryRun: boolean; readonly tablet: boolean; readonly ownerWaitMs: number }
 
-/** `--from P<n>`, `--dry-run` or `--tablet`, and `--owner-wait <seconds>` (the dry run only). Anything else is refused. */
+/** `--from P<n>`, `--dry-run` or `--tablet`, and `--owner-wait <seconds>` (the dry run and the tablet, where a stand-in acts). Anything else is refused. */
 export function parseArgs(argv: readonly string[]): SittingArgs | undefined {
   let from: Step = 'P3';
   let dryRun = false;
@@ -51,7 +52,7 @@ export function parseArgs(argv: readonly string[]): SittingArgs | undefined {
       return undefined;
     }
   }
-  if (waitGiven && !dryRun) return undefined;          // on the phone the owner always gets 5 minutes
+  if (waitGiven && !dryRun && !tablet) return undefined;   // on the phone the owner always gets 5 minutes
   if (dryRun && tablet) return undefined;              // the emulator has no Tests user
   return { from, dryRun, tablet, ownerWaitMs };
 }
@@ -205,7 +206,7 @@ async function main(): Promise<number> {
       phone: driver(io),
       front: () => io.front(),
       pushLong: () => existsSync(LONG_FILE) && io.pushLong(LONG_FILE),
-      owner: owner(say, answers, args.ownerWaitMs, args.dryRun ? dryRunStandIn() : undefined),
+      owner: owner(say, answers, args.ownerWaitMs, args.dryRun ? dryRunStandIn() : args.tablet ? tabletStandIn(serial) : undefined),
       recorded: key => results.has(key),
       record(key, value) {
         results.set(key, value);

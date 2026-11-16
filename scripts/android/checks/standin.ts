@@ -104,30 +104,45 @@ function inFront(phone: Emu, ms: number): boolean {
   }
 }
 
+/** What a stand-in reads beyond the screen: whether the app's window is secure (undefined: not readable there), and the keyboard's state. */
+export interface StandInReads {
+  readonly secure: () => boolean | undefined;
+  readonly ime: () => string;
+}
+
 export function dryRunStandIn(): StandIn {
   const phone = emu();
+  return makeStandIn(phone, {
+    secure: () => windowIsSecure(adbOnTestPhone(['shell', 'dumpsys window windows']).out),
+    ime: () => phone.shell('dumpsys input_method').out,
+  });
+}
+
+/** The owner's part at the file picker, and the answers measured on the device, over any driver of a test device. */
+export function makeStandIn(phone: Emu, reads: StandInReads): StandIn {
   let learning: boolean | undefined;
   const fieldLearning = (): boolean | undefined => {
     if (learning !== undefined) return learning;
     phone.tap('Diary', 20_000);
     focusDiaryPage(phone);
     pause(1_000);
-    learning = noLearning(phone.shell('dumpsys input_method').out);
+    learning = noLearning(reads.ime());
     phone.key('KEYCODE_BACK');                           // the keyboard down
     return learning;
   };
   const answers: Partial<Record<ItemKey, () => { value: 'yes' | 'no'; how: string } | undefined>> = {
     'P6.screenshot': () => {
-      const secure = windowIsSecure(adbOnTestPhone(['shell', 'dumpsys window windows']).out);
+      const secure = reads.secure();
       const shot = capture(phone);
       if ('none' in shot) {
+        if (secure === undefined) return { value: 'yes', how: `screencap gave no picture of the app (it said: ${shot.none})` };
         return { value: secure ? 'yes' : 'no', how: `the window is ${secure ? '' : 'not '}secure and screencap gave no picture (it said: ${shot.none})` };
       }
       const captured = secureCapture(shot.raw);
-      return {
-        value: secure && captured !== 'shown' ? 'yes' : 'no',
-        how: `the window is ${secure ? '' : 'not '}secure and a screencap shows ${captured === 'shown' ? "the app's rows" : captured === 'bars' ? 'only the system bars' : 'black'}`,
-      };
+      const shows = captured === 'shown' ? "the app's rows" : captured === 'bars' ? 'only the system bars' : 'black';
+      // where the window's flag can't be read, the picture is the answer: what a screenshot gets is what the owner asks about
+      if (secure === undefined) return { value: captured !== 'shown' ? 'yes' : 'no', how: `a screencap shows ${shows}` };
+      return { value: secure && captured !== 'shown' ? 'yes' : 'no', how: `the window is ${secure ? '' : 'not '}secure and a screencap shows ${shows}` };
     },
     'P6.recents': () => {
       // A file in Android's snapshot store is not the answer: for a task whose picture is off, Android still keeps a

@@ -393,7 +393,7 @@ test('the run\'s arguments: a shorter owner wait only in the dry run; nothing el
   assert.deepEqual(parseArgs(['--dry-run', '--owner-wait', '20']), { from: 'P3', dryRun: true, tablet: false, ownerWaitMs: 20_000 });
   assert.deepEqual(parseArgs(['--tablet']), { from: 'P3', dryRun: false, tablet: true, ownerWaitMs: 300_000 });
   assert.equal(parseArgs(['--tablet', '--dry-run']), undefined, 'the emulator has no Tests user');
-  assert.equal(parseArgs(['--tablet', '--owner-wait', '20']), undefined);
+  assert.deepEqual(parseArgs(['--tablet', '--owner-wait', '20']), { from: 'P3', dryRun: false, tablet: true, ownerWaitMs: 20_000 }, 'a stand-in acts in the Tests user');
   assert.equal(parseArgs(['--owner-wait', '20']), undefined);
   assert.equal(parseArgs(['--from', 'P9']), undefined);
   assert.equal(parseArgs(['--serial', 'emulator-5554']), undefined);
@@ -414,8 +414,16 @@ test('the steps reach the phone only through the guard', () => {
   const standin = readFileSync(new URL('../../scripts/android/checks/standin.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(standin, /guardedPhone|phoneTarget|spawnSync|'-s'/);
   assert.doesNotMatch(steps, /standin/);
-  assert.match(sitting, /owner\(say, answers, args\.ownerWaitMs, args\.dryRun \? dryRunStandIn\(\) : undefined\)/);
+  assert.match(sitting, /owner\(say, answers, args\.ownerWaitMs, args\.dryRun \? dryRunStandIn\(\) : args\.tablet \? tabletStandIn\(serial\) : undefined\)/);
   assert.deepEqual([...sitting.matchAll(/dryRunStandIn\(/g)].length, 1);
+  assert.deepEqual([...sitting.matchAll(/tabletStandIn\(/g)].length, 1);
+  // The tablet's stand-in (D-36) reaches the tablet only through the tablet lane: no guard phone, no other lane.
+  const tablet = readFileSync(new URL('../../scripts/android/checks/tabletStandIn.ts', import.meta.url), 'utf8');
+  const from = [...tablet.matchAll(/^import [^;]* from ['"]([^'"]+)['"];/gm)].map(m => m[1]).sort();
+  assert.deepEqual(from, ['../adbGate.ts', '../drive.ts', './guard.ts', './p.ts', './shellAllow.ts', './standin.ts']);
+  assert.doesNotMatch(tablet, /guardedPhone|phoneTarget|spawnSync|adbOnTestPhone|phoneChecks|'install'/);
+  assert.match(tablet, /^import \{ hierarchyOf, tabletAdb \} from '\.\/guard\.ts';$/m);
+  assert.match(tablet, /^import \{ makeStandIn \} from '\.\/standin\.ts';$/m);
 });
 
 test('the stand-in can reach only the dc- test emulator, and only after the dry run checked its name', () => {

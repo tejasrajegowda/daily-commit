@@ -9,7 +9,7 @@ import { captureTo } from '../../scripts/android/checks/b.ts';
 import { DRY_RUN_SERIAL } from '../../scripts/android/checks/guard.ts';
 import {
   APP, CLEAR_TESTS_DATA, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_TESTS_USER, NotTestsUser, Refused, SCAN_LONG,
-  TESTS_LONG_REMOTE, forTestsUser, inTestsUser, onlyInFront,
+  TESTS_IME_READ, TESTS_LONG_REMOTE, TESTS_SCREEN_DUMP, forTestsUser, inTestsUser, onlyInFront,
 } from '../../scripts/android/checks/shellAllow.ts';
 import { inputTextArg, TEST_SERIAL } from '../../scripts/android/drive.ts';
 import { SERIAL } from '../../scripts/android/emulator.ts';
@@ -146,12 +146,25 @@ const ROWS: readonly Row[] = [
   { lane: 'tablet', args: on(TAB, ['shell', 'am switch-user 0']), ok: false },
   { lane: 'tablet', args: on(TAB, ['shell', inTestsUser('cat /data/system/users/0.xml')]), ok: false },
   { lane: 'tablet', args: on(TAB, ['shell', 'input', 'tap', '200', '400']), ok: false, why: /one command/ },
+  { lane: 'tablet', args: on(TAB, ['shell', onlyInFront('input tap 200 400', false)]), ok: true },
   { lane: 'tablet', args: on(TAB, ['install', '-r', APK]), ok: false, why: /--user 10/ },
   { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '0', APK]), ok: false, why: /--user 10/ },
   { lane: 'tablet', args: on(TAB, ['install', '-r', '-d', '--user', '10', APK]), ok: false, why: /-d/ },
   { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', LONG_REMOTE]), ok: false, why: /Tests user's storage/ },
   { lane: 'tablet', args: on(TAB, ['pull', TESTS_LONG_REMOTE, 'copy.dcbak']), ok: false },
+  // the stand-in acts for the owner anywhere on the Tests user's screen, reads it whole, and takes screenshots there
+  { lane: 'tablet', args: on(TAB, ['shell', 'input tap 200 400']), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', 'input keyevent KEYCODE_APP_SWITCH']), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', TESTS_SCREEN_DUMP]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', TESTS_IME_READ]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['exec-out', 'screencap']), ok: true },
   { lane: 'tablet', args: on(TAB, ['exec-out', 'screencap', '-p']), ok: false },
+  { lane: 'tablet', args: on(TAB, ['exec-out', 'cat', TESTS_LONG_REMOTE]), ok: false },
+  { lane: 'tablet', args: on(TAB, ['shell', 'input keyevent KEYCODE_SYSRQ']), ok: false },
+  { lane: 'tablet', args: on(TAB, ['shell', 'dumpsys input_method']), ok: false },
+  { lane: 'tablet', args: on(TAB, ['shell', 'dumpsys window windows']), ok: false },
+  { lane: 'phoneChecks', args: on(PHONE, ['shell', TESTS_SCREEN_DUMP]), ok: false },
+  { lane: 'phoneChecks', args: on(PHONE, ['shell', 'input keyevent KEYCODE_APP_SWITCH']), ok: false },
   { lane: 'tablet', args: on(TAB, ['uninstall', APP_ID]), ok: false },
   { lane: 'tablet', args: on(TAB, ['shell', `pm uninstall --user 10 ${APP_ID}`]), ok: false },
   { lane: 'tablet', args: on(EMU, ['shell', FOCUS_READ]), ok: false, why: /not the tablet/ },

@@ -5,7 +5,7 @@ import { closeSync, openSync } from 'node:fs';
 import { APP_ID } from './apk-check.ts';
 import {
   DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_TESTS_USER, NotTestsUser, Refused, TESTS_LONG_REMOTE, TESTS_USER,
-  envelopeOf, inTestsUser, shellKind, testsShellKind, type ShellKind,
+  envelopeOf, inTestsUser, shellKind, testsShellKind,
 } from './checks/shellAllow.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 
@@ -53,14 +53,22 @@ function headOf(args: readonly string[]): Head {
  * shellKind refuses that whole string and allows the command inside it. The lane allows the string
  * only when the command inside is one shellKind already allows in that place.
  */
-function phoneShellOk(command: string, kindOf: (c: string) => ShellKind = shellKind): boolean {
+function phoneShellOk(command: string): boolean {
   if (command === FOCUS_READ || command === DUMP_COMMAND) return true;
-  const kind = kindOf(command);
+  const kind = shellKind(command);
   if (kind === 'read' || kind === 'anywhere') return true;
   const inner = envelopeOf(command);
   if (inner === undefined) return false;
-  const innerKind = kindOf(inner.command);
+  const innerKind = shellKind(inner.command);
   return inner.allowPrompt ? innerKind === 'in-app-or-prompt' : innerKind === 'in-app';
+}
+
+/** On the tablet a command on the Tests list may run bare or inside the steps' in-app check. */
+function tabletShellOk(command: string): boolean {
+  if (command === FOCUS_READ || command === DUMP_COMMAND) return true;
+  if (testsShellKind(command) !== 'refused') return true;
+  const inner = envelopeOf(command);
+  return inner !== undefined && testsShellKind(inner.command) !== 'refused';
 }
 
 const isApk = (apk: string | undefined): boolean => apk !== undefined && !apk.startsWith('-') && /[^\\/]\.apk$/i.test(apk);
@@ -116,8 +124,13 @@ function tabletOk(serial: string, verb: string, rest: readonly string[]): AdbVer
     const command = rest[0];
     if (rest.length !== 1 || command === undefined) return { ok: false, why: 'shell takes one command' };
     if (command === `dumpsys package ${APP_ID}`) return { ok: true };
-    if (!phoneShellOk(command, testsShellKind)) return { ok: false, why: 'that shell command is refused on the tablet' };
+    if (!tabletShellOk(command)) return { ok: false, why: 'that shell command is refused on the tablet' };
     return { ok: true };
+  }
+  if (verb === 'exec-out') {
+    // the stand-in's screenshots, inside the Tests user only (allowed 15 Nov)
+    if (rest.length === 1 && rest[0] === 'screencap') return { ok: true };
+    return { ok: false, why: 'the tablet\'s exec-out is only screencap' };
   }
   return { ok: false, why: 'the tablet may only install in the Tests user, push the invented file or send a guarded command' };
 }
@@ -190,6 +203,7 @@ function tabletArgs(args: readonly string[], read: (args: readonly string[]) => 
   if (head.kind !== 'cmd') return args;
   const at = (rest: readonly string[]) => ['-s', head.serial, ...rest];
   if (head.verb === 'shell') return at(['shell', inTestsUser(head.rest[0] ?? '')]);
+  if (head.verb === 'exec-out') return at(['exec-out', inTestsUser(head.rest.join(' '))]);
   const user = read(at(['shell', 'am get-current-user']));
   if (user.status !== 0 || asText(user.stdout).trim() !== String(TESTS_USER)) throw new NotTestsUser();
   if (head.verb === 'install') {
@@ -221,6 +235,12 @@ export function runAdb(lane: Lane, args: readonly string[], opts: RunAdbOptions 
   const spawn = injected ?? ((bin, argv, o) => spawnSync(bin, [...argv], o));
   if (lane === 'tablet') {
     const sent = tabletArgs(args, a => spawn(file, a, { env, windowsHide: true, timeout: 30_000, encoding: 'utf8' }));
+    if (sent.includes('exec-out')) {
+      const shot = spawn(file, sent, { env, windowsHide: true, timeout, maxBuffer: opts.maxBuffer ?? 64 * 1024 * 1024 });
+      const bytes = asBytes(shot.stdout);
+      if (Buffer.from(bytes.subarray(0, 64)).toString('latin1').includes(NOT_TESTS_USER)) throw new NotTestsUser();
+      return { status: shot.status, out: '', stdout: bytes };
+    }
     const ran = spawn(file, sent, {
       env, windowsHide: true, timeout, encoding: 'utf8', ...(opts.maxBuffer !== undefined ? { maxBuffer: opts.maxBuffer } : {}),
     });

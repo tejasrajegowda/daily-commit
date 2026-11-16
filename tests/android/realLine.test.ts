@@ -99,6 +99,7 @@ function lanesOf(rel: string): readonly Lane[] | undefined {
   if (rel === 'scripts/android/adbGate.ts') return undefined;
   if (rel === 'scripts/android/phone.ts') return ['install', 'tablet'];
   if (rel === 'scripts/android/checks/sitting.ts' || rel === 'scripts/android/checks/guard.ts') return ['phoneChecks', 'tablet'];
+  if (rel === 'scripts/android/checks/tabletStandIn.ts') return ['tablet'];
   return ['emulator'];
 }
 
