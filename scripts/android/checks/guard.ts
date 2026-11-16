@@ -9,7 +9,7 @@ import { nodesOf, type DeviceIo, type UiNode } from '../drive.ts';
 import { devicesOf } from '../phone.ts';
 import { EMULATOR_SERIAL, runAdb } from '../adbGate.ts';
 import {
-  APP, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_FRONT, TESTS_LONG_REMOTE,
+  APP, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_FRONT, TESTS_LONG_INTO_DOWNLOADS, TESTS_LONG_TMP,
   Refused, forTestsUser, onlyInFront, shellKind,
 } from './shellAllow.ts';
 
@@ -131,7 +131,10 @@ export function guardedPhone(serial: string, adb: Adb = phoneChecksAdb, opts: { 
       throw new Refused('the fingerprint is the owner\'s');
     },
     pushLong(localPath: string) {
-      return run(['push', localPath, opts.tablet === true ? TESTS_LONG_REMOTE : LONG_REMOTE], 120_000).code === 0;
+      if (opts.tablet !== true) return run(['push', localPath, LONG_REMOTE], 120_000).code === 0;
+      // adb can't write into the Tests user's storage: the shell's folder first, then that user's media library
+      if (run(['push', localPath, TESTS_LONG_TMP], 120_000).code !== 0) return false;
+      return run(['shell', TESTS_LONG_INTO_DOWNLOADS], 120_000).out.includes('DC-LONG-IN');
     },
   };
   return io;

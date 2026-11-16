@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { NOTE_WORDS, useApp, useLockNote, type DeviceMode, type LockNote } from '../app/context.ts';
 import { I } from '../ui/icons.tsx';
-import { useWide } from '../ui/useWide.ts';
 import { CodePad, MAX_DIGITS, MIN_DIGITS } from '../ui/CodePad.tsx';
 import { fingerprintKey, lockLayout, OPENING_WORDS, SLOW_MS } from './lockView.ts';
 
@@ -46,16 +45,15 @@ function Opening() {
 
 export function LockScreen(props: LockScreenProps) {
   const { offered, busy, passphraseOnly, setPassphraseOnly, byCode, setByCode, onRestore } = props;
-  const { lock } = useApp();
+  const { lock, device } = useApp();
   const note = useLockNote();
-  const wide = useWide();
   const slow = useSlow(busy);
-  const layout = passphraseOnly ? 'passphrase' : lockLayout(offered, wide);
+  const layout = passphraseOnly ? 'passphrase' : lockLayout(offered);
   if (slow) return <Opening />;
 
   if (layout === 'passphrase') {
-    const back = !wide && offered.length > 0 && passphraseOnly;
-    return <PassphraseLock wide={wide} note={note} busy={busy} onRestore={onRestore} code={byCode} setCode={setByCode} back={back ? (offered.includes('own-code') ? 'Use your code' : 'Use fingerprint') : undefined} onBack={() => setPassphraseOnly(false)} />;
+    const back = offered.length > 0 && passphraseOnly;
+    return <PassphraseLock computer={!device.deviceModes} note={note} busy={busy} onRestore={onRestore} code={byCode} setCode={setByCode} back={back ? (offered.includes('own-code') ? 'Use your code' : 'Use fingerprint') : undefined} onBack={() => setPassphraseOnly(false)} />;
   }
   if (layout === 'code') return <CodeLock bio={fingerprintKey(offered)} note={note} busy={busy} onRestore={onRestore} onPassphrase={() => setPassphraseOnly(true)} />;
   return (
@@ -86,7 +84,7 @@ function RestoreLink({ busy, onRestore, style }: { readonly busy: boolean; onRes
   return <button type="button" className="btn btn--text" data-a="lockrestore" style={style} disabled={busy} onClick={onRestore}>Restore from a backup</button>;
 }
 
-function PassphraseLock(p: { readonly wide: boolean; readonly note: LockNote | undefined; readonly busy: boolean; onRestore(): void; readonly code: boolean; setCode(on: boolean): void; readonly back?: string; onBack(): void }) {
+function PassphraseLock(p: { readonly computer: boolean; readonly note: LockNote | undefined; readonly busy: boolean; onRestore(): void; readonly code: boolean; setCode(on: boolean): void; readonly back?: string; onBack(): void }) {
   const { lock } = useApp();
   const field = useRef<HTMLInputElement>(null);
   // the recovery code stands in for a forgotten passphrase: the first day's "the only way back"
@@ -112,7 +110,7 @@ function PassphraseLock(p: { readonly wide: boolean; readonly note: LockNote | u
           autoComplete="off" autoCapitalize={code ? 'characters' : 'off'} autoCorrect="off" spellCheck={false} disabled={p.busy} />
         <button type="submit" className="btn btn--primary wide" data-a="unlock" disabled={p.busy}>{p.busy ? 'Opening…' : 'Open'}</button>
       </form>
-      <p className="lk-hint">{code ? "The code from the first day, as written on paper. Spaces don't matter." : p.wide ? 'This computer never remembers it, and the app locks again when you leave the tab.' : 'Your passphrase. Your phone never stores it.'}</p>
+      <p className="lk-hint">{code ? "The code from the first day, as written on paper. Spaces don't matter." : p.computer ? 'This computer never remembers it, and the app locks again when you leave the tab.' : 'Your passphrase. Your phone never stores it.'}</p>
       <button type="button" className="btn btn--text lk-alt" data-a="usecode" disabled={p.busy} onClick={() => switchTo(!code)}>{code ? 'Use the passphrase instead' : 'Use the recovery code instead'}</button>
       {p.back && <button type="button" className="btn btn--text lk-alt" data-a="lockbio" onClick={p.onBack}>{p.back}</button>}
     </div>

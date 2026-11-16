@@ -260,17 +260,32 @@ export function driver(io: DeviceIo): Emu {
   return phone;
 }
 
-function viewOf(phone: Emu): readonly [number, number] {
-  const out = phone.shell('wm size').out;
-  const m = /Override size: (\d+)x(\d+)/.exec(out) ?? /Physical size: (\d+)x(\d+)/.exec(out);
-  return [Number(m?.[1] ?? 1080), Number(m?.[2] ?? 2400)];
+/**
+ * The screen's width and height as it is turned now. `wm size` gives the panel's natural size, and a tablet's is
+ * portrait; the screen counts as turned only when a node covers the whole screen at the swapped size (the app's
+ * full-screen root). Otherwise the natural size is kept: a wide row on an upright phone is not a turned screen.
+ */
+export function turned(wmSize: string, nodes: readonly UiNode[]): readonly [number, number] {
+  const m = /Override size: (\d+)x(\d+)/.exec(wmSize) ?? /Physical size: (\d+)x(\d+)/.exec(wmSize);
+  const a = Number(m?.[1] ?? 1080);
+  const b = Number(m?.[2] ?? 2400);
+  const near = (x: number, y: number) => Math.abs(x - y) <= Math.max(8, y * 0.02);
+  const swapped = a !== b && nodes.some(n => n.bounds[0] <= 0 && n.bounds[1] <= 0 && near(n.bounds[2], b) && near(n.bounds[3], a));
+  return swapped ? [b, a] : [a, b];
+}
+
+/** The screen's size as it is turned now, from `wm size` and a screen read (one is taken when none is given). */
+export function sizeOf(phone: Pick<Emu, 'shell' | 'dump'>, nodes?: readonly UiNode[]): readonly [number, number] {
+  return turned(phone.shell('wm size').out, nodes ?? phone.dump());
 }
 
 function waitNode(phone: Emu, label: string | RegExp, timeoutMs: number, needEnabled: boolean): UiNode | undefined {
-  const [w, h] = viewOf(phone);
+  const wm = phone.shell('wm size').out;
   const until = Date.now() + timeoutMs;
   for (;;) {
-    const shown = phone.dump().filter(n => (hit(n.text, label) || hit(n.desc, label)) && inView(n, w, h));
+    const nodes = phone.dump();
+    const [w, h] = turned(wm, nodes);
+    const shown = nodes.filter(n => (hit(n.text, label) || hit(n.desc, label)) && inView(n, w, h));
     const enabled = needEnabled ? shown.filter(n => n.enabled) : shown;
     const hits = enabled.length > 0 ? enabled : shown;
     const node = hits.find(n => n.cls.includes('Button')) ?? hits[0];

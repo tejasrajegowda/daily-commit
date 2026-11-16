@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from '../../../src/app/App.tsx';
 import { minuteClock } from '../../../src/app/clock.ts';
 import { APP_VERSION, assemble } from '../../../src/app/compose.ts';
+import { StartFailed } from '../../../src/app/StartFailed.tsx';
 import { TooOld } from '../../../src/app/TooOld.tsx';
 import type { AppDeps, DeviceInfo, DevicePort, Nav, ScreenId, UnlockHow } from '../../../src/app/context.ts';
 import { memoryFiles } from '../../../src/device/browser.ts';
@@ -177,7 +178,7 @@ function failableCore(core: RecordCore): { readonly core: RecordCore; failNext()
 }
 
 /** A device port around the stand-in plugin; leaving and coming back are driven by the flows. */
-function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo, notifOff: boolean) {
+function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo, notifOff: boolean, computer = false) {
   const leaving = new Set<() => void>();
   const resuming = new Set<() => void | Promise<void>>();
   const backing = new Set<() => void>();
@@ -190,7 +191,7 @@ function harnessDevice(plugin: DevicePort['plugin'], info: DeviceInfo, notifOff:
   let last: { id: number; atMs: number; body: string }[] = [];
   const device: DevicePort = {
     plugin,
-    deviceModes: true,
+    deviceModes: !computer,
     files: {
       ...stored,
       write: (path, bytes) => (failing && path.startsWith('tmp/safety')
@@ -272,10 +273,12 @@ async function prelude(state: HarnessState, deps: AppDeps, phone: ReturnType<typ
 async function start(): Promise<void> {
   const fixture = window.harnessFixture;
   const state = readState(location.hash, fixture?.start);
-  if (state.screen === 'old') {
+  if (state.screen === 'old' || state.screen === 'failed') {
     const early = document.getElementById('root');
     if (!early) throw new Error('harness: #root is missing');
-    createRoot(early).render(<><TooOld version={APP_VERSION} /><span data-harness-ready="" hidden /></>);
+    createRoot(early).render(<>{state.screen === 'old'
+      ? <TooOld version={APP_VERSION} />
+      : <StartFailed version={APP_VERSION} step="storage" error="Error" />}<span data-harness-ready="" hidden /></>);
     return;
   }
   await deleteDb(DB_NAME);
@@ -323,7 +326,11 @@ async function start(): Promise<void> {
   };
   const plugin: DevicePort['plugin'] = {
     ...phone.plugin,
-    status: () => (statusWait ? statusWait.then(() => phone.plugin.status()) : phone.plugin.status()),
+    // a browser on a computer keeps no device copies, so it offers none (pc=1, D-38)
+    status: async () => {
+      const s = await (statusWait ? statusWait.then(() => phone.plugin.status()) : phone.plugin.status());
+      return state.computer ? { ...s, modes: [] } : s;
+    },
     enrol: (...a) => (refusing ? Promise.reject(new Error('key store refused')) : phone.plugin.enrol(...a)),
     remove: (...a) => (refusingRemove ? Promise.reject(new Error('key store refused')) : phone.plugin.remove(...a)),
     unwrap: async mode => {
@@ -338,7 +345,7 @@ async function start(): Promise<void> {
     },
   };
   const { device, leave, resume, back, pickerFault, resumeHandlers, failCopy, notifAllowed, notifAnswer, scheduled } = harnessDevice(
-    plugin, { manufacturer: state.maker, sdk: 33, screenLock: !state.noLock }, state.notifOff,
+    plugin, { manufacturer: state.maker, sdk: 33, screenLock: !state.noLock }, state.notifOff, state.computer,
   );
   const { core: writable, failNext: failWrite, failNextSerial: failExport, full: fullPhone } = failableCore(core);
   // the display is read and written straight on the db, outside write()/serial(), so it gets its own flag

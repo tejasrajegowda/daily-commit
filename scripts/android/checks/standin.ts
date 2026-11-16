@@ -5,7 +5,7 @@
 // What it can't measure (a fingerprint, the phone's PIN, a blink shorter than a screen read) stays the owner's.
 import { Buffer } from 'node:buffer';
 import { windowIsSecure } from '../smoke.ts';
-import { adbOnTestPhone, emu, find, pause, type Emu, type UiNode } from '../drive.ts';
+import { adbOnTestPhone, emu, find, pause, sizeOf, type Emu, type UiNode } from '../drive.ts';
 import { focusDiaryPage, launch, pastLock, pickInPicker } from './a.ts';
 import { frontOf } from './guard.ts';
 import { lockOn, type Act, type ItemKey, type StandIn } from './p.ts';
@@ -37,17 +37,22 @@ export function noLearning(dump: string): boolean | undefined {
  * From a raw screencap of the Recents overview: whether the middle of the centred card is one plain colour (the
  * app-theme picture Android shows for a task whose own picture is off). Undefined when the capture isn't usable.
  */
-export function plainCard(raw: Uint8Array): boolean | undefined {
+export function plainCard(raw: Uint8Array, card?: readonly [number, number, number, number]): boolean | undefined {
   if (raw.byteLength < 12) return undefined;
   const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
   const w = view.getUint32(0, true);
   const h = view.getUint32(4, true);
   const header = raw.byteLength - w * h * 4;
   if (w === 0 || h === 0 || (header !== 12 && header !== 16)) return undefined;
+  // The card's own middle when its place is known (a tablet's Recents puts it off centre), else the screen's.
+  const [x0, y0, x1, y1] = card === undefined
+    ? [Math.floor(w * 0.3), Math.floor(h * 0.35), Math.floor(w * 0.7), Math.floor(h * 0.65)]
+    : [card[0] + Math.floor((card[2] - card[0]) * 0.2), card[1] + Math.floor((card[3] - card[1]) * 0.3),
+      card[0] + Math.floor((card[2] - card[0]) * 0.8), card[1] + Math.floor((card[3] - card[1]) * 0.7)];
   const counts = new Map<number, number>();
   let all = 0;
-  for (let y = Math.floor(h * 0.35); y < Math.floor(h * 0.65); y++) {
-    for (let x = Math.floor(w * 0.3); x < Math.floor(w * 0.7); x++) {
+  for (let y = Math.max(0, y0); y < Math.min(h, y1); y++) {
+    for (let x = Math.max(0, x0); x < Math.min(w, x1); x++) {
       const i = header + (y * w + x) * 4;
       // Four bits a channel, so JPEG noise in a plain picture still counts as one colour.
       const key = (((raw[i] ?? 0) >> 4) << 8) | (((raw[i + 1] ?? 0) >> 4) << 4) | ((raw[i + 2] ?? 0) >> 4);
@@ -68,9 +73,7 @@ function capture(phone: Emu): { raw: Uint8Array } | { none: string } {
 }
 
 function size(phone: Emu): readonly [number, number] {
-  const out = phone.shell('wm size').out;
-  const m = /Override size: (\d+)x(\d+)/.exec(out) ?? /Physical size: (\d+)x(\d+)/.exec(out);
-  return [Number(m?.[1] ?? 1080), Number(m?.[2] ?? 2400)];
+  return sizeOf(phone);
 }
 
 function ours(phone: Emu): UiNode[] {
@@ -104,10 +107,22 @@ function inFront(phone: Emu, ms: number): boolean {
   }
 }
 
-/** What a stand-in reads beyond the screen: whether the app's window is secure (undefined: not readable there), and the keyboard's state. */
+/**
+ * What a stand-in reads beyond the app's own nodes: whether the app's window is secure (undefined: not readable
+ * there), the keyboard's state, and where it can read the whole screen (the Tests user), every node on it.
+ */
 export interface StandInReads {
   readonly secure: () => boolean | undefined;
   readonly ime: () => string;
+  readonly screen?: () => readonly UiNode[];
+}
+
+/** Daily Commit's card in Recents: the largest node named for it, when the screen read names one. */
+export function cardOf(nodes: readonly UiNode[]): readonly [number, number, number, number] | undefined {
+  const area = (n: UiNode) => Math.max(0, n.bounds[2] - n.bounds[0]) * Math.max(0, n.bounds[3] - n.bounds[1]);
+  const named = nodes.filter(n => /Daily Commit/i.test(`${n.text} ${n.desc}`) && area(n) > 0).sort((a, b) => area(b) - area(a));
+  const card = named[0];
+  return card === undefined || area(card) < 40_000 ? undefined : card.bounds;
 }
 
 export function dryRunStandIn(): StandIn {
@@ -132,6 +147,8 @@ export function makeStandIn(phone: Emu, reads: StandInReads): StandIn {
   };
   const answers: Partial<Record<ItemKey, () => { value: 'yes' | 'no'; how: string } | undefined>> = {
     'P6.screenshot': () => {
+      // a picture taken with anything else in front says nothing about the app
+      if (!inFront(phone, 6_000)) return undefined;
       const secure = reads.secure();
       const shot = capture(phone);
       if ('none' in shot) {
@@ -151,10 +168,11 @@ export function makeStandIn(phone: Emu, reads: StandInReads): StandIn {
       pause(1_200);
       phone.key('KEYCODE_APP_SWITCH');
       pause(2_000);
+      const card = cardOf(reads.screen?.() ?? []);
       const shot = capture(phone);
       phone.key('KEYCODE_HOME');
       if ('none' in shot) return undefined;
-      const plain = plainCard(shot.raw);
+      const plain = plainCard(shot.raw, card);
       if (plain === undefined) return undefined;
       return { value: plain ? 'yes' : 'no', how: `a screencap of Recents shows the app's card ${plain ? 'as one plain colour' : 'with more than one colour in its middle'}` };
     },
@@ -169,8 +187,11 @@ export function makeStandIn(phone: Emu, reads: StandInReads): StandIn {
       pause(1_200);
       phone.key('KEYCODE_APP_SWITCH');
       pause(1_800);
+      // the app's card where the screen read finds it (a tablet's sits off centre), else the screen's middle
+      const card = cardOf(reads.screen?.() ?? []);
       const [w, h] = size(phone);
-      phone.shell(`input tap ${Math.floor(w / 2)} ${Math.floor(h / 2)}`);
+      const [x, y] = card === undefined ? [Math.floor(w / 2), Math.floor(h / 2)] : [Math.floor((card[0] + card[2]) / 2), Math.floor((card[1] + card[3]) / 2)];
+      phone.shell(`input tap ${x} ${y}`);
       if (!inFront(phone, 6_000)) return undefined;
       return blink(firstScreen(phone, 15_000), "Home, then its card in Recents");
     },

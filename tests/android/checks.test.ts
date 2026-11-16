@@ -36,6 +36,22 @@ test('a secure capture is black, or only the system bars are not', () => {
   assert.equal(secureCapture(raw(4, 8, 16, 16)), 'shown');
 });
 
+test('a secure capture on the tablet: the edge-panel handle at the right edge, mid-height, is not the app', () => {
+  const w = 400, h = 250;
+  const at = (b: Uint8Array, x: number, y: number) => { b[16 + (y * w + x) * 4] = 200; };
+  const tablet = raw(w, h, 16);
+  for (let x = 0; x < w; x++) at(tablet, x, 2);                                    // the status bar
+  for (let y = 70; y < 90; y++) at(tablet, w - 2, y);                               // the edge handle
+  for (let x = 160; x < 240; x++) at(tablet, x, h - 3);                             // the gesture bar
+  assert.equal(secureCapture(tablet), 'bars');
+  // one pixel of the app's own area, just inside the edge band, is still the app showing
+  const leak = raw(w, h, 16);
+  for (let x = 0; x < w; x++) at(leak, x, 2);
+  at(leak, w - 5, 120);
+  for (let x = 160; x < 240; x++) at(leak, x, h - 3);
+  assert.equal(secureCapture(leak), 'shown');
+});
+
 // Invented dumps in the shape of API 33's. Before these readers are trusted, compare them with one
 // real dump each from the run's first check, and fix the fixture to match; never loosen a reader.
 test('our posted notifications: title and text, ours only', () => {

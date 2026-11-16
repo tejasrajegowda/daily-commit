@@ -78,6 +78,23 @@ export function inTestsUser(command: string): string {
 /** The invented long file, in the Tests user's own storage. */
 export const TESTS_LONG_REMOTE = `/storage/emulated/${TESTS_USER}/Download/dc-3year.dcbak`;
 
+/** Where adb puts the invented long file first: the shell's own folder, no user's storage. */
+export const TESTS_LONG_TMP = '/data/local/tmp/dc-3year.dcbak';
+const DOWNLOADS = 'content://media/external/downloads';
+const LONG_NAME = "--where \"_display_name='dc-3year.dcbak'\"";
+/**
+ * adb can't write into another user's storage, so the file goes in through that user's media library: the old one
+ * removed, a new Downloads entry made, its bytes written from the shell's folder, which is then emptied. Prints
+ * DC-LONG-IN when the bytes went in. On the tablet lane only.
+ */
+export const TESTS_LONG_INTO_DOWNLOADS = [
+  `content delete --user ${TESTS_USER} --uri ${DOWNLOADS} ${LONG_NAME}`,
+  `content insert --user ${TESTS_USER} --uri ${DOWNLOADS} --bind _display_name:s:dc-3year.dcbak --bind mime_type:s:application/octet-stream`,
+  `id=$(content query --user ${TESTS_USER} --uri ${DOWNLOADS} --projection _id ${LONG_NAME} | sed -n 's/.*_id=\\([0-9]*\\).*/\\1/p' | head -n 1)`,
+  `if [ -n "$id" ] && content write --user ${TESTS_USER} --uri ${DOWNLOADS}/$id < ${TESTS_LONG_TMP}; then echo DC-LONG-IN; fi`,
+  `rm -f ${TESTS_LONG_TMP}`,
+].join('; ');
+
 /**
  * The tablet ignores the wake key while its screen is off, so it is woken with its power key, and only when its
  * screen reads as asleep at that same moment: the read and the key are one call, so a lit screen is never switched
@@ -126,7 +143,7 @@ export const TESTS_IME_READ = "dumpsys input_method | grep -E 'mCurEditorInfo|mC
  */
 export function testsShellKind(command: string): ShellKind {
   const c = command.trim();
-  if (c === CLEAR_TESTS_DATA) return 'anywhere';
+  if (c === CLEAR_TESTS_DATA || c === TESTS_LONG_INTO_DOWNLOADS) return 'anywhere';
   if (c === TESTS_SCREEN_DUMP || c === TESTS_IME_READ || c === TESTS_WAKEFULNESS || c === TESTS_APP_LOG) return 'read';
   if (c === 'input keyevent KEYCODE_APP_SWITCH') return 'anywhere';
   const base = FROM_TESTS_FORM.get(c);

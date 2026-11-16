@@ -25,5 +25,5 @@ export function tabletStandIn(serial: string): StandIn {
   };
   const phone = driver(io);
   // the window list would also name the owner's windows, so the screenshot itself is the answer there
-  return makeStandIn(phone, { secure: () => undefined, ime: () => phone.shell(TESTS_IME_READ).out });
+  return makeStandIn(phone, { secure: () => undefined, ime: () => phone.shell(TESTS_IME_READ).out, screen: () => phone.dump() });
 }

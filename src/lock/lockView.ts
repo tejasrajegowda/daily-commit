@@ -4,9 +4,12 @@ import type { DeviceMode } from '../app/context.ts';
 
 export type LockLayout = 'passphrase' | 'phone' | 'code';
 
-/** The passphrase when nothing is offered or on a wide screen; the code pad when a code exists; else the phone's lock. */
-export function lockLayout(offered: readonly DeviceMode[], wide: boolean): LockLayout {
-  if (wide || offered.length === 0) return 'passphrase';
+/**
+ * The passphrase when nothing is offered; the code pad when a code exists; else the phone's lock. Never from the
+ * screen's width: a tablet is wide and is still the phone app (D-38), and a browser offers nothing anyway.
+ */
+export function lockLayout(offered: readonly DeviceMode[]): LockLayout {
+  if (offered.length === 0) return 'passphrase';
   if (offered.includes('own-code')) return 'code';
   return offered.includes('phone-lock') ? 'phone' : 'passphrase';
 }

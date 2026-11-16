@@ -4,7 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import { APP_ID } from './apk-check.ts';
 import {
-  DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_TESTS_USER, NotTestsUser, Refused, TESTS_LONG_REMOTE, TESTS_USER,
+  DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_TESTS_USER, NotTestsUser, Refused, TESTS_LONG_TMP, TESTS_USER,
   envelopeOf, inTestsUser, shellKind, testsShellKind,
 } from './checks/shellAllow.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
@@ -117,8 +117,9 @@ function tabletOk(serial: string, verb: string, rest: readonly string[]): AdbVer
   }
   if (verb === 'push') {
     const local = rest[0];
-    if (rest.length === 2 && local !== undefined && local !== '' && !local.startsWith('-') && rest[1] === TESTS_LONG_REMOTE) return { ok: true };
-    return { ok: false, why: 'the push must be the invented file, in the Tests user\'s storage' };
+    // the shell's own folder; from there it goes into the Tests user's Downloads through that user's media library
+    if (rest.length === 2 && local !== undefined && local !== '' && !local.startsWith('-') && rest[1] === TESTS_LONG_TMP) return { ok: true };
+    return { ok: false, why: 'the push must be the invented file, to the shell\'s folder on its way to the Tests user\'s storage' };
   }
   if (verb === 'shell') {
     const command = rest[0];

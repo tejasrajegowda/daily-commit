@@ -30,6 +30,8 @@ export interface HarnessState {
   readonly notifAsked: boolean;
   /** ci=1: one evening check-in, so Day and time shows the reminder note */
   readonly checkin: boolean;
+  /** pc=1: the browser on a computer, with no phone unlocks (D-38). Absent: the phone app, at whatever width */
+  readonly computer: boolean;
   /** ver=x.y.z: the app's version as the screens see it (About, What changed); unset is the real one */
   readonly version?: string;
 }
@@ -65,6 +67,7 @@ export function readState(hash: string, start: string = START): HarnessState {
     notifOff: q.get('na') === '0',
     notifAsked: q.get('asked') === '1',
     checkin: q.get('ci') === '1',
+    computer: q.get('pc') === '1',
     ...(/^\d+\.\d+\.\d+$/.test(q.get('ver') ?? '') && { version: q.get('ver') ?? '' }),
   };
 }

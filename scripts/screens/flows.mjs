@@ -196,9 +196,14 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
 
 // the lock (laptop)
 {
+  // a tablet is the phone app at a laptop's width: it offers the device's own lock, never the computer's passphrase only (D-38)
+  const t = await h.page(LAPTOP, errors);
+  await h.open(t, 's=lock');
+  check('tablet: the phone app at a wide size offers its own lock', await shows(t, '.lk-finger') && (await t.locator('.lk-pass').count()) === 0);
   const p = await h.page(LAPTOP, errors);
-  await h.open(p, 's=lock');
-  check('laptop: the passphrase only, even with a phone copy', await shows(p, '.lk-pass') && (await p.locator('.lk-finger').count()) === 0);
+  await h.open(p, 's=lock&pc=1');
+  check('laptop: the browser has the passphrase only, in the computer\'s words', await shows(p, '.lk-pass') && (await p.locator('.lk-finger').count()) === 0
+    && (await p.locator('.lk-hint').innerText()).startsWith('This computer never remembers it'));
   await p.fill('input.pass', PASSPHRASE);
   await p.click('[data-a="unlock"]');
   check('laptop: the passphrase opens Today', await shows(p, '.today', 15000));

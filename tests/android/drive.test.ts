@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { aboveDock, centre, dockTop, find, inView, inputTextArg, nodesOf, onScreen, pickerFileNode, pickerMove, type UiNode } from '../../scripts/android/drive.ts';
+import { aboveDock, centre, dockTop, find, inView, inputTextArg, nodesOf, onScreen, pickerFileNode, pickerMove, turned, type UiNode } from '../../scripts/android/drive.ts';
 
 const DUMP = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation="0">
     <node index="0" text="" resource-id="" class="android.widget.FrameLayout" content-desc="" enabled="true" bounds="[0,0][1080,2400]">
@@ -87,4 +87,20 @@ test("the picker's file row is the name, never the Preview button that also name
   assert.equal(pickerFileNode(nodes, 'dc-seed.dcbak', 'dc-seed'), nodes[3]);
   assert.equal(pickerFileNode([nodes[0]!], 'dc-3year.dcbak', 'dc-3year'), undefined);
   assert.equal(pickerFileNode([n('dc-3year (1).dcbak', '', 'android.widget.TextView')], 'dc-3year.dcbak', 'dc-3year')?.text, 'dc-3year (1).dcbak');
+});
+
+test('the screen\'s size as it is turned: a tablet lying sideways is wide even though wm size gives it upright', () => {
+  const node = (b: readonly [number, number, number, number]) => ({ pkg: 'app.dailycommit', cls: 'android.widget.FrameLayout', text: '', desc: '', enabled: true, clickable: false, bounds: b }) as unknown as UiNode;
+  const tablet = 'Physical size: 1440x2304';
+  assert.deepEqual(turned(tablet, [node([0, 0, 2304, 1440]), node([819, 455, 1485, 547])]), [2304, 1440]);
+  assert.deepEqual(turned(tablet, [node([0, 0, 1440, 2304])]), [1440, 2304]);
+  assert.deepEqual(turned('Physical size: 1080x2400', [node([0, 0, 1080, 2400])]), [1080, 2400]);
+  assert.deepEqual(turned('Physical size: 1080x2400', [node([0, 1800, 1080, 2000])]), [1080, 2400], 'a wide row on an upright phone is not a turned screen');
+  assert.deepEqual(turned(tablet, [node([1527, 288, 2101, 667])]), [1440, 2304], 'a card alone says nothing'); 
+  assert.deepEqual(turned('Physical size: 1080x2400\nOverride size: 720x1600', []), [720, 1600], 'no node: the size as given');
+  // the bug it fixes: a row on the right half of a sideways tablet was judged off screen
+  const right = node([1600, 300, 2200, 400]);
+  assert.equal(inView(right, 1440, 2304), false);
+  const [w, h] = turned(tablet, [node([0, 0, 2304, 1440]), right]);
+  assert.equal(inView(right, w, h), true);
 });

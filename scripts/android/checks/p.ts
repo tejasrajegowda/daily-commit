@@ -3,7 +3,7 @@
 // what only the owner's eyes can answer. Every read goes through the guard (guard.ts), so only Daily Commit's
 // own words are ever seen, and only the plan's "Recorded" items are kept: numbers, yes/no, and the keyboard's name.
 import { find, pause, type Emu, type UiNode } from '../drive.ts';
-import { codePad, enterDigits, focusDiaryPage, focusSecret, launch, pastLock, scrollTo, scrollUpTo } from './a.ts';
+import { codePad, enterDigits, focusDiaryPage, focusSecret, launch, pastLock, scrollTo, scrollUpTo, settingsRow } from './a.ts';
 import { NOT_IN_APP, NotInApp, Refused, SCAN_LONG, type Front } from './guard.ts';
 import { LONG_PASSPHRASE } from './long.ts';
 
@@ -634,7 +634,7 @@ function p3(ctx: PCtx): void {
       openRecord(ctx);
     }
     openSettings(ctx);
-    scrollTo(ctx.phone, has('kept in the app'));
+    settingsRow(ctx.phone, has('kept in the app'));
     ctx.record('P3.storage', storageAnswer(ctx.phone.dump()) ?? 'not readable (the line was not on screen)');
   });
 }
@@ -654,7 +654,7 @@ function p4(ctx: PCtx): void {
     }
     phone.shell(SCAN_LONG);
     openSettings(ctx);
-    scrollTo(phone, has('Restore from a backup'));
+    settingsRow(phone, has('Restore from a backup'));
     phone.tap(has('Restore from a backup'), 20_000);
     if (!phone.waitFor(has('Choose a file'), 20_000)) throw new Error('the restore screen did not open');
     phone.tap(has('Choose a file'), 20_000);
@@ -713,7 +713,7 @@ function p5(ctx: PCtx): void {
   runPart(ctx, ['P5.phoneLockTwice', 'P5.fingerMs', 'P5.pinMs'], () => {
     openRecord(ctx);
     openSettings(ctx);
-    scrollTo(phone, has("Your phone's lock"));
+    settingsRow(phone, has("Your phone's lock"));
     if (seen(phone.dump(), has('This phone has no screen lock'))) {
       ctx.record('P5.phoneLockTwice', 'not offered (the phone has no screen lock)');
       ctx.record('P5.fingerMs', 'not done (no screen lock)');
@@ -745,7 +745,7 @@ function p5(ctx: PCtx): void {
   runPart(ctx, ['P5.codeMs'], () => {
     openRecord(ctx);
     openSettings(ctx);
-    scrollTo(phone, has('A separate code'));
+    settingsRow(phone, has('A separate code'));
     phone.tap(has('A separate code'), 15_000);
     // The set-up opens on its heading; its password field doesn't always carry its name in the tree (8a A13).
     if (phone.waitFor(words('Your passphrase first'), 10_000)) {
@@ -775,7 +775,7 @@ function p5(ctx: PCtx): void {
   runPart(ctx, ['P5.fingerSwitchTwice', 'P5.codeFingerMs'], () => {
     openRecord(ctx);
     openSettings(ctx);
-    scrollTo(phone, has('Fingerprint opens it too'));
+    settingsRow(phone, has('Fingerprint opens it too'));
     if (seen(phone.dump(), has('needs a screen lock on the phone first'))) {
       ctx.record('P5.fingerSwitchTwice', 'not offered (the phone has no screen lock)');
       ctx.record('P5.codeFingerMs', 'not done (no screen lock)');

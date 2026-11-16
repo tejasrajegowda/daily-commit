@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { dateOfDay, nowOf, readState, START } from './state.ts';
 
-const NONE = { noLock: false, kept: undefined, handOff: undefined, ownCode: false, maker: 'Google', notifOff: false, notifAsked: false, checkin: false };
+const NONE = { noLock: false, kept: undefined, handOff: undefined, ownCode: false, maker: 'Google', notifOff: false, notifAsked: false, checkin: false, computer: false };
 
 test('the URL hash gives the screen, the variant, the time and the day, with defaults', () => {
   assert.deepEqual(readState(''), { screen: 'today', variant: '', minute: 780, day: 17, canary: false, start: START, ...NONE });
@@ -43,4 +43,9 @@ test('a handed-in record moves day 1 to its own start', () => {
   const state = readState('#t=06:05&age=17', '2026-09-07');
   assert.equal(dateOfDay(17, state.start), '2026-09-23');
   assert.equal(nowOf(state), Date.UTC(2026, 8, 23, 6, 5));
+});
+
+test('pc=1 is the browser on a computer; without it the harness is the phone app at any width (D-38)', () => {
+  assert.equal(readState('#s=lock&pc=1').computer, true);
+  assert.equal(readState('#s=lock').computer, false);
 });

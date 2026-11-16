@@ -3,7 +3,7 @@
 import { Buffer } from 'node:buffer';
 import { writeFileSync } from 'node:fs';
 import { isDcTestPhone, windowIsSecure } from '../smoke.ts';
-import { aboveDock, adbOnTestPhone, centre, dockTop, find, findClickable, inView, onScreen, pause, pickerFileNode, pickerMove, type Emu, type UiNode } from '../drive.ts';
+import { aboveDock, adbOnTestPhone, centre, dockTop, find, findClickable, inView, onScreen, pause, pickerFileNode, pickerMove, sizeOf, type Emu, type UiNode } from '../drive.ts';
 import { canaryHits } from './canary.ts';
 import { devtoolsOnImage, devtoolsSocket, ourAlarms, ourNotifications, ourTaskId, resumedActivity } from './dumps.ts';
 import { secureCapture } from './screen.ts';
@@ -97,10 +97,9 @@ export function credentialAction(labels: readonly string[]): 'use-pin' | 'finger
   return 'type';
 }
 
-function screenOf(phone: Emu): readonly [number, number] {
-  const out = phone.shell('wm size').out;
-  const m = /Override size: (\d+)x(\d+)/.exec(out) ?? /Physical size: (\d+)x(\d+)/.exec(out);
-  return [Number(m?.[1] ?? 1080), Number(m?.[2] ?? 2400)];
+/** The screen as it is turned now (a tablet lies sideways; `wm size` alone would give it upright). */
+function screenOf(phone: Emu, nodes?: readonly UiNode[]): readonly [number, number] {
+  return sizeOf(phone, nodes);
 }
 
 function swipe(phone: Emu, yFrom: number, yTo: number): void {
@@ -125,9 +124,9 @@ function wakeSwipe(phone: Emu): void {
 }
 
 export function scrollTo(phone: Emu, label: string | RegExp): void {
-  const [w, h] = screenOf(phone);
   for (let i = 0; i < 14; i++) {
     const nodes = phone.dump();
+    const [w, h] = screenOf(phone, nodes);
     // A row can be in the tree and on the screen while the dock covers its centre. Tapping there hits the dock.
     const top = dockTop(nodes, h);
     const shown = nodes.some(n => hitNode(n, label) && aboveDock(n, w, h, top));
@@ -138,6 +137,32 @@ export function scrollTo(phone: Emu, label: string | RegExp): void {
   const name = typeof label === 'string' ? label : label.source;
   const labels = nodeLabels(phone.dump()).map(t => t.replace(/\s+/g, ' ').trim()).filter(t => t.length > 0 && t.length < 60).slice(0, 8);
   throw new Error(`${name} was not on screen (${labels.join(' | ') || 'no words'})`);
+}
+
+/** Settings' sections, as a wide screen lists them down its side (Support opens a page of its own, so it is not one). */
+const SETTINGS_SECTIONS = ['Day and time', 'Display', 'Privacy', 'Your data', 'Pause', 'About'] as const;
+
+/** Settings' section buttons, when the screen is wide enough to show Settings one section at a time. */
+export function settingsSections(nodes: readonly UiNode[]): string[] {
+  const named = nodes.filter(n => n.cls.includes('Button') && (SETTINGS_SECTIONS as readonly string[]).includes((n.text || n.desc).trim()));
+  return named.length >= 3 ? named.map(n => (n.text || n.desc).trim()) : [];
+}
+
+/**
+ * Brings a Settings row into view. On a phone Settings is one long page, so it scrolls; on a wide screen it shows
+ * one section at a time, so the section that holds the row is opened first (each is looked at in turn: the row is
+ * in a section's page even before it is scrolled into view), then it scrolls.
+ */
+export function settingsRow(phone: Emu, label: string | RegExp): void {
+  const sections = settingsSections(phone.dump());
+  if (sections.length > 0 && !seen(phone.dump(), label)) {
+    for (const name of sections) {
+      phone.tap(words(name), 10_000);
+      pause(400);
+      if (seen(phone.dump(), label)) break;
+    }
+  }
+  scrollTo(phone, label);
 }
 
 /** Scrolls back up until `label` is in view. A page opened from the dock keeps the scroll of the page before it. */
@@ -339,7 +364,7 @@ function openRestore(phone: Emu, ctx: RunCtx): void {
   ensureOpen(phone, ctx);
   if (showing(phone, has('Choose a file'))) return;
   openSettings(phone, ctx);
-  scrollTo(phone, has('Restore from a backup'));
+  settingsRow(phone, has('Restore from a backup'));
   const [w, h] = screenOf(phone);
   const hits = phone.dump().filter(n => hitNode(n, has('Restore from a backup')));
   ctx.save('restore-row.xml', phone.lastXml());
@@ -529,13 +554,13 @@ function enrolPhoneLock(phone: Emu, ctx: RunCtx): void {
   // With no fingerprint enrolled, this image's prompt has no PIN control. Settings enrolment is the sensor the emulator accepts.
   if (!enrolDeviceFinger(phone, ctx, false)) ctx.note('A12 device fingerprint was not enrolled before the phone-lock prompt');
   openSettings(phone, ctx);
-  scrollTo(phone, has("Your phone's lock"));
+  settingsRow(phone, has("Your phone's lock"));
   phone.tap(has("Your phone's lock"), 20_000);
   pause(800);
   if (showing(phone, words('Today')) || showing(phone, words('Walk'))) {
     ctx.note(`A12 the phone-lock row tap left the record (${brief(phone.dump())})`);
     openSettings(phone, ctx);
-    scrollTo(phone, has("Your phone's lock"));
+    settingsRow(phone, has("Your phone's lock"));
     phone.tap(has("Your phone's lock"), 20_000);
   }
   // The privacy row always says "Anyone who knows that PIN". Only the setup page says Android asks twice.
@@ -673,7 +698,7 @@ function a1(phone: Emu, ctx: RunCtx): void {
   ctx.note(`A1 accessibility nodes ${welcome.length}, with words ${wordy}`);
   restoreSeed(phone, ctx, 'dc-seed.dcbak', true);
   openSettings(phone, ctx);
-  scrollTo(phone, has('This phone has no screen lock'));
+  settingsRow(phone, has('This phone has no screen lock'));
   const before = phone.dump();
   ctx.save('a1-privacy.xml', phone.lastXml());
   if (!seen(before, has('This phone has no screen lock'))) throw new Error('the no-lock words were not on screen');
@@ -908,7 +933,7 @@ function a9(phone: Emu, ctx: RunCtx): void {
   phone.shell('settings put global always_finish_activities 1');
   ensureOpen(phone, ctx);
   openSettings(phone, ctx);
-  scrollTo(phone, has('Export a copy'));
+  settingsRow(phone, has('Export a copy'));
   phone.tap(has('Export a copy'), 20_000);
   waitSaveScreen(phone);
   const flag = phone.shell('settings get global always_finish_activities').out.trim();
@@ -925,13 +950,28 @@ function a9(phone: Emu, ctx: RunCtx): void {
   if (names.some(n => /backup-.*\.dcbak/.test(n))) throw new Error('an empty backup was left in Download');
 }
 
+/** Which diary is on screen: a phone's (Earlier and Not yet above the page), a wide screen's (its list of pages beside it), or none yet. */
+export function diaryLayout(nodes: readonly UiNode[]): 'phone' | 'wide' | undefined {
+  if (seen(nodes, words('Earlier')) || seen(nodes, words('Not yet'))) return 'phone';
+  return seen(nodes, has('newest first')) ? 'wide' : undefined;
+}
+
 export function focusDiaryPage(phone: Emu): void {
-  if (!phone.waitFor(words('Earlier'), 15_000) && !phone.waitFor(words('Not yet'), 4_000)) {
-    throw new Error('the diary did not open');
+  let layout: 'phone' | 'wide' | undefined;
+  for (const until = Date.now() + 15_000; (layout = diaryLayout(phone.dump())) === undefined;) {
+    if (Date.now() >= until) throw new Error('the diary did not open');
+    pause(400);
   }
   // This WebView often leaves the empty page's aria-label out of the tree. The field sits under the date row.
   if (phone.waitFor(words('Diary page'), 2_000)) {
     phone.tap(words('Diary page'), 10_000);
+    return;
+  }
+  if (layout === 'wide') {
+    // the page fills the column right of the list: its middle is the field
+    const [w, h] = screenOf(phone);
+    phone.shell(`input tap ${Math.floor(w * 0.65)} ${Math.floor(h * 0.5)}`);
+    pause(400);
     return;
   }
   const anchor = find(phone.dump(), words('Earlier')) ?? find(phone.dump(), words('Not yet'));
@@ -1217,7 +1257,7 @@ function a13(phone: Emu, ctx: RunCtx): void {
   if (codeAlready) ctx.note('A13 the separate code is already set');
   openSettings(phone, ctx);
   if (codeAlready) {
-    scrollTo(phone, has('Fingerprint opens it too'));
+    settingsRow(phone, has('Fingerprint opens it too'));
     phone.tap(has('Fingerprint opens it too'), 15_000);
   } else {
   scrollTo(phone, has('A separate code'));
@@ -1315,7 +1355,7 @@ function a14(phone: Emu, ctx: RunCtx): void {
   }
   if (!recordOpened(phone.dump())) unlock(phone, ctx.seed.passphrase);
   openSettings(phone, ctx);
-  scrollTo(phone, has('This phone has no screen lock'));
+  settingsRow(phone, has('This phone has no screen lock'));
   if (!showing(phone, has('This phone has no screen lock'))) throw new Error('Settings did not return to the no-lock words');
 }
 

@@ -21,6 +21,8 @@ export function isBlackRaw(raw: Uint8Array): boolean {
 /**
  * `black` when every pixel is. `bars` when the non-black rows are only the system bars,
  * split by a gap of at least four fifths of the height. `shown` when the app's own rows are not black.
+ * The outermost hundredth of the width on each side is not read: Samsung draws its edge-panel handle there,
+ * over every app, mid-height (the tablet, 16 Nov); the app's rows reach well inside it.
  */
 export function secureCapture(raw: Uint8Array): 'black' | 'bars' | 'shown' {
   if (isBlackRaw(raw)) return 'black';
@@ -28,9 +30,10 @@ export function secureCapture(raw: Uint8Array): 'black' | 'bars' | 'shown' {
   const w = view.getUint32(0, true);
   const h = view.getUint32(4, true);
   const header = raw.byteLength - w * h * 4;
+  const edge = Math.floor(w * 0.01);
   const rows: number[] = [];
   for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
+    for (let x = edge; x < w - edge; x++) {
       const i = header + (y * w + x) * 4;
       if ((raw[i] ?? 0) !== 0 || (raw[i + 1] ?? 0) !== 0 || (raw[i + 2] ?? 0) !== 0) {
         rows.push(y);

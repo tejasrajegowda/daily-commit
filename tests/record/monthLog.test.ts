@@ -132,7 +132,14 @@ test('a lock that runs out of time still writes the month files it finished, and
   const gate = new Promise<void>(r => { release = r; });
   const sleep = () => gate;
   const closing = close(core, m, sleep);
-  while (sealing < 3) await new Promise(r => setTimeout(r, 5));
+  // waits for the snapshot's seal (the third), never past the lock's own end or 20 s, so a change here fails by name
+  let ended = false;
+  void closing.then(() => { ended = true; }, () => { ended = true; });
+  for (const until = Date.now() + 20_000; sealing < 3 && !ended;) {
+    if (Date.now() > until) assert.fail(`the snapshot's seal never came (seals: ${sealing})`);
+    await new Promise(r => setTimeout(r, 5));
+  }
+  assert.equal(sealing, 3, 'the lock reached the snapshot before it ended');
   release();
   assert.equal(await closing, 'abandoned');
   assert.equal(monthFiles(m).length, 2);

@@ -1,6 +1,7 @@
 // The harness states the screenshots and the design gate visit: [id, hash]. Each task adds its own.
 export const STATES = [
   ['lock', 's=lock&t=06:05'],
+  ['lockpc', 's=lock&pc=1&t=06:05'],
   ['lockown', 's=lock&v=own&t=06:05'],
   ['lockpass', 's=lock&v=pass&t=06:05'],
   ['lockfive', 's=lock&v=five&t=06:05'],
@@ -36,6 +37,7 @@ export const STATES = [
   ['restore', 's=restore&t=13:00'],
   ['restore-replace', 's=restore&v=replace&t=13:00'],
   ['old', 's=old'],
+  ['failed', 's=failed'],
   ['nolock', 's=settings&v=privacy&nl=1'],
   ['nolockown', 's=settings&v=privacy&nl=1&oc=1'],
   ['kept', 's=settings&kept=1'],

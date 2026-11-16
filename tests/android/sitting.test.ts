@@ -6,7 +6,7 @@ import { DUMP_COMMAND, frontOf, guardedPhone, hierarchyOf, NOT_FRONT, NotInApp, 
 import { answerOf, askedTwice, codeOnScreen, COLD_START_MS, keyboardName, lockOn, msList, NOT_TEST_RECORD, openSettings, phoneMayRun, RUN, runPart, screenOf, storageAnswer, timingsAfter, timingsOf, type ItemKey, type PCtx } from '../../scripts/android/checks/p.ts';
 import { LONG_PASSPHRASE } from '../../scripts/android/checks/long.ts';
 import { fromRun, owner, parseArgs } from '../../scripts/android/checks/sitting.ts';
-import { blinkAnswer, noLearning, plainCard } from '../../scripts/android/checks/standin.ts';
+import { blinkAnswer, cardOf, noLearning, plainCard } from '../../scripts/android/checks/standin.ts';
 import { adbOnTestPhone, inputTextArg, nodesOf, TEST_SERIAL, type UiNode } from '../../scripts/android/drive.ts';
 
 const OURS = 'mCurrentFocus=Window{1a2b u0 app.dailycommit/app.dailycommit.MainActivity}';
@@ -315,6 +315,23 @@ test('Recents\' card shows nothing when the middle of the card is one plain colo
   const words = rawShot(100, 200, (x, y) => (x > 20 && x < 80 && y > 40 && y < 160 ? (y % 9 < 3 && x % 5 < 3 ? [230, 230, 230] : [16, 16, 16]) : [200, 120, 40]));
   assert.equal(plainCard(words), false);
   assert.equal(plainCard(new Uint8Array(4)), undefined);
+});
+
+test('the tablet\'s Recents: the app\'s card is found by its name off centre, and its own middle is what is measured', () => {
+  // A wide screen with a gradient wallpaper and a plain card on the right (the tablet run, 16 Nov).
+  const shot = rawShot(240, 150, (x, y) => (x >= 160 && x < 220 && y >= 30 && y < 70 ? [38, 38, 38] : [Math.floor(x / 2), 60 + Math.floor(y / 3), 90]));
+  const nodes = [
+    { pkg: 'com.sec.android.app.launcher', cls: 'android.view.ViewGroup', text: '', desc: 'Daily Commit', enabled: true, clickable: true, bounds: [160, 30, 220, 70] as const },
+    { pkg: 'com.sec.android.app.launcher', cls: 'android.view.View', text: '', desc: 'Advanced options, Daily Commit, Button', enabled: true, clickable: true, bounds: [185, 30, 195, 38] as const },
+    { pkg: 'com.sec.android.app.launcher', cls: 'android.widget.Button', text: 'Close all', desc: '', enabled: true, clickable: true, bounds: [100, 130, 140, 140] as const },
+  ] as unknown as UiNode[];
+  assert.equal(plainCard(shot), false, 'the screen\'s middle is the wallpaper, which is not one colour');
+  const card = cardOf(nodes);
+  assert.deepEqual(card, undefined, 'a card smaller than a real one is not taken for it');
+  const big = nodes.map(n => ({ ...n, bounds: n.bounds.map(v => v * 10) as unknown as UiNode['bounds'] }));
+  assert.deepEqual(cardOf(big), [1600, 300, 2200, 700]);
+  assert.equal(plainCard(shot, [160, 30, 220, 70]), true);
+  assert.equal(cardOf([]), undefined);
 });
 
 test('the keyboard is told not to learn when the focused field carries noPersonalizedLearning', () => {

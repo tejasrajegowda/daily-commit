@@ -9,7 +9,7 @@ import { captureTo } from '../../scripts/android/checks/b.ts';
 import { DRY_RUN_SERIAL } from '../../scripts/android/checks/guard.ts';
 import {
   APP, CLEAR_TESTS_DATA, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_TESTS_USER, NotTestsUser, Refused, SCAN_LONG,
-  TESTS_IME_READ, TESTS_LONG_REMOTE, TESTS_SCREEN_DUMP, TESTS_WAKE, TESTS_WAKEFULNESS, forTestsUser, inTestsUser, onlyInFront,
+  TESTS_IME_READ, TESTS_LONG_INTO_DOWNLOADS, TESTS_LONG_REMOTE, TESTS_LONG_TMP, TESTS_SCREEN_DUMP, TESTS_WAKE, TESTS_WAKEFULNESS, forTestsUser, inTestsUser, onlyInFront,
 } from '../../scripts/android/checks/shellAllow.ts';
 import { inputTextArg, TEST_SERIAL } from '../../scripts/android/drive.ts';
 import { SERIAL } from '../../scripts/android/emulator.ts';
@@ -131,7 +131,11 @@ const ROWS: readonly Row[] = [
   { lane: 'tablet', args: on(TAB, ['shell', typed]), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', back]), ok: true },
   { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '10', APK]), ok: true },
-  { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', TESTS_LONG_REMOTE]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', TESTS_LONG_TMP]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', TESTS_LONG_INTO_DOWNLOADS]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', TESTS_LONG_REMOTE]), ok: false, why: /shell's folder/ },
+  { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', '/data/local/tmp/other.dcbak']), ok: false },
+  { lane: 'phoneChecks', args: on(PHONE, ['shell', TESTS_LONG_INTO_DOWNLOADS]), ok: false },
   // ...and never a command that addresses user 0 or every user
   { lane: 'tablet', args: on(TAB, ['shell', 'pm path app.dailycommit']), ok: false, why: /refused on the tablet/ },
   { lane: 'tablet', args: on(TAB, ['shell', 'am force-stop app.dailycommit']), ok: false, why: /refused on the tablet/ },
@@ -150,7 +154,7 @@ const ROWS: readonly Row[] = [
   { lane: 'tablet', args: on(TAB, ['install', '-r', APK]), ok: false, why: /--user 10/ },
   { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '0', APK]), ok: false, why: /--user 10/ },
   { lane: 'tablet', args: on(TAB, ['install', '-r', '-d', '--user', '10', APK]), ok: false, why: /-d/ },
-  { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', LONG_REMOTE]), ok: false, why: /Tests user's storage/ },
+  { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', LONG_REMOTE]), ok: false, why: /shell's folder/ },
   { lane: 'tablet', args: on(TAB, ['pull', TESTS_LONG_REMOTE, 'copy.dcbak']), ok: false },
   // the stand-in acts for the owner anywhere on the Tests user's screen, reads it whole, and takes screenshots there
   { lane: 'tablet', args: on(TAB, ['shell', 'input tap 200 400']), ok: true },
@@ -343,7 +347,7 @@ test('D-36: when the tablet answers that the Tests user was not on screen, the r
 });
 
 test('D-36: an install or a push with the owner on screen starts nothing beyond reading who is on screen', () => {
-  for (const args of [installTests, on(TAB, ['push', 'long.dcbak', TESTS_LONG_REMOTE])]) {
+  for (const args of [installTests, on(TAB, ['push', 'long.dcbak', TESTS_LONG_TMP])]) {
     const t = standInTablet({ user: '0' });
     assert.throws(() => runAdb('tablet', args, { encoding: 'utf8', spawn: t.spawn }), NotTestsUser);
     assert.deepEqual(t.sent, [on(TAB, ['shell', 'am get-current-user'])]);
