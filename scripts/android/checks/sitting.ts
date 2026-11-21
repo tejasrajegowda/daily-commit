@@ -9,6 +9,7 @@
 // `--from P<n>` is refused before the phone is touched: a resumed run would skip the opening check.
 // In the dry run a stand-in (standin.ts) does the owner's part at the file picker and answers the owner's questions
 // from what the emulator measures; a fingerprint, the phone's PIN and the screen-off typing have no stand-in.
+import { APP_ID } from '../appId.ts';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runAdb } from '../adbGate.ts';
@@ -144,7 +145,7 @@ async function prepareDryRun(say: (line: string) => void): Promise<boolean> {
     return false;
   }
   // The test phone only, after its name was checked: the phone itself is never cleared.
-  adbOnTestPhone(['shell', 'pm clear app.dailycommit'], 60_000);
+  adbOnTestPhone(['shell', `pm clear ${APP_ID}`], 60_000);
   say('dry run: the release APK is on the dc- test emulator, its data cleared');
   return true;
 }
@@ -191,7 +192,7 @@ async function main(): Promise<number> {
   try {
     if (args.dryRun && !(await prepareDryRun(say))) return 1;
     const io = guardedPhone(serial, adb, { dryRun: args.dryRun, tablet: args.tablet });
-    if (!io.shell('pm path app.dailycommit').out.includes('package:')) {
+    if (!io.shell(`pm path ${APP_ID}`).out.includes('package:')) {
       say(args.tablet
         ? 'Daily Commit is not installed in the Tests user. Install it with npm run phone -- --tests first. Nothing was run.'
         : 'Daily Commit is not installed on the phone. Install it with npm run phone first. Nothing was run.');

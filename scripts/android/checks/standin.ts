@@ -3,6 +3,7 @@
 // saying how it was measured. It reaches the emulator only through adbOnTestPhone, which refuses any serial
 // but emulator-5556, so it can never reach the phone; the sitting makes one only with --dry-run.
 // What it can't measure (a fingerprint, the phone's PIN, a blink shorter than a screen read) stays the owner's.
+import { APP_ID } from '../appId.ts';
 import { Buffer } from 'node:buffer';
 import { windowIsSecure } from '../smoke.ts';
 import { adbOnTestPhone, emu, find, pause, sizeOf, type Emu, type UiNode } from '../drive.ts';
@@ -11,7 +12,7 @@ import { frontOf } from './guard.ts';
 import { lockOn, type Act, type ItemKey, type StandIn } from './p.ts';
 import { secureCapture } from './screen.ts';
 
-const APP = 'app.dailycommit';
+const APP = APP_ID;
 const NO_PERSONALIZED_LEARNING = 0x1000000;            // EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
 
 /** The record showing on the first read after coming back is a blink ('yes'); the lock first is none ('no'). */

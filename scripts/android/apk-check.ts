@@ -10,15 +10,18 @@ import { releaseProblems } from '../release-check.ts';
 import { runSyncCommand } from './proc.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 import { RELEASE_CERT_SHA256, signersOf } from './signing.ts';
+import { ACTIVITY, APP_ID, RELEASE_ID, TESTS_ID } from './appId.ts';
 
-export const APP_ID = 'app.dailycommit';
 export const UNSIGNED_APK = 'android/app/build/outputs/apk/release/app-release-unsigned.apk';
 export const SIGNED_APK = 'android/app/build/outputs/apk/release/app-release.apk';
+/** The tests app's APK (`build.ts release-tests`, Gradle -PdcTests); its own name, so it never overwrites the release APK. */
+export const TESTS_APK = 'android/app/build/outputs/apk/release/app-tests-release.apk';
+const TESTS_UNSIGNED_APK = 'android/app/build/outputs/apk/release/app-tests-release-unsigned.apk';
 
-/** The release APK just built: the newer of the signed and the unsigned file. A stale one is never chosen. */
-export function newestReleaseApk(): string | undefined {
+/** The APK just built for an app id: the newer of its signed and unsigned file. A stale one is never chosen. */
+export function newestReleaseApk(id: string = APP_ID): string | undefined {
   let best: { readonly path: string; readonly mtime: number } | undefined;
-  for (const path of [SIGNED_APK, UNSIGNED_APK]) {
+  for (const path of id === TESTS_ID ? [TESTS_APK, TESTS_UNSIGNED_APK] : [SIGNED_APK, UNSIGNED_APK]) {
     try {
       const st = statSync(path);
       if (!st.isFile()) continue;
@@ -51,17 +54,22 @@ const ALLOWED_PERMISSIONS = new Set([
   'android.permission.USE_BIOMETRIC',            // the phone's own fingerprint or PIN prompt
   'android.permission.RECEIVE_BOOT_COMPLETED',   // the notification plugin's: reminders after a restart
   'android.permission.WAKE_LOCK',
-  'app.dailycommit.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION',   // AndroidX's own
   ...(INTERNET_ALLOWED ? ['android.permission.INTERNET'] : []),
 ]);
-const OPEN_TO_OTHER_APPS = new Set(['app.dailycommit.MainActivity', '.MainActivity']);
+/** AndroidX's own permission is named after the app id, so it follows the id of the build being checked. */
+const receiverPermission = (id: string) => `${id}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`;
+const OPEN_TO_OTHER_APPS = new Set([ACTIVITY, '.MainActivity']);
 /** What backup carries, in this order: the locked snapshot, and the folder of the change log's locked month files. */
 const BACKED_UP = [{ domain: 'file', path: 'backup/latest.dcbak' }, { domain: 'file', path: 'backup/log/' }];
 const BACKUP_DOMAINS = ['root', 'file', 'database', 'sharedpref', 'external', 'device_root', 'device_file', 'device_database', 'device_sharedpref'];
 const NO_EXCLUDE_DESCENDANTS = new Set(['noExcludeDescendants', '8', '0x8']);   // a decoded binary layout prints the number
 
-export function apkProblems(apk: ApkView): string[] {
-  return [...manifestProblems(apk.manifest), ...configProblems(apk.config), ...assetProblems(apk), ...(apk.resources ? leakProblems(apk) : [])];
+/**
+ * Every problem with an APK built for the app `id` (the release app unless named). The web origin's appId in
+ * capacitor.config.json is the release id in both builds: it is not what Android calls the app.
+ */
+export function apkProblems(apk: ApkView, id: string = RELEASE_ID): string[] {
+  return [...manifestProblems(apk.manifest, id), ...configProblems(apk.config), ...assetProblems(apk), ...(apk.resources ? leakProblems(apk, id) : [])];
 }
 
 interface Tag { readonly name: string; readonly attrs: string; readonly body: string }
@@ -81,11 +89,11 @@ function attr(attrs: string, name: string): string | undefined {
 }
 
 /** Backup, permissions, what other apps can reach, and the web view: the ways the record could leave the app. */
-export function leakProblems(apk: ApkView): string[] {
-  return [...leakManifestProblems(apk.manifest), ...rulesProblems(apk.resources?.get(RULES_PATH)), ...layoutProblems(apk.resources?.get(LAYOUT_PATH))];
+export function leakProblems(apk: ApkView, id: string = RELEASE_ID): string[] {
+  return [...leakManifestProblems(apk.manifest, id), ...rulesProblems(apk.resources?.get(RULES_PATH)), ...layoutProblems(apk.resources?.get(LAYOUT_PATH))];
 }
 
-function leakManifestProblems(manifest: string): string[] {
+function leakManifestProblems(manifest: string, id: string): string[] {
   const problems: string[] = [];
   const app = tags(manifest).find(t => t.name === 'application');
   if (!app) return ['manifest: no application element'];
@@ -96,7 +104,7 @@ function leakManifestProblems(manifest: string): string[] {
   const permissions = tags(manifest).filter(t => t.name === 'uses-permission' || t.name === 'uses-permission-sdk-23').map(t => attr(t.attrs, 'android:name') ?? '?');
   for (const p of permissions) {
     if (p === 'android.permission.SCHEDULE_EXACT_ALARM') problems.push('manifest: SCHEDULE_EXACT_ALARM is requested (the plugin would open the alarms screen)');
-    else if (!ALLOWED_PERMISSIONS.has(p)) problems.push(`manifest: permission ${p} is not allowed`);
+    else if (!ALLOWED_PERMISSIONS.has(p) && p !== receiverPermission(id)) problems.push(`manifest: permission ${p} is not allowed`);
   }
   for (const p of ['android.permission.USE_EXACT_ALARM', 'android.permission.POST_NOTIFICATIONS', 'android.permission.USE_BIOMETRIC']) {
     if (!permissions.includes(p)) problems.push(`manifest: ${p} is missing`);
@@ -148,10 +156,10 @@ function layoutProblems(xml: string | undefined): string[] {
     .map(a => `web view: ${a} is not noExcludeDescendants`);
 }
 
-function manifestProblems(manifest: string): string[] {
+function manifestProblems(manifest: string, id: string): string[] {
   const problems: string[] = [];
   const pkg = /<manifest\b[^>]*\spackage="([^"]*)"/.exec(manifest);
-  if (pkg?.[1] !== APP_ID) problems.push(`manifest: package is ${pkg?.[1] ?? 'missing'}, not ${APP_ID}`);
+  if (pkg?.[1] !== id) problems.push(`manifest: package is ${pkg?.[1] ?? 'missing'}, not ${id}`);
   if (/android:debuggable="true"/.test(manifest)) problems.push('manifest: the build is debuggable');
   return problems;
 }
@@ -166,7 +174,7 @@ function configProblems(text: string): string[] {
   const problems: string[] = [];
   const server = (c.server ?? {}) as Record<string, unknown>;
   const android = (c.android ?? {}) as Record<string, unknown>;
-  if (c.appId !== APP_ID) problems.push(`config: appId is not ${APP_ID}`);
+  if (c.appId !== RELEASE_ID) problems.push(`config: appId is not ${RELEASE_ID}`);
   if (server.androidScheme !== 'https') problems.push('config: server.androidScheme is not https');
   if (server.hostname !== 'localhost') problems.push('config: server.hostname is not localhost');
   if (server.url !== undefined) problems.push('config: a server url is set');
@@ -230,7 +238,9 @@ function printCerts(env: Record<string, string>, tool: string, apk: string): str
 }
 
 if (import.meta.main) {
-  const apk = newestReleaseApk();
+  // --tests-build (or DC_TESTS_BUILD=1) checks the tests app's APK against the tests id
+  const id = APP_ID;
+  const apk = newestReleaseApk(id);
   if (apk === undefined) {
     console.log('no release APK; run npm run android:build first');
     process.exitCode = 1;
@@ -247,9 +257,9 @@ if (import.meta.main) {
       publicFiles: readPublic(PUBLIC_DIR),
       apkPublicList,
       resources: new Map([RULES_PATH, LAYOUT_PATH].flatMap(p => { const xml = readResource(p, env, tool, apk); return xml === undefined ? [] : [[p, xml] as const]; })),
-    });
+    }, id);
     // When a certificate is pinned, the signed APK must carry that one signer. An empty pin is Step 0, still to come.
-    if (apk === SIGNED_APK && RELEASE_CERT_SHA256 !== '') {
+    if ((apk === SIGNED_APK || apk === TESTS_APK) && RELEASE_CERT_SHA256 !== '') {
       try {
         const signers = signersOf(printCerts(env, toolPaths(tc).apksigner, apk));
         if (signers.length !== 1 || signers[0] !== RELEASE_CERT_SHA256) problems.push('signer: the release APK is not signed with the pinned certificate');

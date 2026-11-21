@@ -2,6 +2,7 @@
 // (another project uses 5554), with no snapshot, no window, a software GPU and 3 GB. It is started
 // detached. Stopping it talks to emulator-5556, then stops only the process this script started.
 // node scripts/android/emulator.ts start|stop
+import { APP_ID, dataDir } from './appId.ts';
 import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -172,7 +173,7 @@ export async function startEmulator(avd: string = AVD): Promise<boolean> {
       const readable = named.status === 0 && named.out.trim() !== '';
       if (readable) { known = true; ours = mayRemoveFill(named.out, named.status); }
       if (readable && ours) {
-        const rm = adb(['-s', SERIAL, 'shell', 'rm', '-f', '/data/local/tmp/dc-fill', '/data/user/0/app.dailycommit/dc-fill'], 60_000);
+        const rm = adb(['-s', SERIAL, 'shell', 'rm', '-f', '/data/local/tmp/dc-fill', `${dataDir(APP_ID)}/dc-fill`], 60_000);
         if (rm.status === 0) {
           adb(['-s', SERIAL, 'shell', 'sync'], 30_000);
           freed = true;

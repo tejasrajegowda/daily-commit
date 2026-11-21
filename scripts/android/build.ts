@@ -1,5 +1,7 @@
 // The one way to run Gradle for this project, behind the memory gate.
 // node scripts/android/build.ts release → web build, cap sync, Gradle assembleRelease, the APK check.
+// node scripts/android/build.ts release-tests → the same for the tests app (Gradle -PdcTests: app.dailycommit.tests,
+//   "Daily Commit (tests)", app-tests-release.apk, same release key), checked against the tests id.
 // node scripts/android/build.ts test    → Gradle :app:testDebugUnitTest, then a summary of the JVM tests.
 // Gradle runs in one process with no daemon (android/gradle.properties), its output goes to
 // .local/logs/, and only the last lines are printed. Nothing is left running afterwards.
@@ -91,8 +93,8 @@ function node(args: readonly string[], env: Record<string, string>): number {
 }
 
 async function main(mode: string | undefined): Promise<number> {
-  if (mode !== 'release' && mode !== 'test') {
-    console.log('usage: node scripts/android/build.ts release|test');
+  if (mode !== 'release' && mode !== 'release-tests' && mode !== 'test') {
+    console.log('usage: node scripts/android/build.ts release|release-tests|test');
     return 2;
   }
   const tc = toolchain(process.env);
@@ -107,11 +109,12 @@ async function main(mode: string | undefined): Promise<number> {
   const java = toolPaths(tc).java;
 
   let code: number;
-  if (mode === 'release') {
+  if (mode === 'release' || mode === 'release-tests') {
+    const tests = mode === 'release-tests';
     code = npmBuild();
     if (code === 0) code = node(['node_modules/@capacitor/cli/bin/capacitor', 'sync', 'android'], env);
-    if (code === 0) code = await gradle(mode, ['assembleRelease'], java, env);
-    if (code === 0) code = node(['scripts/android/apk-check.ts'], env);
+    if (code === 0) code = await gradle(mode, tests ? ['assembleRelease', '-PdcTests'] : ['assembleRelease'], java, env);
+    if (code === 0) code = node(tests ? ['scripts/android/apk-check.ts', '--tests-build'] : ['scripts/android/apk-check.ts'], env);
   } else {
     code = await gradle(mode, [':app:testDebugUnitTest'], java, env);
     const xml = existsSync(RESULTS_DIR)

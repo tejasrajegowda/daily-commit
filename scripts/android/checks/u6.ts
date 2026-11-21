@@ -7,6 +7,7 @@
 // node scripts/android/checks/u6.ts [--reuse] [--slot-held]
 //   --reuse      keep the two APKs already built (both must exist); for a rerun after a change to this runner only
 //   --slot-held  the emulator RAM slot is already granted to the caller, so skip the wait for u6-slot.txt
+import { APP_ID } from '../appId.ts';
 import { appendFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, relative, resolve, sep } from 'node:path';
@@ -23,7 +24,7 @@ import {
   todayClosed, versionIs, yesterdayClosed,
 } from './u6Read.ts';
 
-const APP = 'app.dailycommit';
+const APP = APP_ID;
 const PASS = 'CANARY-L2 test passphrase';
 const HABIT = 'Walk';
 const PHONE_ARGS = ['run', 'phone', '--', '--serial', 'emulator-5556'] as const;

@@ -2,7 +2,7 @@
 // before the tool path is looked up and before any process is started.
 import { spawnSync } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
-import { APP_ID } from './apk-check.ts';
+import { RELEASE_ID, TESTS_ID } from './appId.ts';
 import {
   DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_TESTS_USER, NotTestsUser, Refused, TESTS_LONG_TMP, TESTS_USER,
   envelopeOf, inTestsUser, shellKind, testsShellKind,
@@ -16,8 +16,12 @@ import { childEnv, toolchain, toolPaths } from './env.ts';
  */
 export type Lane = 'install' | 'phoneChecks' | 'emulator' | 'tablet';
 
-/** Why a Tests-user install is refused while the app is in the owner's account: Android keeps one copy of its code for all users. */
-export const OWNER_HAS_APP = 'Daily Commit is in the owner account, and an install in the Tests user would replace its code there too. Nothing was installed.';
+/**
+ * The one APK the tablet may install: the tests build's file. The tests build is a separate app (TESTS_ID), so
+ * installing it in the Tests user never touches the owner's copy of Daily Commit, and nothing of the owner's
+ * account needs to be read to know that (Phase 2; phone.ts also checks the file's id before it gets here).
+ */
+export const TESTS_APK_NAME = 'app-tests-release.apk';
 
 /** The test emulator. install and phoneChecks may name the one real phone; this lane may not. */
 export const EMULATOR_SERIAL = 'emulator-5556';
@@ -84,7 +88,7 @@ function installOk(verb: string, rest: readonly string[]): AdbVerdict {
     if (installFor(0, rest)) return { ok: true };
     return { ok: false, why: 'install may only install -r --user 0 the apk' };
   }
-  if (verb === 'shell' && rest.length === 3 && rest[0] === 'dumpsys' && rest[1] === 'package' && rest[2] === APP_ID) {
+  if (verb === 'shell' && rest.length === 3 && rest[0] === 'dumpsys' && rest[1] === 'package' && rest[2] === RELEASE_ID) {
     return { ok: true };
   }
   return { ok: false, why: 'install may only install -r or read the version' };
@@ -112,8 +116,8 @@ function tabletOk(serial: string, verb: string, rest: readonly string[]): AdbVer
   if (serial.startsWith('emulator-')) return { ok: false, why: 'an emulator is not the tablet' };
   if (verb === 'install') {
     if (rest.includes('-d')) return { ok: false, why: 'install never passes -d' };
-    if (installFor(TESTS_USER, rest)) return { ok: true };
-    return { ok: false, why: 'the tablet may only install -r --user 10 the apk' };
+    if (installFor(TESTS_USER, rest) && (rest[3] ?? '').split(/[\\/]/).pop() === TESTS_APK_NAME) return { ok: true };
+    return { ok: false, why: `the tablet may only install -r --user 10 the tests build (${TESTS_APK_NAME})` };
   }
   if (verb === 'push') {
     const local = rest[0];
@@ -124,7 +128,7 @@ function tabletOk(serial: string, verb: string, rest: readonly string[]): AdbVer
   if (verb === 'shell') {
     const command = rest[0];
     if (rest.length !== 1 || command === undefined) return { ok: false, why: 'shell takes one command' };
-    if (command === `dumpsys package ${APP_ID}`) return { ok: true };
+    if (command === `dumpsys package ${TESTS_ID}`) return { ok: true };
     if (!tabletShellOk(command)) return { ok: false, why: 'that shell command is refused on the tablet' };
     return { ok: true };
   }
@@ -196,8 +200,7 @@ function asBytes(v: string | Buffer | null | undefined): Uint8Array {
 /**
  * The tablet lane's run-time half, after the verdict. A shell command goes inside the Tests-user check, so the
  * check and the command are one call on the tablet. An install or a push is not a shell command: the current
- * user is read first, and an install also needs the app to be absent from the owner's account. Anything the
- * gate can't confirm stops the command.
+ * user is read first. Nothing of the owner's account is read. Anything the gate can't confirm stops the command.
  */
 function tabletArgs(args: readonly string[], read: (args: readonly string[]) => AdbSpawnResult): readonly string[] {
   const head = headOf(args);
@@ -207,12 +210,6 @@ function tabletArgs(args: readonly string[], read: (args: readonly string[]) => 
   if (head.verb === 'exec-out') return at(['exec-out', inTestsUser(head.rest.join(' '))]);
   const user = read(at(['shell', 'am get-current-user']));
   if (user.status !== 0 || asText(user.stdout).trim() !== String(TESTS_USER)) throw new NotTestsUser();
-  if (head.verb === 'install') {
-    // The one thing read from the owner's account: whether Daily Commit is installed there.
-    const listed = read(at(['shell', `pm list packages --user 0 ${APP_ID}`]));
-    if (listed.status !== 0) throw new Refused('the owner account\'s copy of the app could not be checked');
-    if (asText(listed.stdout).split(/\r?\n/).some(l => l.trim() === `package:${APP_ID}`)) throw new Refused(OWNER_HAS_APP);
-  }
   return args;
 }
 

@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { apkProblems, type ApkView } from '../../scripts/android/apk-check.ts';
+import { TESTS_ID } from '../../scripts/android/appId.ts';
 
 const CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; connect-src 'self'">`;
 // The merged manifest as `apkanalyzer manifest print` shows it: the allowed permissions, AndroidX's own
@@ -104,6 +105,21 @@ test('the old backup rules, cleartext, the exact-alarm request, internet, a file
 test('only the launcher is open to other apps; a component behind the shell-only DUMP permission is allowed', () => {
   assert.notDeepEqual(apkProblems(withManifest(m => m.replace('</application>', '<receiver android:name="x.Y" android:exported="true"/></application>'))), []);
   assert.deepEqual(apkProblems(withManifest(m => m.replace('</application>', '<receiver android:name="androidx.profileinstaller.ProfileInstallReceiver" android:exported="true" android:permission="android.permission.DUMP"/></application>'))), []);
+});
+
+test('Phase 2: the tests build is checked against the tests id; the web origin stays the release id', () => {
+  const testsView: ApkView = {
+    ...cleanApk(),
+    manifest: cleanApk().manifest
+      .replaceAll('app.dailycommit.DYNAMIC_RECEIVER', 'app.dailycommit.tests.DYNAMIC_RECEIVER')
+      .replaceAll('package="app.dailycommit"', 'package="app.dailycommit.tests"'),
+  };
+  assert.deepEqual(apkProblems(testsView, TESTS_ID), []);
+  assert.notDeepEqual(apkProblems(testsView), []);
+  assert.notDeepEqual(apkProblems(cleanApk(), TESTS_ID), []);
+  const c = JSON.parse(testsView.config);
+  c.appId = 'app.dailycommit.tests';
+  assert.notDeepEqual(apkProblems({ ...testsView, config: JSON.stringify(c) }, TESTS_ID), []);
 });
 
 test('the web view is ours, with autofill and content capture off', () => {

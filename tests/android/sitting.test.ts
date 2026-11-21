@@ -74,11 +74,11 @@ test('Android\'s own prompt allows only Back; leaving and launching our own app 
   assert.throws(() => io.shell('input tap 10 10'), NotInApp);
   io.shell('input keyevent KEYCODE_BACK');
   io.shell('input keyevent KEYCODE_HOME');
-  io.shell('am start -n app.dailycommit/.MainActivity');
+  io.shell('am start -n app.dailycommit/app.dailycommit.MainActivity');
   assert.deepEqual(commands(sent), [
     `-s R5CT000TEST shell ${onlyInFront('input keyevent KEYCODE_BACK', true)}`,
     '-s R5CT000TEST shell input keyevent KEYCODE_HOME',
-    '-s R5CT000TEST shell am start -n app.dailycommit/.MainActivity',
+    '-s R5CT000TEST shell am start -n app.dailycommit/app.dailycommit.MainActivity',
   ]);
 });
 
@@ -425,7 +425,7 @@ test('the steps reach the phone only through the guard', () => {
   assert.doesNotMatch(guard, /spawnSync|pm clear|uninstall|'screencap|'screenrecord/);
   // The dry run clears the test emulator's app data; adbOnTestPhone addresses only emulator-5556.
   assert.deepEqual([...sitting.matchAll(/pm clear/g)].length, 1);
-  assert.match(sitting, /adbOnTestPhone\(\['shell', 'pm clear app\.dailycommit'\]/);
+  assert.match(sitting, /adbOnTestPhone\(\['shell', `pm clear \$\{APP_ID\}`\]/);
   assert.doesNotMatch(sitting, /console\.log\([^)]*serial/);
   // The stand-in reaches only the test emulator, and only the dry run makes one.
   const standin = readFileSync(new URL('../../scripts/android/checks/standin.ts', import.meta.url), 'utf8');
@@ -447,7 +447,8 @@ test('the stand-in can reach only the dc- test emulator, and only after the dry 
   // Its modules are a fixed list: none of them is a raw adb, the phone's install or the guard's phone.
   const standin = readFileSync(new URL('../../scripts/android/checks/standin.ts', import.meta.url), 'utf8');
   const from = [...standin.matchAll(/^import [^;]* from ['"]([^'"]+)['"];/gm)].map(m => m[1]).sort();
-  assert.deepEqual(from, ['../drive.ts', '../smoke.ts', './a.ts', './guard.ts', './p.ts', './screen.ts', 'node:buffer']);
+  // ../appId.ts is a leaf holding only the app's id: no adb, no device.
+  assert.deepEqual(from, ['../appId.ts', '../drive.ts', '../smoke.ts', './a.ts', './guard.ts', './p.ts', './screen.ts', 'node:buffer']);
   assert.match(standin, /^import \{ windowIsSecure \} from '\.\.\/smoke\.ts';$/m);
   assert.match(standin, /^import \{ frontOf \} from '\.\/guard\.ts';$/m);
   // Every adb call under it goes through the emulator lane; another serial is refused before adb runs.

@@ -1,7 +1,10 @@
 // The shell list the phone guard and the adb gate both read. Neither imports the other, so this file
-// stays the leaf they share.
+// stays the leaf they share (appId.ts is a leaf too).
 
-export const APP = 'app.dailycommit';
+import { APP_ID, TESTS_ID, focusPattern as idFocus, startCommand } from '../appId.ts';
+
+/** The app this run works with (the release app, or the tests app on a tests run). */
+export const APP = APP_ID;
 export const LONG_REMOTE = '/sdcard/Download/dc-3year.dcbak';
 /** One file, through MediaStore's own scan. The scanner broadcast is ignored on Android 13. */
 export const SCAN_LONG = `content call --uri content://media --method scan_file --arg ${LONG_REMOTE}`;
@@ -27,8 +30,8 @@ const ANYWHERE_KEYS = new Set(['KEYCODE_HOME', 'KEYCODE_WAKEUP', 'KEYCODE_SLEEP'
 // The keys the steps press inside the app. Any other key (the screenshot key, one that opens another app) is refused.
 const IN_APP_KEYS = new Set(['KEYCODE_ENTER', ...'0123456789'.split('').map(d => `KEYCODE_${d}`)]);
 
-/** The guard's list. Anything not on it is refused. */
-export function shellKind(command: string): ShellKind {
+/** The guard's list, for the app `id` (this run's app unless named). Anything not on it is refused. */
+export function shellKind(command: string, id: string = APP): ShellKind {
   const c = command.trim();
   const key = /^input keyevent ([A-Z0-9_]+)$/.exec(c)?.[1];
   if (key !== undefined) {
@@ -40,22 +43,27 @@ export function shellKind(command: string): ShellKind {
   if (/^input swipe \d+ \d+ \d+ \d+ \d+$/.test(c)) return 'in-app';
   // inputTextArg's output only: no spaces, and each of the shell's specials escaped, so nothing after it can run.
   if (/^input text (?:\\.|[^\s\\'"$&|;<>()[\]{}*?!~`^#])+$/.test(c)) return 'in-app';
-  if (c === `am start -n ${APP}/.MainActivity` || c === `am start -W -n ${APP}/.MainActivity`) return 'anywhere';
-  if (c === `am force-stop ${APP}`) return 'anywhere';
+  if (c === startCommand(id, false) || c === startCommand(id, true)) return 'anywhere';
+  if (c === `am force-stop ${id}`) return 'anywhere';
   if (c === 'wm dismiss-keyguard') return 'anywhere';
   if (c === 'setprop log.tag.DailyCommit VERBOSE' || c === 'setprop log.tag.DailyCommit ""') return 'anywhere';
   if (c === SCAN_LONG) return 'anywhere';
   if (c === 'wm size' || c === 'date +%s') return 'read';
   if (c === 'logcat -d -v threadtime -s DailyCommit:V') return 'read';
   if (c === 'getprop log.tag.DailyCommit') return 'read';
-  if (c === `pm path ${APP}`) return 'read';
+  if (c === `pm path ${id}`) return 'read';
   if (c === 'settings get secure default_input_method') return 'read';
   return 'refused';
 }
 
 // ─── the tablet's Tests user (D-36) ───
 // On the tablet everything runs in Android user 10, the Tests user. The commands that address a user
-// (or every user) when none is named go there only in a form that names user 10.
+// (or every user) when none is named go there only in a form that names user 10. Since Phase 2 the
+// tablet works only with the tests app: every tablet form below names TESTS_ID, never this run's APP,
+// so a tablet command naming the release app is refused even on a run that forgot the tests flag.
+
+/** The app the tablet may touch: the tests build, a separate app from the owner's. */
+export const TABLET_APP = TESTS_ID;
 
 export const TESTS_USER = 10;
 
@@ -104,10 +112,10 @@ export const TESTS_WAKE = "if dumpsys power 2>/dev/null | grep -m1 'mWakefulness
 export const TESTS_WAKEFULNESS = "dumpsys power 2>/dev/null | grep -m1 'mWakefulness='";
 /** The phone's user-addressing commands and their Tests-user forms (the wake key is the tablet's power key, guarded). */
 const TESTS_FORMS: ReadonlyMap<string, string> = new Map([
-  [`am start -n ${APP}/.MainActivity`, `am start --user ${TESTS_USER} -n ${APP}/.MainActivity`],
-  [`am start -W -n ${APP}/.MainActivity`, `am start --user ${TESTS_USER} -W -n ${APP}/.MainActivity`],
-  [`am force-stop ${APP}`, `am force-stop --user ${TESTS_USER} ${APP}`],
-  [`pm path ${APP}`, `pm path --user ${TESTS_USER} ${APP}`],
+  [startCommand(TABLET_APP, false), startCommand(TABLET_APP, false).replace('am start ', `am start --user ${TESTS_USER} `)],
+  [startCommand(TABLET_APP, true), startCommand(TABLET_APP, true).replace('am start ', `am start --user ${TESTS_USER} `)],
+  [`am force-stop ${TABLET_APP}`, `am force-stop --user ${TESTS_USER} ${TABLET_APP}`],
+  [`pm path ${TABLET_APP}`, `pm path --user ${TESTS_USER} ${TABLET_APP}`],
   ['settings get secure default_input_method', `settings --user ${TESTS_USER} get secure default_input_method`],
   ['input keyevent KEYCODE_WAKEUP', TESTS_WAKE],
   [SCAN_LONG, `content call --user ${TESTS_USER} --uri content://media --method scan_file --arg ${TESTS_LONG_REMOTE}`],
@@ -115,7 +123,7 @@ const TESTS_FORMS: ReadonlyMap<string, string> = new Map([
 const FROM_TESTS_FORM: ReadonlyMap<string, string> = new Map([...TESTS_FORMS].map(([base, form]) => [form, base]));
 
 /** Clears the Tests user's copy of the app's data only. On the tablet lane alone. */
-export const CLEAR_TESTS_DATA = `pm clear --user ${TESTS_USER} ${APP}`;
+export const CLEAR_TESTS_DATA = `pm clear --user ${TESTS_USER} ${TABLET_APP}`;
 
 /** The command as the tablet sends it: a user-addressing one in its Tests-user form, any other as it is. */
 export function forTestsUser(command: string): string {
@@ -128,10 +136,10 @@ const SCREEN_FILE = '/data/local/tmp/dc-screen.xml';
 /** The whole screen of the Tests user, read and removed in one call. On the tablet lane only. */
 export const TESTS_SCREEN_DUMP = `uiautomator dump ${SCREEN_FILE} >/dev/null && cat ${SCREEN_FILE}; rm -f ${SCREEN_FILE}`;
 /**
- * The log lines of Daily Commit's own process in the Tests user, by its pid (the owner's account has no copy of
- * the app while the tablet lane installs one, so the pid is the Tests user's). On the tablet lane only.
+ * The log lines of the tests app's own process, by its pid. Only the Tests user has the tests app, so the pid is
+ * the Tests user's. On the tablet lane only.
  */
-export const TESTS_APP_LOG = `logcat -d -v threadtime --pid=$(pidof -s ${APP})`;
+export const TESTS_APP_LOG = `logcat -d -v threadtime --pid=$(pidof -s ${TABLET_APP})`;
 /** Only the focused field's lines of the keyboard's state. On the tablet lane only. */
 export const TESTS_IME_READ = "dumpsys input_method | grep -E 'mCurEditorInfo|mCurAttribute|mInputEditorInfo|imeOptions'";
 
@@ -147,13 +155,14 @@ export function testsShellKind(command: string): ShellKind {
   if (c === TESTS_SCREEN_DUMP || c === TESTS_IME_READ || c === TESTS_WAKEFULNESS || c === TESTS_APP_LOG) return 'read';
   if (c === 'input keyevent KEYCODE_APP_SWITCH') return 'anywhere';
   const base = FROM_TESTS_FORM.get(c);
-  if (base !== undefined) return shellKind(base);
+  if (base !== undefined) return shellKind(base, TABLET_APP);
   if (TESTS_FORMS.has(c)) return 'refused';
-  const kind = shellKind(c);
+  // judged against the tests app: a bare command naming the release app is not on the list
+  const kind = shellKind(c, TABLET_APP);
   return kind === 'in-app' || kind === 'in-app-or-prompt' ? 'anywhere' : kind;
 }
 
-const FOCUS_APP = String.raw`[ {]app\.dailycommit/`;
+const FOCUS_APP = idFocus(APP);
 const FOCUS_PROMPT = 'BiometricPrompt|ConfirmDeviceCredential|ConfirmLock';
 
 function focusPattern(allowPrompt: boolean): string {

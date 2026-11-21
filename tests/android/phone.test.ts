@@ -101,11 +101,11 @@ test('D-36: a real device needs whose copy; the Tests user goes through the tabl
   assert.deepEqual(refused, { ok: false, why: NO_ACCOUNT });
   assert.ok(!none.calls.some(c => c[0] === 'adb' && c.includes('-s')), 'nothing was sent to the device');
 
-  const tests = fake({ [`adbTests -s ${PHONE} install -r`]: 'Success\n' });
+  const tests = fake({ 'apkanalyzer manifest application-id': 'app.dailycommit.tests', [`adbTests -s ${PHONE} install -r`]: 'Success\n' });
   const out = installOnPhone(tests.exec, { ...OPTS, account: 'tests' });
   assert.ok(out.ok);
   assert.deepEqual(tests.calls.filter(c => c[0] === 'adbTests'), [
-    ['adbTests', '-s', PHONE, 'shell', 'dumpsys package app.dailycommit'],
+    ['adbTests', '-s', PHONE, 'shell', 'dumpsys package app.dailycommit.tests'],
     ['adbTests', '-s', PHONE, 'install', '-r', '--user', '10', 'out/app.apk'],
   ]);
   assert.ok(!tests.calls.some(c => c[0] === 'adb' && c.includes('-s')), 'no Tests-user step goes through the install lane');
@@ -115,6 +115,19 @@ test('D-36: a real device needs whose copy; the Tests user goes through the tabl
   assert.ok(installOnPhone(emu.exec, { ...OPTS, serial: 'emulator-5556', account: undefined, secondCopy: false }).ok);
   assert.deepEqual(emu.calls.filter(c => c.includes('install')), [['adb', '-s', 'emulator-5556', 'install', '-r', '--user', '0', 'out/app.apk']]);
   assert.equal(installOnPhone(fake({ 'adb devices': 'List\nemulator-5556\tdevice\n' }).exec, { ...OPTS, serial: 'emulator-5556', account: 'tests' }).ok, false);
+});
+
+test('Phase 2: the Tests user gets only the tests build, and everyone else only the release app', () => {
+  const release = fake();
+  const toTests = installOnPhone(release.exec, { ...OPTS, account: 'tests' });
+  assert.equal(toTests.ok, false);
+  if (!toTests.ok) assert.match(toTests.why, /only the tests build/);
+  assert.ok(!release.calls.some(c => c.includes('install')), 'nothing was installed');
+  const testsApk = fake({ 'apkanalyzer manifest application-id': 'app.dailycommit.tests' });
+  const toOwner = installOnPhone(testsApk.exec, { ...OPTS, account: 'owner' });
+  assert.equal(toOwner.ok, false);
+  if (!toOwner.ok) assert.match(toOwner.why, /not Daily Commit/);
+  assert.ok(!testsApk.calls.some(c => c.includes('install')), 'nothing was installed');
 });
 
 test('D-36: the install\'s arguments: whose copy at most once, a serial at most once, nothing else', () => {

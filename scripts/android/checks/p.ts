@@ -2,6 +2,7 @@
 // the phone's own PIN, Android's file picker, the typing in another app, the diary words and the side key, and
 // what only the owner's eyes can answer. Every read goes through the guard (guard.ts), so only Daily Commit's
 // own words are ever seen, and only the plan's "Recorded" items are kept: numbers, yes/no, and the keyboard's name.
+import { APP_ID } from '../appId.ts';
 import { find, pause, type Emu, type UiNode } from '../drive.ts';
 import { codePad, enterDigits, focusDiaryPage, focusSecret, launch, pastLock, scrollTo, scrollUpTo, settingsRow } from './a.ts';
 import { NOT_IN_APP, NotInApp, Refused, SCAN_LONG, type Front } from './guard.ts';
@@ -484,7 +485,7 @@ function timingSwitch(ctx: PCtx): boolean {
   phone.shell('setprop log.tag.DailyCommit VERBOSE');
   const on = phone.shell('getprop log.tag.DailyCommit').out.trim() === 'VERBOSE';
   if (!on) return false;
-  phone.shell(`am force-stop app.dailycommit`);
+  phone.shell(`am force-stop ${APP_ID}`);
   pause(800);
   launch(phone, false);
   ctx.timingOn = true;

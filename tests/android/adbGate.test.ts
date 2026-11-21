@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { APP_ID } from '../../scripts/android/apk-check.ts';
-import { adbVerdict, EMULATOR_SERIAL, OWNER_HAS_APP, runAdb, type AdbSpawn, type Lane } from '../../scripts/android/adbGate.ts';
+import { RELEASE_ID, TESTS_ID, startCommand } from '../../scripts/android/appId.ts';
+import { adbVerdict, EMULATOR_SERIAL, TESTS_APK_NAME, runAdb, type AdbSpawn, type Lane } from '../../scripts/android/adbGate.ts';
 import { captureTo } from '../../scripts/android/checks/b.ts';
 import { DRY_RUN_SERIAL } from '../../scripts/android/checks/guard.ts';
 import {
@@ -19,6 +19,7 @@ const TAB = 'R52W000TAB';
 const EMU = EMULATOR_SERIAL;
 const BAK = '/data/data/app.dailycommit/files/backup/latest.dcbak';
 const APK = 'android/app/build/outputs/apk/release/app-release.apk';
+const TESTS_APK = `android/app/build/outputs/apk/release/${TESTS_APK_NAME}`;
 
 function on(serial: string, args: readonly string[]): readonly string[] {
   return ['-s', serial, ...args];
@@ -51,8 +52,10 @@ const ROWS: readonly Row[] = [
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'logcat -d -v threadtime -s DailyCommit:V']), ok: true },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'settings get secure default_input_method']), ok: true },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'am force-stop app.dailycommit']), ok: true },
-  { lane: 'phoneChecks', args: on(PHONE, ['shell', 'am start -n app.dailycommit/.MainActivity']), ok: true },
-  { lane: 'phoneChecks', args: on(PHONE, ['shell', 'am start -W -n app.dailycommit/.MainActivity']), ok: true },
+  { lane: 'phoneChecks', args: on(PHONE, ['shell', startCommand(RELEASE_ID, false)]), ok: true },
+  { lane: 'phoneChecks', args: on(PHONE, ['shell', startCommand(RELEASE_ID, true)]), ok: true },
+  // the relative form is gone: under the tests id it named a class that doesn't exist
+  { lane: 'phoneChecks', args: on(PHONE, ['shell', 'am start -n app.dailycommit/.MainActivity']), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'input keyevent KEYCODE_HOME']), ok: true },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'input keyevent KEYCODE_WAKEUP']), ok: true },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'input keyevent KEYCODE_SLEEP']), ok: true },
@@ -71,7 +74,7 @@ const ROWS: readonly Row[] = [
 
   // The install step: list, read the version, install -r.
   { lane: 'install', args: ['devices'], ok: true },
-  { lane: 'install', args: on(PHONE, ['shell', 'dumpsys', 'package', APP_ID]), ok: true },
+  { lane: 'install', args: on(PHONE, ['shell', 'dumpsys', 'package', RELEASE_ID]), ok: true },
   { lane: 'install', args: on(EMU, ['install', '-r', '--user', '0', APK]), ok: true },
   { lane: 'install', args: on(PHONE, ['install', '-r', '--user', '0', APK]), ok: true },
   // an install names its one user (D-36): a plain one reaches every user on the device
@@ -88,18 +91,18 @@ const ROWS: readonly Row[] = [
   { lane: 'emulator', args: on(EMU, ['shell', 'getprop', 'init.svc.bootanim']), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'rm', '-f', '/data/local/tmp/dc-fill', '/data/user/0/app.dailycommit/dc-fill']), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'sync']), ok: true },
-  { lane: 'emulator', args: on(EMU, ['shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`]), ok: true },
+  { lane: 'emulator', args: on(EMU, ['shell', 'am', 'start', '-W', '-n', `${RELEASE_ID}/app.dailycommit.MainActivity`]), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'uiautomator', 'dump', '/sdcard/dc-ui.xml']), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'cat', '/sdcard/dc-ui.xml']), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'dumpsys', 'window', 'windows']), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'dumpsys', 'notification', '--noredact']), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'dumpsys', 'alarm']), ok: true },
-  { lane: 'emulator', args: on(EMU, ['shell', 'pidof', APP_ID]), ok: true },
+  { lane: 'emulator', args: on(EMU, ['shell', 'pidof', RELEASE_ID]), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'id']), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'pm clear app.dailycommit']), ok: true },
-  { lane: 'emulator', args: on(EMU, ['shell', `bmgr backupnow ${APP_ID}`]), ok: true },
+  { lane: 'emulator', args: on(EMU, ['shell', `bmgr backupnow ${RELEASE_ID}`]), ok: true },
   { lane: 'emulator', args: on(EMU, ['shell', 'settings put global airplane_mode_on 0']), ok: true },
-  { lane: 'emulator', args: on(EMU, ['uninstall', APP_ID]), ok: true },
+  { lane: 'emulator', args: on(EMU, ['uninstall', RELEASE_ID]), ok: true },
   { lane: 'emulator', args: on(EMU, ['install', '-r', APK]), ok: true },
   { lane: 'emulator', args: on(EMU, ['logcat', '-d', '-s', 'DailyCommit:V', 'Capacitor:V', 'Capacitor/Console:V']), ok: true },
   { lane: 'emulator', args: on(EMU, ['logcat', '-d', '-b', 'all']), ok: true },
@@ -115,14 +118,24 @@ const ROWS: readonly Row[] = [
 
   // The tablet's Tests user (D-36): what the install and the sitting send there, in their user-10 forms.
   { lane: 'tablet', args: ['devices'], ok: true },
-  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser('pm path app.dailycommit')]), ok: true },
-  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser('am force-stop app.dailycommit')]), ok: true },
-  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser('am start -n app.dailycommit/.MainActivity')]), ok: true },
-  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser('am start -W -n app.dailycommit/.MainActivity')]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser(`pm path ${TESTS_ID}`)]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser(`am force-stop ${TESTS_ID}`)]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser(startCommand(TESTS_ID, false))]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser(startCommand(TESTS_ID, true))]), ok: true },
+  // Phase 2: the tablet touches only the tests app; the release app's id is refused in every form
+  { lane: 'tablet', args: on(TAB, ['shell', forTestsUser(`pm path ${RELEASE_ID}`)]), ok: false, why: /refused on the tablet/ },
+  { lane: 'tablet', args: on(TAB, ['shell', `pm path --user 10 ${RELEASE_ID}`]), ok: false, why: /refused on the tablet/ },
+  { lane: 'tablet', args: on(TAB, ['shell', `am force-stop --user 10 ${RELEASE_ID}`]), ok: false, why: /refused on the tablet/ },
+  { lane: 'tablet', args: on(TAB, ['shell', `am start --user 10 -n ${RELEASE_ID}/app.dailycommit.MainActivity`]), ok: false, why: /refused on the tablet/ },
+  { lane: 'tablet', args: on(TAB, ['shell', startCommand(RELEASE_ID, false)]), ok: false, why: /refused on the tablet/ },
+  { lane: 'tablet', args: on(TAB, ['shell', `pm clear --user 10 ${RELEASE_ID}`]), ok: false, why: /refused on the tablet/ },
+  { lane: 'tablet', args: on(TAB, ['shell', `dumpsys package ${RELEASE_ID}`]), ok: false, why: /refused on the tablet/ },
+  { lane: 'tablet', args: on(TAB, ['shell', 'logcat -d -v threadtime --pid=$(pidof -s app.dailycommit)']), ok: false, why: /refused on the tablet/ },
+  { lane: 'tablet', args: on(TAB, ['shell', 'am start --user 10 -n app.dailycommit.tests/.MainActivity']), ok: false, why: /refused on the tablet/ },
   { lane: 'tablet', args: on(TAB, ['shell', forTestsUser('settings get secure default_input_method')]), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', forTestsUser(SCAN_LONG)]), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', CLEAR_TESTS_DATA]), ok: true },
-  { lane: 'tablet', args: on(TAB, ['shell', `dumpsys package ${APP_ID}`]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['shell', `dumpsys package ${TESTS_ID}`]), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', 'logcat -d -v threadtime -s DailyCommit:V']), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', 'setprop log.tag.DailyCommit ""']), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', FOCUS_READ]), ok: true },
@@ -130,7 +143,10 @@ const ROWS: readonly Row[] = [
   { lane: 'tablet', args: on(TAB, ['shell', tap]), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', typed]), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', back]), ok: true },
-  { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '10', APK]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '10', TESTS_APK]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '10', `C:\\out\\${TESTS_APK_NAME}`]), ok: true },
+  { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '10', APK]), ok: false, why: /tests build/ },
+  { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '10', 'x-app-tests-release.apk']), ok: false, why: /tests build/ },
   { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', TESTS_LONG_TMP]), ok: true },
   { lane: 'tablet', args: on(TAB, ['shell', TESTS_LONG_INTO_DOWNLOADS]), ok: true },
   { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', TESTS_LONG_REMOTE]), ok: false, why: /shell's folder/ },
@@ -151,9 +167,9 @@ const ROWS: readonly Row[] = [
   { lane: 'tablet', args: on(TAB, ['shell', inTestsUser('cat /data/system/users/0.xml')]), ok: false },
   { lane: 'tablet', args: on(TAB, ['shell', 'input', 'tap', '200', '400']), ok: false, why: /one command/ },
   { lane: 'tablet', args: on(TAB, ['shell', onlyInFront('input tap 200 400', false)]), ok: true },
-  { lane: 'tablet', args: on(TAB, ['install', '-r', APK]), ok: false, why: /--user 10/ },
-  { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '0', APK]), ok: false, why: /--user 10/ },
-  { lane: 'tablet', args: on(TAB, ['install', '-r', '-d', '--user', '10', APK]), ok: false, why: /-d/ },
+  { lane: 'tablet', args: on(TAB, ['install', '-r', TESTS_APK]), ok: false, why: /--user 10/ },
+  { lane: 'tablet', args: on(TAB, ['install', '-r', '--user', '0', TESTS_APK]), ok: false, why: /--user 10/ },
+  { lane: 'tablet', args: on(TAB, ['install', '-r', '-d', '--user', '10', TESTS_APK]), ok: false, why: /-d/ },
   { lane: 'tablet', args: on(TAB, ['push', 'long.dcbak', LONG_REMOTE]), ok: false, why: /shell's folder/ },
   { lane: 'tablet', args: on(TAB, ['pull', TESTS_LONG_REMOTE, 'copy.dcbak']), ok: false },
   // the stand-in acts for the owner anywhere on the Tests user's screen, reads it whole, and takes screenshots there
@@ -176,22 +192,24 @@ const ROWS: readonly Row[] = [
   { lane: 'tablet', args: on(TAB, ['shell', 'dumpsys window windows']), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', TESTS_SCREEN_DUMP]), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'input keyevent KEYCODE_APP_SWITCH']), ok: false },
-  { lane: 'tablet', args: on(TAB, ['uninstall', APP_ID]), ok: false },
-  { lane: 'tablet', args: on(TAB, ['shell', `pm uninstall --user 10 ${APP_ID}`]), ok: false },
+  { lane: 'tablet', args: on(TAB, ['uninstall', RELEASE_ID]), ok: false },
+  { lane: 'tablet', args: on(TAB, ['uninstall', TESTS_ID]), ok: false },
+  { lane: 'tablet', args: on(TAB, ['shell', `pm uninstall --user 10 ${TESTS_ID}`]), ok: false },
+  { lane: 'tablet', args: on(TAB, ['shell', `pm uninstall --user 10 ${RELEASE_ID}`]), ok: false },
   { lane: 'tablet', args: on(EMU, ['shell', FOCUS_READ]), ok: false, why: /not the tablet/ },
   { lane: 'tablet', args: on(TAB, ['-s', TAB, 'shell', FOCUS_READ]), ok: false, why: /second -s/ },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', CLEAR_TESTS_DATA]), ok: false },
 
   // Review attacks. Each one is refused on the lane that must not run it.
   { lane: 'install', args: on(PHONE, ['pull', BAK, 'copy.dcbak']), ok: false },
-  { lane: 'install', args: on(PHONE, ['backup', '-f', 'copy.ab', APP_ID]), ok: false },
+  { lane: 'install', args: on(PHONE, ['backup', '-f', 'copy.ab', RELEASE_ID]), ok: false },
   { lane: 'install', args: on(PHONE, ['restore', 'copy.ab']), ok: false },
   { lane: 'install', args: on(PHONE, ['bugreport', 'out.zip']), ok: false },
   { lane: 'install', args: on(PHONE, ['exec-out', 'cat', BAK]), ok: false },
   { lane: 'install', args: on(PHONE, ['shell', 'cat', BAK]), ok: false },
   { lane: 'install', args: on(PHONE, ['shell', `cat ${BAK}`]), ok: false },
-  { lane: 'install', args: on(PHONE, ['uninstall', APP_ID]), ok: false },
-  { lane: 'install', args: on(PHONE, ['run-as', APP_ID]), ok: false },
+  { lane: 'install', args: on(PHONE, ['uninstall', RELEASE_ID]), ok: false },
+  { lane: 'install', args: on(PHONE, ['run-as', RELEASE_ID]), ok: false },
   { lane: 'install', args: on(PHONE, ['logcat', '-d']), ok: false },
   { lane: 'install', args: on(PHONE, ['install', '-r', '-d', APK]), ok: false, why: /-d/ },
   { lane: 'install', args: on(PHONE, ['install', '-d', APK]), ok: false, why: /-d/ },
@@ -203,7 +221,7 @@ const ROWS: readonly Row[] = [
   { lane: 'install', args: on(PHONE, ['-s', EMU, 'pull', BAK, 'copy.dcbak']), ok: false, why: /second -s/ },
 
   { lane: 'phoneChecks', args: on(PHONE, ['pull', BAK, 'copy.dcbak']), ok: false },
-  { lane: 'phoneChecks', args: on(PHONE, ['backup', '-f', 'copy.ab', APP_ID]), ok: false },
+  { lane: 'phoneChecks', args: on(PHONE, ['backup', '-f', 'copy.ab', RELEASE_ID]), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['restore', 'copy.ab']), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['bugreport']), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['exec-out', 'cat', BAK]), ok: false },
@@ -212,8 +230,8 @@ const ROWS: readonly Row[] = [
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'input', 'tap', '200', '400']), ok: false, why: /one command/ },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', 'input tap 200 400']), ok: false, why: /that shell command is refused/ },
   { lane: 'phoneChecks', args: on(PHONE, ['shell', wrappedCat]), ok: false, why: /that shell command is refused/ },
-  { lane: 'phoneChecks', args: on(PHONE, ['uninstall', APP_ID]), ok: false },
-  { lane: 'phoneChecks', args: on(PHONE, ['run-as', APP_ID]), ok: false },
+  { lane: 'phoneChecks', args: on(PHONE, ['uninstall', RELEASE_ID]), ok: false },
+  { lane: 'phoneChecks', args: on(PHONE, ['run-as', RELEASE_ID]), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['logcat', '-d', '-s', 'DailyCommit:V']), ok: false },
   { lane: 'phoneChecks', args: on(PHONE, ['push', 'long.dcbak', BAK]), ok: false, why: /invented file/ },
   { lane: 'phoneChecks', args: on(PHONE, ['push', 'long.dcbak', '/sdcard/Download/other.dcbak']), ok: false, why: /invented file/ },
@@ -231,7 +249,7 @@ const ROWS: readonly Row[] = [
 ];
 
 test('the serial constants are the test emulator', () => {
-  assert.equal(APP, APP_ID);
+  assert.equal(APP, RELEASE_ID);
   assert.equal(EMULATOR_SERIAL, 'emulator-5556');
   assert.equal(SERIAL, EMULATOR_SERIAL);
   assert.equal(TEST_SERIAL, EMULATOR_SERIAL);
@@ -318,21 +336,20 @@ test('proc.ts refuses adb at run time, so the gate is the only way to a device',
 
 // ─── the tablet lane at run time (D-36), against a stand-in tablet ───
 
-/** A stand-in tablet: who is on screen, whether user 0 has the app; it records every argument list it is sent. */
-function standInTablet(o: { readonly user: string; readonly ownerList?: string; readonly ownerStatus?: number; readonly marker?: boolean }) {
+/** A stand-in tablet: who is on screen; it records every argument list it is sent. */
+function standInTablet(o: { readonly user: string; readonly marker?: boolean }) {
   const sent: string[][] = [];
   const spawn: AdbSpawn = (_file, args) => {
     sent.push([...args]);
     const last = args[args.length - 1] ?? '';
     if (last === 'am get-current-user') return { status: 0, stdout: `${o.user}\n` };
-    if (last.startsWith('pm list packages --user 0')) return { status: o.ownerStatus ?? 0, stdout: o.ownerList ?? '' };
     if (args.includes('install')) return { status: 0, stdout: 'Success\n' };
     return { status: 0, stdout: o.marker === true ? `${NOT_TESTS_USER}\n` : 'ok\n' };
   };
   return { spawn, sent };
 }
 
-const installTests = on(TAB, ['install', '-r', '--user', '10', APK]);
+const installTests = on(TAB, ['install', '-r', '--user', '10', TESTS_APK]);
 
 test('D-36: on the tablet every shell command is sent inside the check that the Tests user is on screen', () => {
   const t = standInTablet({ user: '10' });
@@ -354,19 +371,11 @@ test('D-36: an install or a push with the owner on screen starts nothing beyond 
   }
 });
 
-test('D-36: a Tests-user install is refused while the app is in the owner account; only that one yes/no is read from it', () => {
-  const t = standInTablet({ user: '10', ownerList: 'package:app.dailycommit\n' });
-  assert.throws(() => runAdb('tablet', installTests, { encoding: 'utf8', spawn: t.spawn }), (e: unknown) => e instanceof Refused && e.message.includes(OWNER_HAS_APP));
-  assert.equal(t.sent.some(a => a.includes('install')), false);
-  assert.deepEqual(t.sent[1], on(TAB, ['shell', `pm list packages --user 0 ${APP_ID}`]));
-  // an owner check that fails is not a yes
-  const failed = standInTablet({ user: '10', ownerStatus: 1 });
-  assert.throws(() => runAdb('tablet', installTests, { encoding: 'utf8', spawn: failed.spawn }), Refused);
-  assert.equal(failed.sent.some(a => a.includes('install')), false);
-  // another package whose name only starts the same is not ours
-  const other = standInTablet({ user: '10', ownerList: 'package:app.dailycommit.tests\n' });
-  assert.equal(runAdb('tablet', installTests, { encoding: 'utf8', spawn: other.spawn }).status, 0);
-  assert.deepEqual(other.sent[2], installTests);
+test('Phase 2: a Tests-user install reads only who is on screen, then installs; nothing of the owner account is read', () => {
+  const t = standInTablet({ user: '10' });
+  assert.equal(runAdb('tablet', installTests, { encoding: 'utf8', spawn: t.spawn }).status, 0);
+  assert.deepEqual(t.sent, [on(TAB, ['shell', 'am get-current-user']), installTests]);
+  assert.equal(t.sent.some(a => a.some(x => x.includes('--user 0') || x.includes('pm list packages'))), false);
 });
 
 test('D-36: the tablet lane captures nothing to a file', () => {

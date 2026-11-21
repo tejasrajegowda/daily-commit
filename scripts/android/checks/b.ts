@@ -1,5 +1,6 @@
 // Task 8b. Android's backup on the test phone, read by the files it stored, then a wiped
 // install and the two ways back in. adb stays on emulator-5556.
+import { APP_ID } from '../appId.ts';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { runAdb } from '../adbGate.ts';
@@ -13,7 +14,7 @@ import { ourNotifications } from './dumps.ts';
 import type { Seed } from './seed.ts';
 import { tarEntries, type TarEntry } from './tar.ts';
 
-const APP = 'app.dailycommit';
+const APP = APP_ID;
 const LOCAL = 'com.android.localtransport/.LocalTransport';
 const STABLE_BACKUP = join('.local', 'android', '8b-backup.tar');
 const TRANSPORT_FILE = join('.local', 'android', '8b-transport.json');

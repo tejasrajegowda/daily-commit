@@ -8,6 +8,7 @@
 import { nodesOf, type DeviceIo, type UiNode } from '../drive.ts';
 import { devicesOf } from '../phone.ts';
 import { EMULATOR_SERIAL, runAdb } from '../adbGate.ts';
+import { focusRegExp } from '../appId.ts';
 import {
   APP, DUMP_COMMAND, FOCUS_READ, LONG_REMOTE, NOT_FRONT, TESTS_LONG_INTO_DOWNLOADS, TESTS_LONG_TMP,
   Refused, forTestsUser, onlyInFront, shellKind,
@@ -35,7 +36,7 @@ export type Front = 'app' | 'prompt' | 'other';
 /** Who has the focus, from the `mCurrentFocus` line alone. A prompt is Android's own credential or fingerprint window. */
 export function frontOf(focusLines: string): Front {
   const line = focusLines.split(/\r?\n/).find(l => l.includes('mCurrentFocus')) ?? '';
-  if (/[\s{]app\.dailycommit\//.test(line)) return 'app';
+  if (focusRegExp(APP).test(line)) return 'app';
   if (/BiometricPrompt|ConfirmDeviceCredential|ConfirmLock/.test(line)) return 'prompt';
   return 'other';
 }

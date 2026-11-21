@@ -1,5 +1,6 @@
 // Task 8a and 8b on the test phone. One process holds the emulator for the whole run.
 // adb is only ever aimed at emulator-5556.
+import { APP_ID, dataDir } from '../appId.ts';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
 import { join } from 'node:path';
@@ -105,7 +106,7 @@ function resetPhone(): void {
   sh('dumpsys battery reset');
   sh('settings put global always_finish_activities 0');
   sh('locksettings clear --old 1111');
-  sh('rm -f /data/local/tmp/dc-fill /data/user/0/app.dailycommit/dc-fill');
+  sh(`rm -f /data/local/tmp/dc-fill ${dataDir(APP_ID)}/dc-fill`);
 }
 
 function saveSeed(made: Seed, cues: { shown: number; private: number }, seededAtSec: number): void {

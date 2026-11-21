@@ -6,12 +6,13 @@
 // The emulator-only key lives in .local/android/ (ignored) and is never used for the phone.
 // Nothing from the screen is printed except whether the title matched.
 // node scripts/android/smoke.ts → one PASS/FAIL line per check, exit 1 on any FAIL; a copy in .local/android/.
+import { ACTIVITY, APP_ID } from './appId.ts';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { freemem } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { APP_ID, newestReleaseApk, SIGNED_APK, UNSIGNED_APK } from './apk-check.ts';
+import { newestReleaseApk, SIGNED_APK, UNSIGNED_APK } from './apk-check.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 import { runSync, runSyncCommand } from './proc.ts';
 import { find, nodesOf } from './drive.ts';
@@ -236,7 +237,7 @@ async function main(args: readonly string[]): Promise<number> {
     }
 
     // 4: open it
-    check('started', adb(['-s', SERIAL, 'shell', 'am', 'start', '-W', '-n', `${APP_ID}/.MainActivity`], 120_000).status === 0);
+    check('started', adb(['-s', SERIAL, 'shell', 'am', 'start', '-W', '-n', `${APP_ID}/${ACTIVITY}`], 120_000).status === 0);
 
     // 5: the first screen, read from the accessibility tree (removed at once) until its title is drawn;
     // a software-drawn emulator takes 10-20 s to draw it, so a fixed wait is not enough

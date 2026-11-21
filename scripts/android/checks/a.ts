@@ -1,5 +1,6 @@
 // Task 8a's checks. Each one throws on a failure of ours. A platform behaviour throws Platform,
 // which the run records and does not treat as a bug to patch around.
+import { APP_ID, dataDir, startCommand } from '../appId.ts';
 import { Buffer } from 'node:buffer';
 import { writeFileSync } from 'node:fs';
 import { isDcTestPhone, windowIsSecure } from '../smoke.ts';
@@ -32,7 +33,7 @@ export interface RunCtx {
   reseed(phone: Emu): Promise<void>;
 }
 
-const APP = 'app.dailycommit';
+const APP = APP_ID;
 const PIN = '1111';
 
 function rx(label: string, whole: boolean): RegExp {
@@ -182,7 +183,7 @@ function hitNode(n: UiNode, label: string | RegExp): boolean {
 }
 
 export function launch(phone: Emu, wait: boolean): void {
-  const cmd = wait ? `am start -W -n ${APP}/.MainActivity` : `am start -n ${APP}/.MainActivity`;
+  const cmd = startCommand(APP, wait);
   let last = 'no output';
   for (let i = 0; i < 4; i++) {
     const r = wait ? adbOnTestPhone(['shell', cmd], 120_000) : phone.shell(cmd);
@@ -265,7 +266,7 @@ export function appInFront(phone: Emu): boolean {
   const out = phone.shell('dumpsys window').out;
   const focus = out.split('\n').find(line => line.includes('mCurrentFocus')) ?? '';
   // A finished settings screen leaves our activity in the back stack. Only the focused window counts.
-  if (focus.includes('mCurrentFocus=null') || !focus.includes('/')) return out.includes(`${APP}/.MainActivity`);
+  if (focus.includes('mCurrentFocus=null') || !focus.includes('/')) return out.includes(`${APP}/`);
   return focus.includes(`${APP}/`);
 }
 
@@ -939,7 +940,7 @@ function a9(phone: Emu, ctx: RunCtx): void {
   const flag = phone.shell('settings get global always_finish_activities').out.trim();
   const acts = phone.shell('dumpsys activity activities').out;
   ctx.save('a9-activities.txt', acts);
-  const ours = acts.split(/\r?\n/).filter(l => l.includes('app.dailycommit') || l.includes('alwaysFinish')).slice(0, 6);
+  const ours = acts.split(/\r?\n/).filter(l => l.includes(APP) || l.includes('alwaysFinish')).slice(0, 6);
   ctx.note(`A9 always_finish_activities=${flag}; ${ours.map(l => l.trim()).join(' || ') || 'no activity line'}`);
   phone.key('KEYCODE_BACK');
   cameBackLocked(phone, ctx, 'a9-back.xml');
@@ -1036,10 +1037,10 @@ function screenAfterWake(phone: Emu): 'open' | 'locked' | 'blank' {
 function a11(phone: Emu, ctx: RunCtx): void {
   // The earlier fill of /data/local/tmp landed on the shared emulated volume and took the UI down. Free it first.
   assertDcPhone('remove the fill file');
-  phone.shell('rm -f /data/local/tmp/dc-fill /data/user/0/app.dailycommit/dc-fill');
+  phone.shell(`rm -f /data/local/tmp/dc-fill ${dataDir(APP)}/dc-fill`);
   phone.shell('sync');
   const all = phone.shell('df').out;
-  const app = phone.shell('df /data/user/0/app.dailycommit').out;
+  const app = phone.shell(`df ${dataDir(APP)}`).out;
   ctx.save('a11-df-all.txt', all);
   ctx.save('a11-df-app.txt', app);
   if (/emulated|pass_through|\/obb/.test(app)) {
@@ -1050,16 +1051,16 @@ function a11(phone: Emu, ctx: RunCtx): void {
   ctx.save('a11-df.txt', before);
   const fillKb = availKb(before) - 2 * 1024;
   if (fillKb < 1024) throw new Error('not enough free space to leave 2 MB');
-  const fall = adbOnTestPhone(['shell', `fallocate -l ${fillKb * 1024} /data/user/0/app.dailycommit/dc-fill`], 120_000);
-  let left = availKb(phone.shell('df /data/user/0/app.dailycommit').out);
+  const fall = adbOnTestPhone(['shell', `fallocate -l ${fillKb * 1024} ${dataDir(APP)}/dc-fill`], 120_000);
+  let left = availKb(phone.shell(`df ${dataDir(APP)}`).out);
   ctx.save('a11-fallocate.txt', fall.out);
   ctx.note(`A11 fallocate code ${fall.code}, ${left} KB left`);
   // This image still reports about 16 MB free after the write is refused. No space left is full enough.
   const refused = (out: string): boolean => /No space left/i.test(out);
   if (!refused(fall.out) && (fall.code !== 0 || left > 8 * 1024)) {
-    phone.shell('rm -f /data/user/0/app.dailycommit/dc-fill');
-    const wrote = adbOnTestPhone(['shell', `dd if=/dev/zero of=/data/user/0/app.dailycommit/dc-fill bs=1048576 count=${Math.floor(fillKb / 1024)}`], 10 * 60_000);
-    left = availKb(phone.shell('df /data/user/0/app.dailycommit').out);
+    phone.shell(`rm -f ${dataDir(APP)}/dc-fill`);
+    const wrote = adbOnTestPhone(['shell', `dd if=/dev/zero of=${dataDir(APP)}/dc-fill bs=1048576 count=${Math.floor(fillKb / 1024)}`], 10 * 60_000);
+    left = availKb(phone.shell(`df ${dataDir(APP)}`).out);
     ctx.save('a11-dd.txt', wrote.out);
     ctx.note(`A11 dd code ${wrote.code}, ${left} KB left`);
     if (!refused(wrote.out) && left > 8 * 1024) throw new Error(`the fill did not fill the disk (${left} KB left)`);
@@ -1074,7 +1075,7 @@ function a11(phone: Emu, ctx: RunCtx): void {
   const full = phone.waitFor(has('Not saved yet'), 15_000) || phone.waitFor(has("That couldn't be saved"), 8_000) || phone.waitFor(has('The phone is out of space'), 5_000);
   ctx.save('a11-full.xml', phone.lastXml());
   if (!full) throw new Error('a full phone did not say the write was not saved');
-  phone.shell('rm -f /data/user/0/app.dailycommit/dc-fill');
+  phone.shell(`rm -f ${dataDir(APP)}/dc-fill`);
   pause(500);
   if (!showing(phone, words('Did it'))) {
     phone.tap(words('Walk'), 15_000);
@@ -1524,10 +1525,10 @@ async function a16(phone: Emu, ctx: RunCtx): Promise<void> {
     pause(1000);
   } while (Date.now() < alarmUntil);
   ctx.save('a16-alarm.txt', alarms);
-  const exact = phone.shell('cmd appops get app.dailycommit SCHEDULE_EXACT_ALARM').out;
+  const exact = phone.shell(`cmd appops get ${APP} SCHEDULE_EXACT_ALARM`).out;
   ctx.save('a16-appops.txt', exact);
   const reason = /exactAllowReason=(\S+)/.exec(alarms)?.[1] ?? 'absent';
-  const perm = phone.shell('dumpsys package app.dailycommit').out;
+  const perm = phone.shell(`dumpsys package ${APP}`).out;
   const granted = /POST_NOTIFICATIONS: granted=\w+/.exec(perm)?.[0] ?? 'POST_NOTIFICATIONS line absent';
   ctx.note(`A16 alarms ${ours.length}, exact ${ours.filter(a => a.exact).length}, exactAllowReason ${reason}, ${granted}`);
   if (ours.length === 0) throw new Error(`no alarm was scheduled (${granted})`);

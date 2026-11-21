@@ -17,6 +17,7 @@
     "screens:gate": "npm run screens:build && node scripts/screens/gate.mjs",
     "screens:compare": "npm run screens:build && node scripts/screens/compare.mjs",
     "android:build": "node scripts/android/build.ts release",
+    "android:build-tests": "node scripts/android/build.ts release-tests",
     "android:test": "node scripts/android/build.ts test",
     "android:check": "node scripts/android/apk-check.ts",
     "android:emulator": "node scripts/android/emulator.ts",

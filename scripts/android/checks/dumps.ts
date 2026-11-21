@@ -1,7 +1,8 @@
+import { APP_ID } from '../appId.ts';
 // Readers for Android's own dumps. The fixtures in tests/android/checks.test.ts are the contract;
 // a real dump may add a shape the fixture already allows, and must not make a fixture fail.
 
-const PKG = 'app.dailycommit';
+const PKG = APP_ID;
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

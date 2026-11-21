@@ -9,7 +9,8 @@
 // node scripts/android/phone.ts --serial emulator-5556   the test emulator (user 0)
 import { existsSync, readFileSync } from 'node:fs';
 import { runAdb } from './adbGate.ts';
-import { APP_ID, SIGNED_APK } from './apk-check.ts';
+import { SIGNED_APK, TESTS_APK } from './apk-check.ts';
+import { RELEASE_ID, TESTS_ID } from './appId.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 import { runSyncCommand } from './proc.ts';
 import { RELEASE_CERT_SHA256, SECOND_COPY, versionCodeOf, signersOf } from './signing.ts';
@@ -42,6 +43,7 @@ export const USB_TIP = 'When you\'re done for today, switch USB debugging off: S
 const NO_KEY = 'No release key is pinned yet (Task 7, Step 0). Nothing was installed.';
 const NOT_RELEASE = 'This APK is not a release build. Only release builds go onto a phone.';
 const NOT_OURS = 'This APK is not Daily Commit. Nothing was installed.';
+const NOT_TESTS_BUILD = 'The Tests user gets only the tests build (app.dailycommit.tests, npm run android:build-tests). Nothing was installed.';
 const NOT_SIGNED = 'This APK is not signed with the release key. Nothing was installed: Android would refuse it over the installed app, and the only way past that loses the record.';
 const NO_SECOND = 'The release key has no second copy yet (R-2). Nothing goes onto the phone until it has one.';
 const UNREADABLE = 'This APK could not be read. Nothing was installed.';
@@ -114,7 +116,10 @@ export function installOnPhone(exec: Exec, o: PhoneOptions): PhoneOutcome {
 
   const id = exec('apkanalyzer', ['manifest', 'application-id', o.apk]);
   if (id.code !== 0) return { ok: false, why: UNREADABLE };
-  if (id.out.trim() !== APP_ID) return { ok: false, why: NOT_OURS };
+  // the Tests user gets only the tests app, a separate app from the owner's; everyone else only the release app
+  const tests = o.account === 'tests';
+  if (id.out.trim() !== (tests ? TESTS_ID : RELEASE_ID)) return { ok: false, why: tests ? NOT_TESTS_BUILD : NOT_OURS };
+  const appId = tests ? TESTS_ID : RELEASE_ID;
 
   const certs = exec('apksigner', ['verify', '--print-certs', o.apk]);
   const signers = signersOf(certs.out);
@@ -138,11 +143,10 @@ export function installOnPhone(exec: Exec, o: PhoneOptions): PhoneOutcome {
   if (emulator && o.account === 'tests') return { ok: false, why: 'The emulator has no Tests user. Nothing was installed.' };
   if (!emulator && o.account === undefined) return { ok: false, why: NO_ACCOUNT };
   if (!emulator && !o.secondCopy) return { ok: false, why: NO_SECOND };
-  const tests = o.account === 'tests';
   const adb: Tool = tests ? 'adbTests' : 'adb';
 
   // The tablet lane takes a shell command as one string.
-  const dumped = exec(adb, tests ? ['-s', serial, 'shell', `dumpsys package ${APP_ID}`] : ['-s', serial, 'shell', 'dumpsys', 'package', APP_ID]);
+  const dumped = exec(adb, tests ? ['-s', serial, 'shell', `dumpsys package ${appId}`] : ['-s', serial, 'shell', 'dumpsys', 'package', appId]);
   if (dumped.code !== 0) return { ok: false, why: 'The version on the phone could not be read. Nothing was installed.' };
   const onPhone = installedVersionCode(dumped.out);
   if (onPhone !== undefined && onPhone > apkCode) {
@@ -212,7 +216,7 @@ if (import.meta.main) {
     process.exitCode = 2;
   } else {
     const out = installOnPhone(phoneExec(), {
-      apk: SIGNED_APK,
+      apk: parsed.account === 'tests' ? TESTS_APK : SIGNED_APK,
       ...parsed,
       version: packageVersion(),
       pinnedCert: RELEASE_CERT_SHA256,

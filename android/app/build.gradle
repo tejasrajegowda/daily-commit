@@ -27,12 +27,18 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode vMajor * 10000 + vMinor * 100 + vPatch
         versionName appVersion
+        manifestPlaceholders = [appLabel: "Daily Commit"]
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
+    }
+    // -PdcTests builds the tests app: a separate app id and label, so a test install never touches the release app.
+    if (project.hasProperty('dcTests')) {
+        defaultConfig.applicationIdSuffix ".tests"
+        defaultConfig.manifestPlaceholders = [appLabel: "Daily Commit (tests)"]
     }
     lint {
         checkReleaseBuilds = false
@@ -54,6 +60,11 @@ android {
             if (!signing.isEmpty()) signingConfig signingConfigs.release
         }
     }
+}
+
+// The tests app's APK gets its own file name (app-tests-release.apk), so it never overwrites app-release.apk.
+if (project.hasProperty('dcTests')) {
+    base { archivesName = "app-tests" }
 }
 
 repositories {
