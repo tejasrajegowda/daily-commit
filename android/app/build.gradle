@@ -2,6 +2,12 @@ import groovy.json.JsonSlurper
 
 apply plugin: 'com.android.application'
 
+// -PdcTests builds the tests app in its own build folder (build-tests/), so neither build can clear or
+// overwrite the other's output: Gradle empties a build's APK folder of files it didn't make this time.
+if (project.hasProperty('dcTests')) {
+    layout.buildDirectory = file('build-tests')
+}
+
 // The version comes from package.json: versionName as it is, versionCode major*10000 + minor*100 +
 // patch (scripts/android/signing.ts, versionCodeOf; a test keeps them the same).
 def appVersion = new JsonSlurper().parse(rootProject.file('../package.json')).version as String
@@ -62,7 +68,7 @@ android {
     }
 }
 
-// The tests app's APK gets its own file name (app-tests-release.apk), so it never overwrites app-release.apk.
+// The tests app's APK also gets its own file name (app-tests-release.apk), so the two can't be mistaken.
 if (project.hasProperty('dcTests')) {
     base { archivesName = "app-tests" }
 }

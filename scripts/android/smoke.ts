@@ -12,7 +12,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFile
 import { freemem } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { newestReleaseApk, SIGNED_APK, UNSIGNED_APK } from './apk-check.ts';
+import { newestReleaseApk, SIGNED_APK, TESTS_APK, UNSIGNED_APK } from './apk-check.ts';
 import { childEnv, toolchain, toolPaths } from './env.ts';
 import { runSync, runSyncCommand } from './proc.ts';
 import { find, nodesOf } from './drive.ts';
@@ -193,7 +193,8 @@ async function main(args: readonly string[]): Promise<number> {
   }
   // The phone gets this same APK once it is signed with the release key. Until then the newest
   // file is the unsigned build, and the emulator-only key is used for it, as before.
-  const releaseSigned = releaseApk === SIGNED_APK;
+  // the tests build (DC_TESTS_BUILD=1) is always signed with the release key by Gradle
+  const releaseSigned = releaseApk === SIGNED_APK || releaseApk === TESTS_APK;
 
   if (!releaseSigned) {
     // 1–2: the emulator-only key, then an aligned, signed copy
@@ -223,7 +224,7 @@ async function main(args: readonly string[]): Promise<number> {
       // install is refused. Remove that copy once, here only, and install the release APK again.
       // phone.ts itself never uninstalls.
       const version = (JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string }).version;
-      const opts = { apk: SIGNED_APK, serial: SERIAL, version, pinnedCert: RELEASE_CERT_SHA256, secondCopy: existsSync(SECOND_COPY) };
+      const opts = { apk: releaseApk, expectId: APP_ID, serial: SERIAL, version, pinnedCert: RELEASE_CERT_SHA256, secondCopy: existsSync(SECOND_COPY) };
       let out = installOnPhone(phoneExec(), opts);
       if (!out.ok && /different key/.test(out.why)) {
         adb(['-s', SERIAL, 'uninstall', APP_ID]);

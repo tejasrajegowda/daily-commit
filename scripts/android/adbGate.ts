@@ -82,13 +82,18 @@ function installFor(user: number, rest: readonly string[]): boolean {
   return rest.length === 4 && rest[0] === '-r' && rest[1] === '--user' && rest[2] === String(user) && isApk(rest[3]);
 }
 
-function installOk(verb: string, rest: readonly string[]): AdbVerdict {
+/** The tests app goes onto the test emulator only: never onto a real device's user 0. */
+const isTestsApk = (apk: string | undefined): boolean => (apk ?? '').split(/[\\/]/).pop() === TESTS_APK_NAME;
+
+function installOk(serial: string, verb: string, rest: readonly string[]): AdbVerdict {
+  const emulator = serial === EMULATOR_SERIAL;
   if (verb === 'install') {
     if (rest.includes('-d')) return { ok: false, why: 'install never passes -d' };
+    if (!emulator && isTestsApk(rest[3])) return { ok: false, why: 'the tests build goes only onto the test emulator or the tablet\'s Tests user' };
     if (installFor(0, rest)) return { ok: true };
     return { ok: false, why: 'install may only install -r --user 0 the apk' };
   }
-  if (verb === 'shell' && rest.length === 3 && rest[0] === 'dumpsys' && rest[1] === 'package' && rest[2] === RELEASE_ID) {
+  if (verb === 'shell' && rest.length === 3 && rest[0] === 'dumpsys' && rest[1] === 'package' && (rest[2] === RELEASE_ID || (emulator && rest[2] === TESTS_ID))) {
     return { ok: true };
   }
   return { ok: false, why: 'install may only install -r or read the version' };
@@ -116,7 +121,7 @@ function tabletOk(serial: string, verb: string, rest: readonly string[]): AdbVer
   if (serial.startsWith('emulator-')) return { ok: false, why: 'an emulator is not the tablet' };
   if (verb === 'install') {
     if (rest.includes('-d')) return { ok: false, why: 'install never passes -d' };
-    if (installFor(TESTS_USER, rest) && (rest[3] ?? '').split(/[\\/]/).pop() === TESTS_APK_NAME) return { ok: true };
+    if (installFor(TESTS_USER, rest) && isTestsApk(rest[3])) return { ok: true };
     return { ok: false, why: `the tablet may only install -r --user 10 the tests build (${TESTS_APK_NAME})` };
   }
   if (verb === 'push') {
@@ -147,7 +152,7 @@ export function adbVerdict(lane: Lane, args: readonly string[]): AdbVerdict {
   if (head.kind === 'refuse') return { ok: false, why: head.why };
   if (head.kind === 'second-s') return { ok: false, why: lane === 'emulator' ? EMULATOR_ONLY : 'a second -s is refused' };
   if (lane === 'emulator') return head.serial === EMULATOR_SERIAL ? { ok: true } : { ok: false, why: EMULATOR_ONLY };
-  if (lane === 'install') return installOk(head.verb, head.rest);
+  if (lane === 'install') return installOk(head.serial, head.verb, head.rest);
   if (lane === 'tablet') return tabletOk(head.serial, head.verb, head.rest);
   return phoneOk(head.verb, head.rest);
 }

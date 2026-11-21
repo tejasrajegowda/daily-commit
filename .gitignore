@@ -20,6 +20,7 @@ dist-harness/
 screens-out/
 coverage/
 android/app/build/
+android/app/build-tests/
 android/build/
 android/.gradle/
 android/local.properties

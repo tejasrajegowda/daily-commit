@@ -128,6 +128,12 @@ test('Phase 2: the Tests user gets only the tests build, and everyone else only 
   assert.equal(toOwner.ok, false);
   if (!toOwner.ok) assert.match(toOwner.why, /not Daily Commit/);
   assert.ok(!testsApk.calls.some(c => c.includes('install')), 'nothing was installed');
+  // the emulator run of the tests build names its id; a real device never takes a named build
+  const emuTests = fake({ 'apkanalyzer manifest application-id': 'app.dailycommit.tests', 'adb devices': 'List\nemulator-5556\tdevice\n', 'adb -s emulator-5556 shell dumpsys package app.dailycommit.tests': '' });
+  assert.ok(installOnPhone(emuTests.exec, { ...OPTS, serial: 'emulator-5556', account: undefined, secondCopy: false, expectId: 'app.dailycommit.tests' }).ok);
+  const realTests = fake({ 'apkanalyzer manifest application-id': 'app.dailycommit.tests' });
+  assert.equal(installOnPhone(realTests.exec, { ...OPTS, expectId: 'app.dailycommit.tests' }).ok, false);
+  assert.ok(!realTests.calls.some(c => c.includes('install')), 'nothing was installed on the real device');
 });
 
 test('D-36: the install\'s arguments: whose copy at most once, a serial at most once, nothing else', () => {

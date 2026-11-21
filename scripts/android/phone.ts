@@ -30,6 +30,8 @@ export interface PhoneOptions {
   readonly version: string;          // package.json's
   readonly pinnedCert: string;       // RELEASE_CERT_SHA256
   readonly secondCopy: boolean;      // SECOND_COPY exists
+  /** The emulator run of a given build (smoke.ts) names its id; otherwise it follows whose copy. */
+  readonly expectId?: string;
 }
 
 export const NO_ACCOUNT = 'Say whose copy: --tests (the tablet\'s Tests user) or --owner (user 0: the phone, or the tablet\'s owner account, only on its owner\'s word). A plain install would reach every user on the device. Nothing was installed.';
@@ -118,8 +120,8 @@ export function installOnPhone(exec: Exec, o: PhoneOptions): PhoneOutcome {
   if (id.code !== 0) return { ok: false, why: UNREADABLE };
   // the Tests user gets only the tests app, a separate app from the owner's; everyone else only the release app
   const tests = o.account === 'tests';
-  if (id.out.trim() !== (tests ? TESTS_ID : RELEASE_ID)) return { ok: false, why: tests ? NOT_TESTS_BUILD : NOT_OURS };
-  const appId = tests ? TESTS_ID : RELEASE_ID;
+  const appId = tests ? TESTS_ID : o.expectId ?? RELEASE_ID;
+  if (id.out.trim() !== appId) return { ok: false, why: tests ? NOT_TESTS_BUILD : NOT_OURS };
 
   const certs = exec('apksigner', ['verify', '--print-certs', o.apk]);
   const signers = signersOf(certs.out);
@@ -140,6 +142,7 @@ export function installOnPhone(exec: Exec, o: PhoneOptions): PhoneOutcome {
   const serial = choice.serial;
 
   const emulator = serial.startsWith('emulator-');
+  if (!emulator && o.expectId !== undefined) return { ok: false, why: 'A named build goes only onto the test emulator. Nothing was installed.' };
   if (emulator && o.account === 'tests') return { ok: false, why: 'The emulator has no Tests user. Nothing was installed.' };
   if (!emulator && o.account === undefined) return { ok: false, why: NO_ACCOUNT };
   if (!emulator && !o.secondCopy) return { ok: false, why: NO_SECOND };

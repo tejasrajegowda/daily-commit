@@ -14,9 +14,9 @@ import { ACTIVITY, APP_ID, RELEASE_ID, TESTS_ID } from './appId.ts';
 
 export const UNSIGNED_APK = 'android/app/build/outputs/apk/release/app-release-unsigned.apk';
 export const SIGNED_APK = 'android/app/build/outputs/apk/release/app-release.apk';
-/** The tests app's APK (`build.ts release-tests`, Gradle -PdcTests); its own name, so it never overwrites the release APK. */
-export const TESTS_APK = 'android/app/build/outputs/apk/release/app-tests-release.apk';
-const TESTS_UNSIGNED_APK = 'android/app/build/outputs/apk/release/app-tests-release-unsigned.apk';
+/** The tests app's APK (`build.ts release-tests`, Gradle -PdcTests), in its own build folder, so neither build clears the other's. */
+export const TESTS_APK = 'android/app/build-tests/outputs/apk/release/app-tests-release.apk';
+const TESTS_UNSIGNED_APK = 'android/app/build-tests/outputs/apk/release/app-tests-release-unsigned.apk';
 
 /** The APK just built for an app id: the newer of its signed and unsigned file. A stale one is never chosen. */
 export function newestReleaseApk(id: string = APP_ID): string | undefined {

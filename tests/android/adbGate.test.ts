@@ -19,7 +19,7 @@ const TAB = 'R52W000TAB';
 const EMU = EMULATOR_SERIAL;
 const BAK = '/data/data/app.dailycommit/files/backup/latest.dcbak';
 const APK = 'android/app/build/outputs/apk/release/app-release.apk';
-const TESTS_APK = `android/app/build/outputs/apk/release/${TESTS_APK_NAME}`;
+const TESTS_APK = `android/app/build-tests/outputs/apk/release/${TESTS_APK_NAME}`;
 
 function on(serial: string, args: readonly string[]): readonly string[] {
   return ['-s', serial, ...args];
@@ -77,6 +77,11 @@ const ROWS: readonly Row[] = [
   { lane: 'install', args: on(PHONE, ['shell', 'dumpsys', 'package', RELEASE_ID]), ok: true },
   { lane: 'install', args: on(EMU, ['install', '-r', '--user', '0', APK]), ok: true },
   { lane: 'install', args: on(PHONE, ['install', '-r', '--user', '0', APK]), ok: true },
+  // the tests build: onto the test emulator only, never a real device's user 0
+  { lane: 'install', args: on(EMU, ['install', '-r', '--user', '0', TESTS_APK]), ok: true },
+  { lane: 'install', args: on(EMU, ['shell', 'dumpsys', 'package', TESTS_ID]), ok: true },
+  { lane: 'install', args: on(PHONE, ['install', '-r', '--user', '0', TESTS_APK]), ok: false, why: /only onto the test emulator/ },
+  { lane: 'install', args: on(PHONE, ['shell', 'dumpsys', 'package', TESTS_ID]), ok: false },
   // an install names its one user (D-36): a plain one reaches every user on the device
   { lane: 'install', args: on(PHONE, ['install', '-r', APK]), ok: false, why: /--user 0/ },
   { lane: 'install', args: on(PHONE, ['install', '-r', '--user', '10', APK]), ok: false },
