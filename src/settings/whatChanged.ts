@@ -7,6 +7,7 @@ export interface Change {
 }
 
 export const CHANGES: readonly Change[] = [
+  { version: '0.1.1', line: 'Opening the app and your reminders are now noted in your locked record, never shown.' },
   { version: '0.1.0', line: 'The first version on this phone.' },
 ];
 

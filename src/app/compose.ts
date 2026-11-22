@@ -16,7 +16,7 @@ import { recordStore } from './store.ts';
 // anything opens it, and a raw copy is kept before an upgrade. The screen harness assembles the
 // same pieces around its invented record.
 
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.1.1';
 
 /** Where a start stopped: reaching the phone, opening storage, or anything after. */
 export type StartStep = 'device' | 'storage' | 'app';

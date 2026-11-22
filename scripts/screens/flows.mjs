@@ -1,9 +1,14 @@
+import { readFileSync } from 'node:fs';
 // The click-through test of the real app, in the screen harness. Invented data only.
 // node scripts/screens/flows.mjs (after npm run screens:build) → PASS/FAIL lists, exit 1 on any FAIL.
 import { harness } from './page.mjs';
 import { runTask5aReview } from './review5a.mjs';
 import { SIZES } from './states.mjs';
 import { screenProblems } from './rules.mjs';
+
+// The running version and every shipped one, newest first, as package.json and What changed hold them.
+const VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+const SHIPPED = ['0.1.1', '0.1.0'];
 
 const h = await harness({ rules: true });
 const errors = [];
@@ -1350,12 +1355,12 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('Settings, laptop: Display is open first', (await q.locator('main[data-cat="display"]').count()) === 1);
   await q.click('[data-a="setcat"][data-x="about"]');
   check('Settings, laptop: a category switches the panel', await shows(q, 'main[data-cat="about"]') && (await q.locator('main[data-cat="about"]').textContent()).includes("What the lock can't do"));
-  check('Settings, About: what changed, newest first, from the running version down', (await q.locator('main[data-cat="about"] [data-a="changes"] .nm').allInnerTexts()).join(' ') === '0.1.0'
+  check('Settings, About: what changed, newest first, from the running version down', (await q.locator('main[data-cat="about"] [data-a="changes"] .nm').allInnerTexts()).join(' ') === SHIPPED.join(' ')
     && (await q.locator('main[data-cat="about"] [data-a="changes"]').innerText()).includes('The first version on this phone.'));
   // the phone stacks every group, so About's list is on the page without choosing it
   await h.open(p, 's=settings&t=13:00');
   await shows(p, '.settings');
-  check('Settings, phone: what changed shows the running version and its line', (await p.locator('[data-a="changes"] .nm').allInnerTexts()).join(' ') === '0.1.0'
+  check('Settings, phone: what changed shows the running version and its line', (await p.locator('[data-a="changes"] .nm').allInnerTexts())[0] === VERSION
     && (await p.locator('[data-a="changes"]').innerText()).includes('The first version on this phone.'));
   await h.open(p, 's=settings&t=13:00&ver=9.9.9');
   await shows(p, '.settings');
@@ -1369,7 +1374,7 @@ function contrastOnBlackThroughVeil(cssColor, veiled) {
   check('a record from a newer version shows the four lines and no button', tooOld.includes('This app is older than your record')
     && tooOld.includes('Nothing was opened or changed.')
     && tooOld.includes("Uninstalling isn't needed")
-    && tooOld.includes('This phone has version 0.1.0.')
+    && tooOld.includes(`This phone has version ${VERSION}.`)
     && (await p.locator('[data-a="too-old"] button').count()) === 0);
 
   await h.open(p, 's=settings&v=privacy&nl=1');

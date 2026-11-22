@@ -1,7 +1,7 @@
 {
   "name": "daily-commit",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A private, local-first habit tracker, day planner and diary.",
   "type": "module",
   "scripts": {
