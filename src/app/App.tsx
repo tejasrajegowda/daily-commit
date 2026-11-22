@@ -18,6 +18,7 @@ import { Week } from '../reviews/Week.tsx';
 import { LookBack } from '../look-back/LookBack.tsx';
 import { Today } from '../today/Today.tsx';
 import { Frame, type Section } from '../ui/Shell.tsx';
+import { logShown, startUsage } from './usage.ts';
 import { AppContext, BackContext, HandOffContext, HeldContext, LeaveContext, NavContext, startReminders, takeHandOff, type AppDeps, type DeviceMode, type HandOffNoteKind, type Nav, type ScreenId } from './context.ts';
 import { backLayers, backStep } from './back.ts';
 import { screenOf, type LockState } from './lockMachine.ts';
@@ -140,7 +141,8 @@ export function App({ deps, initial }: { readonly deps: AppDeps; readonly initia
     void displayOf(deps).then(applyDisplay, () => {});   // this device's contrast and dimming, before unlock
   }, [deps]);
 
-  useEffect(() => { const r = startReminders(deps, () => setNav({ screen: 'reminders', variant: 'ask' })); return r.stop; }, [deps]);
+  useEffect(() => { const r = startReminders(deps, () => setNav({ screen: 'reminders', variant: 'ask' }), handed => logShown(deps, handed)); return r.stop; }, [deps]);
+  useEffect(() => startUsage(deps).stop, [deps]);   // usage events (D-26): never shown, never counted on screen
 
   // A harness state, and a restore, can already be open on the first paint. Production starts locked.
   useEffect(() => {

@@ -413,3 +413,17 @@ export async function runBaseline(core: RecordCore, batch: number = BASELINE_BAT
   await db.device.put({ key: LOG_BASELINE, value: 'done' });
   return written;
 }
+
+/**
+ * Usage events as log lines (D-26, U6b Task 9): each sealed under `r` with a random id (a time-ordered id would
+ * carry the moment in plain sight) and no plain time or ref. Only ops/usage.ts writes them, in a quiet write.
+ */
+export async function eventRows(cipher: RowCipher, events: readonly object[], stamp: Stamp): Promise<Put[]> {
+  const puts: Put[] = [];
+  for (const event of events) {
+    const id = crypto.randomUUID();
+    const r = await sealLine(cipher, id, 'r', { v: CHANGE_LINE_VERSION, kind: 'event', changed_at: stamp.updated_at, device: stamp.updated_by, event });
+    puts.push({ table: 'changes', row: { id, r } });
+  }
+  return puts;
+}

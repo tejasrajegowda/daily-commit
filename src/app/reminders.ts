@@ -72,11 +72,14 @@ export interface Reminders {
 /**
  * Hands the schedule to the phone at every store revision while the record is open. `offer` is
  * called once ever, the first time there is something to hand over and Android hasn't been asked.
+ * `beforeHandOver` runs first each time, with the list last handed over in this run (usage.ts logs the
+ * reminders shown from it); it can never stop or fail a hand-over.
  */
-export function startReminders(deps: AppDeps, offer: () => void): Reminders {
+export function startReminders(deps: AppDeps, offer: () => void, beforeHandOver?: (handed: readonly Alarm[] | undefined) => Promise<void>): Reminders {
   const port = deps.device.reminders;
   if (!port) return { stop: () => {}, idle: async () => {} };
   let last: string | undefined;
+  let handed: readonly Alarm[] | undefined;
   let running: Promise<void> | undefined;
   let again = false;
 
@@ -87,10 +90,12 @@ export function startReminders(deps: AppDeps, offer: () => void): Reminders {
       if (!s) return;                                          // locked: what was handed over stays scheduled
       const now = deps.core.now();
       const alarms = alarmsFor(s.model, todayOf(now, s.lastWriteMs, dayRule(s)), now);
+      if (beforeHandOver) await beforeHandOver(handed).catch(() => {});
       const key = JSON.stringify(alarms);
       if (key === last) continue;
       const done = await port.replace(alarms);
       last = done === 'scheduled' ? key : undefined;           // not allowed: tried again at the next change
+      handed = done === 'scheduled' ? alarms : [];             // not allowed: nothing reaches Android
       if (done === 'not-allowed' && !(await readFlag(deps.core.db, 'notif_asked')) && !(await readFlag(deps.core.db, 'notif_offered'))) {
         await writeFlag(deps.core.db, 'notif_offered');
         offer();

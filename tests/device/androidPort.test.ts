@@ -57,6 +57,8 @@ function fakeBridges(o: { readonly allowed?: boolean; readonly exact?: string } 
     cancel: async c => { notifyCalls.push(`cancel ${c.notifications.map(n => n.id).join()}`); },
     checkExactNotificationSetting: async () => { notifyCalls.push('checkExact'); return { exact_alarm: o.exact ?? 'granted' }; },
     schedule: async s => { notifyCalls.push('schedule'); scheduled.push(...s.notifications); return {}; },
+    getDeliveredNotifications: async () => ({ notifications: [] }),
+    addListener: async () => ({ remove: async () => {} }),
   };
   const bridges: Bridges = { vault, shell, app, notify, afterPaint: then => { painted = then; }, persist: async () => true };
   return { bridges, calls, listeners, files, paint: () => painted?.(), notifyCalls, scheduled };

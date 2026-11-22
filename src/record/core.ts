@@ -26,6 +26,18 @@ export interface Session {
   changed: boolean;
 }
 
+/**
+ * The one device value a quiet write may set beside its log lines: how far the reminders shown are already
+ * logged (Task 9). It travels in the same transaction as the lines, so a reminder is logged once, never twice.
+ */
+export const EVENTS_LOGGED_TO = 'events_logged_to';
+
+/** What a quiet write may put: a log line, or the one device value above. */
+function quietPut(p: Put): boolean {
+  if (p.table === 'changes') return true;
+  return p.table === 'device' && (p.row as { key?: unknown }).key === EVENTS_LOGGED_TO;
+}
+
 /** The stamps every row a write touches will carry. */
 export interface Stamp {
   readonly updated_at: number;
@@ -198,7 +210,7 @@ export function openRecord(deps: RecordDeps): RecordCore {
       const plan = await spec.prepare(s, stamp);
       if ('kind' in plan) return plan;
       // a quiet write moves no stamp, so a change to the record in one would never reach a backup
-      if (spec.quiet && plan.puts.some(p => p.table !== 'changes')) throw new Error('a quiet write only adds lines to the log');
+      if (spec.quiet && plan.puts.some(p => !quietPut(p))) throw new Error('a quiet write only adds lines to the log');
       if (plan.puts.length === 0) return saved(plan.value);   // nothing to store: nothing changes, not even the last-write stamp
       const outcome = await commit(spec.tables, plan.puts, plan.check, { cipher: s.cipher, stamp, wipes: plan.wipes });
       if (outcome === 'quota-full') return quotaFull();

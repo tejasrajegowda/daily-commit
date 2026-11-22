@@ -49,6 +49,8 @@ export interface NotifyBridge {
   cancel(o: { notifications: { id: number }[] }): Promise<void>;
   checkExactNotificationSetting(): Promise<{ readonly exact_alarm: string }>;
   schedule(o: { notifications: NotificationSpec[] }): Promise<unknown>;
+  getDeliveredNotifications(): Promise<{ readonly notifications: readonly { readonly id: number }[] }>;
+  addListener(event: 'localNotificationActionPerformed', cb: (action: { readonly notification: { readonly id: number } }) => void): Promise<PluginListenerHandle>;
 }
 
 /** What one scheduled notification carries; nothing else is ever set. */
@@ -162,6 +164,9 @@ export function androidPortWith(b: Bridges): DevicePort {
         });
         return 'scheduled';
       },
+      // Task 9: the ids still in the tray, and taps on the app's notifications (the plugin keeps a cold-start tap until a listener is added).
+      delivered: async () => (await b.notify.getDeliveredNotifications()).notifications.map(n => n.id),
+      onTapped: cb => stopOn(b.notify.addListener('localNotificationActionPerformed', a => cb(a.notification.id))),
     },
   };
 }

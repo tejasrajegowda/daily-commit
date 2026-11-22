@@ -67,6 +67,10 @@ export interface ReminderPort {
   ask(): Promise<boolean>;
   /** cancels everything handed over before, then schedules these; 'not-allowed' when Android doesn't allow notifications */
   replace(alarms: readonly Alarm[]): Promise<'scheduled' | 'not-allowed'>;
+  /** the ids of this app's notifications still in Android's tray (Task 9's "shown"); absent where unknown */
+  delivered?(): Promise<readonly number[]>;
+  /** calls back with the alarm id each time one of the app's notifications is tapped; returns the way to stop */
+  onTapped?(cb: (id: number) => void): () => void;
 }
 
 /** The phone, or the browser standing in for it. */
