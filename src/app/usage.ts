@@ -2,9 +2,9 @@ import { dayRule } from '../record/ops/common.ts';
 import { readLoggedTo, writeUsage, type UsageEvent } from '../record/ops/usage.ts';
 import { rulesInput } from '../record/read.ts';
 import type { Model } from '../record/model.ts';
-import { todayOf } from '../record/time.ts';
+import { appDay } from '../record/time.ts';
 import { cueScheduleAhead } from '../rules/cues.ts';
-import { fromUtcMs } from '../rules/dates.ts';
+import { addDays, fromUtcMs } from '../rules/dates.ts';
 import type { Alarm, AppDeps } from './context.ts';
 import { alarmAt, alarmId } from './reminders.ts';
 
@@ -60,7 +60,8 @@ export async function logShown(deps: AppDeps, handed: readonly Alarm[] | undefin
   const to = Math.min(now, from + SHOWN_WINDOW_MS);
   const due = handed !== undefined
     ? handed.filter(a => a.atMs > from && a.atMs <= to)
-    : scheduledBetween(s.model, todayOf(from, s.lastWriteMs, dayRule(s)), from, to);
+    // the logged point's own app day (todayOf would jump ahead to the day of the last save), one day earlier to be safe
+    : scheduledBetween(s.model, addDays(appDay(from, dayRule(s)), -1), from, to);
   if (due.length === 0) { await writeUsage(deps.core, [], now); return; }
   let tray: ReadonlySet<number> | undefined;
   try { tray = port.delivered ? new Set(await port.delivered()) : undefined; } catch { tray = undefined; }

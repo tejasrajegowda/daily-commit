@@ -10,6 +10,7 @@ import { openLine, type ChangeLine } from '../../src/record/changes.ts';
 import type { RecordCore } from '../../src/record/core.ts';
 import { saveCue } from '../../src/record/ops/cues.ts';
 import { createHabit } from '../../src/record/ops/habits.ts';
+import { saveEntry } from '../../src/record/ops/words.ts';
 import { EVENTS_LOGGED_TO, readLoggedTo, writeUsage } from '../../src/record/ops/usage.ts';
 import { testDeps } from './deps.ts';
 import { PASSPHRASE, realRecord } from './realRecord.ts';
@@ -166,6 +167,20 @@ test('"shown" comes from what was handed over: a reminder switched off after it 
   await deps.store.run(c => saveCue(c, { id: 'c-10', habitId: 'walk', kind: 'cue', text: 'Walk', times: { at: [600] }, enabled: false, private: false }));
   await rem.idle();
   assert.deepEqual((await events(r.core)).map(e => (e.line.event as { due: number }).due), [at('2026-01-05T10:00:00Z')]);
+  rem.stop();
+});
+
+test('"shown" after a restart starts at the logged point\'s own day, even when the record was saved on a later day', async () => {
+  const r = await withReminder();
+  await writeUsage(r.core, [], r.clock.now());                       // logged up to 09:00 on the 5th
+  r.clock.set('2026-01-06T09:30:00Z');
+  assert.equal((await saveEntry(r.core, { id: 'e-1', body: 'CANARY page' })).kind, 'Saved');   // a save on the 6th that moves no reminder
+  r.clock.set('2026-01-06T12:00:00Z');
+  const deps = onPhone(testDeps(r.core).deps, fakePhone().port);
+  const rem = startReminders(deps, () => {}, handed => logShown(deps, handed));   // a new run: nothing in memory
+  await rem.idle();
+  const dues = (await events(r.core)).map(e => (e.line.event as { due: number }).due).sort();
+  assert.deepEqual(dues, [at('2026-01-05T10:00:00Z'), at('2026-01-06T10:00:00Z')]);
   rem.stop();
 });
 
